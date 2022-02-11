@@ -24,9 +24,24 @@ extern "C" {
 #define MSH3_API
 #endif
 
+typedef void* MSH3_HANDLE;
+
+MSH3_HANDLE
+MSH3_API
+MsH3Open(
+    void
+    );
+
+void
+MSH3_API
+MsH3Close(
+    MSH3_HANDLE* MsH3
+    );
+
 void
 MSH3_API
 MsH3Get(
+    MSH3_HANDLE* MsH3,
     const char* ServerName,
     const char* Path
     );
@@ -36,4 +51,3 @@ MsH3Get(
 #endif
 
 #endif // _MSH3_
-
