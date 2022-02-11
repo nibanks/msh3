@@ -1,0 +1,6 @@
+[submodule "msquic"]
+	path = msquic
+	url = https://github.com/microsoft/msquic
+[submodule "ls-qpack"]
+	path = ls-qpack
+	url = https://github.com/litespeedtech/ls-qpack
