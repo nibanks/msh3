@@ -13,6 +13,7 @@
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #if defined(__cplusplus)
 extern "C" {
@@ -24,9 +25,7 @@ extern "C" {
 #define MSH3_API
 #endif
 
-typedef void* MSH3_HANDLE;
-
-MSH3_HANDLE
+bool
 MSH3_API
 MsH3Open(
     void
@@ -35,15 +34,15 @@ MsH3Open(
 void
 MSH3_API
 MsH3Close(
-    MSH3_HANDLE* MsH3
+    void
     );
 
 void
 MSH3_API
 MsH3Get(
-    MSH3_HANDLE* MsH3,
     const char* ServerName,
-    const char* Path
+    const char* Path,
+    bool Unsecure
     );
 
 #if defined(__cplusplus)

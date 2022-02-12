@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 project(msh3)
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.16)
 
 set(QUIC_TLS "openssl")
 set(QUIC_BUILD_TOOLS OFF CACHE BOOL "Don't use the tools")
