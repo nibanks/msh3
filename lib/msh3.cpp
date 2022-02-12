@@ -5,51 +5,10 @@
 
 --*/
 
-#include <msquic.hpp>
+#include "msh3.hpp"
 #include "../msh3.h" // TODO - Fix include path so relative path isn't necessary
 
 const MsQuicApi* MsQuic;
-
-struct MsH3Connection : public MsQuicConnection {
-
-    MsH3Connection(const MsQuicRegistration& Registration)
-        : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
-    { }
-
-    static
-    QUIC_STATUS
-    s_MsQuicCallback(
-        _In_ MsQuicConnection* /* Connection */,
-        _In_opt_ void* Context,
-        _Inout_ QUIC_CONNECTION_EVENT* Event
-        )
-    {
-        return ((MsH3Connection*)Context)->MsQuicCallback(Event);
-    }
-
-    QUIC_STATUS
-    MsQuicCallback(
-        _Inout_ QUIC_CONNECTION_EVENT* Event
-        )
-    {
-        switch (Event->Type) {
-        case QUIC_CONNECTION_EVENT_CONNECTED:
-            printf("Connected\n");
-            break;
-        case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
-            printf("New Peer Stream Flags=%u\n", Event->PEER_STREAM_STARTED.Flags);
-            //NewPeerStream(H3, Event->PEER_STREAM_STARTED.Stream, Event->PEER_STREAM_STARTED.Flags);
-            break;
-        case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
-            printf("Connection shutdown complete\n");
-            //H3->Shutdown.Set();
-            break;
-        default:
-            break;
-        }
-        return QUIC_STATUS_SUCCESS;
-    }
-};
 
 extern "C"
 bool
@@ -79,7 +38,7 @@ MsH3Close(
 }
 
 extern "C"
-void
+bool
 MSH3_API
 MsH3Get(
     const char* ServerName,
@@ -88,7 +47,7 @@ MsH3Get(
     )
 {
     MsQuicRegistration Reg("h3");
-    if (QUIC_FAILED(Reg.GetInitStatus())) return;
+    if (QUIC_FAILED(Reg.GetInitStatus())) return false;
 
     MsQuicAlpn Alpns("h3", "h3-29");
     MsQuicSettings Settings;
@@ -102,11 +61,47 @@ MsH3Get(
             QUIC_CREDENTIAL_FLAG_CLIENT;
     MsQuicCredentialConfig Creds(Flags);
     MsQuicConfiguration Config(Reg, Alpns, Settings, Creds);
-    if (QUIC_FAILED(Config.GetInitStatus())) return;
+    if (QUIC_FAILED(Config.GetInitStatus())) return false;
 
     MsH3Connection H3(Reg);
-    if (QUIC_FAILED(H3.GetInitStatus())) return;
+    if (QUIC_FAILED(H3.GetInitStatus())) return false;
 
     //if (ServerIp) ASSERT_SUCCESS(H3.SetRemoteAddr(ServerAddress));
-    if (QUIC_FAILED(H3.Start(Config, ServerName, 443))) return;
+    if (QUIC_FAILED(H3.Start(Config, ServerName, 443))) return false;
+
+    const H3Settings SettingsH3[] = {
+        { H3SettingQPackMaxTableCapacity, 4096 },
+        { H3SettingQPackBlockedStreamsSize, 100 },
+    };
+    uint8_t RawSettingsBuffer[64];
+    QUIC_BUFFER SettingsBuffer;
+    SettingsBuffer.Buffer = RawSettingsBuffer;
+    SettingsBuffer.Buffer[0] = H3_STREAM_TYPE_CONTROL;
+    SettingsBuffer.Length = 1;
+    if (!H3WriteSettingsFrame(SettingsH3, ARRAYSIZE(SettingsH3), &SettingsBuffer.Length, sizeof(RawSettingsBuffer), RawSettingsBuffer)) {
+        return false;
+    }
+    MsH3UniDirStream Control(H3, H3StreamTypeControl);
+    if (QUIC_FAILED(Control.GetInitStatus())) return false;
+    if (QUIC_FAILED(Control.Send(&SettingsBuffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START))) return false;
+
+    MsH3UniDirStream Encoder(H3, H3StreamTypeEncoder);
+    if (QUIC_FAILED(Encoder.GetInitStatus())) return false;
+    uint8_t EncoderStreamType = H3_STREAM_TYPE_ENCODER;
+    QUIC_BUFFER EncoderStreamTypeBuffer = {sizeof(EncoderStreamType), &EncoderStreamType};
+    if (QUIC_FAILED(Encoder.Send(&EncoderStreamTypeBuffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START))) return false;
+
+    MsH3UniDirStream Decoder(H3, H3StreamTypeDecoder);
+    if (QUIC_FAILED(Decoder.GetInitStatus())) return false;
+    uint8_t DecoderStreamType = H3_STREAM_TYPE_DECODER;
+    QUIC_BUFFER DecoderStreamTypeBuffer = {sizeof(DecoderStreamType), &DecoderStreamType};
+    if (QUIC_FAILED(Decoder.Send(&DecoderStreamTypeBuffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START))) return false;
+
+    printf("waiting...\n");
+
+    sleep(10);
+
+    if (!Path) return false;
+
+    return true;
 }

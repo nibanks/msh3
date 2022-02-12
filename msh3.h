@@ -37,7 +37,7 @@ MsH3Close(
     void
     );
 
-void
+bool
 MSH3_API
 MsH3Get(
     const char* ServerName,
