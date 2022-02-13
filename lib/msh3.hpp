@@ -168,22 +168,31 @@ H3WriteSettingsFrame(
     return true;
 }
 
-void MsH3NewPeerUniDirStream(_In_ struct MsH3Connection* H3, _In_ const HQUIC QuicSream);
+struct MsH3UniDirStream;
 
 struct MsH3Connection : public MsQuicConnection {
 
     struct lsqpack_enc QPack;
 
-    MsH3Connection(const MsQuicRegistration& Registration)
-        : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
-    {
-        lsqpack_enc_preinit(&QPack, stderr);
-    }
+    MsH3UniDirStream* LocalControl {nullptr};
+    MsH3UniDirStream* LocalEncoder {nullptr};
+    MsH3UniDirStream* LocalDecoder {nullptr};
 
-    ~MsH3Connection()
-    {
-        lsqpack_enc_cleanup(&QPack);
-    }
+    MsH3UniDirStream* PeerControl {nullptr};
+    MsH3UniDirStream* PeerEncoder {nullptr};
+    MsH3UniDirStream* PeerDecoder {nullptr};
+
+    uint8_t RawSettingsBuffer[64];
+    QUIC_BUFFER SettingsBuffer;
+
+    uint8_t EncoderStreamType {H3_STREAM_TYPE_ENCODER};
+    QUIC_BUFFER EncoderStreamTypeBuffer = {sizeof(EncoderStreamType), &EncoderStreamType};
+
+    uint8_t DecoderStreamType {H3_STREAM_TYPE_DECODER};
+    QUIC_BUFFER DecoderStreamTypeBuffer = {sizeof(DecoderStreamType), &DecoderStreamType};
+
+    MsH3Connection(const MsQuicRegistration& Registration);
+    ~MsH3Connection();
 
     static
     QUIC_STATUS
@@ -199,29 +208,9 @@ struct MsH3Connection : public MsQuicConnection {
     QUIC_STATUS
     MsQuicCallback(
         _Inout_ QUIC_CONNECTION_EVENT* Event
-        )
-    {
-        switch (Event->Type) {
-        case QUIC_CONNECTION_EVENT_CONNECTED:
-            printf("Connected\n");
-            break;
-        case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
-            printf("New Peer Stream Flags=%u\n", Event->PEER_STREAM_STARTED.Flags);
-            if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
-                MsH3NewPeerUniDirStream(this, Event->PEER_STREAM_STARTED.Stream);
-            } else {
-                MsQuic->StreamClose(Event->PEER_STREAM_STARTED.Stream);
-            }
-            break;
-        case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
-            printf("Connection shutdown complete\n");
-            //H3->Shutdown.Set();
-            break;
-        default:
-            break;
-        }
-        return QUIC_STATUS_SUCCESS;
-    }
+        );
+
+    void CreateLocalStreams();
 };
 
 enum H3StreamType {
@@ -236,13 +225,8 @@ struct MsH3UniDirStream : public MsQuicStream {
     MsH3Connection& H3;
     H3StreamType Type;
 
-    MsH3UniDirStream(MsH3Connection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT)
-        : MsQuicStream(Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
-    { }
-
-    MsH3UniDirStream(MsH3Connection& Connection, const HQUIC StreamHandle)
-        : MsQuicStream(StreamHandle, CleanUpAutoDelete, s_MsQuicCallback, this), H3(Connection), Type(H3StreamTypeUnknown)
-    { }
+    MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
+    MsH3UniDirStream(MsH3Connection* Connection, const HQUIC StreamHandle);
 
     static
     QUIC_STATUS
@@ -268,121 +252,20 @@ struct MsH3UniDirStream : public MsQuicStream {
     QUIC_STATUS
     ControlStreamCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
-        )
-    {
-        switch (Event->Type) {
-        case QUIC_STREAM_EVENT_RECEIVE:
-            printf("Control receive\n");
-            break;
-        case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-            printf("Control peer send abort\n");
-            break;
-        case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-            printf("Control peer recv abort\n");
-            break;
-        case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-            printf("Control shutdown complete\n");
-            break;
-        default:
-            break;
-        }
-        return QUIC_STATUS_SUCCESS;
-    }
+        );
 
     QUIC_STATUS
     EncoderStreamCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
-        )
-    {
-        switch (Event->Type) {
-        case QUIC_STREAM_EVENT_RECEIVE:
-            printf("Encoder receive\n");
-            break;
-        case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-            printf("Encoder peer send abort\n");
-            break;
-        case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-            printf("Encoder peer recv abort\n");
-            break;
-        case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-            printf("Encoder shutdown complete\n");
-            break;
-        default:
-            break;
-        }
-        return QUIC_STATUS_SUCCESS;
-    }
+        );
 
     QUIC_STATUS
     DecoderStreamCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
-        )
-    {
-        switch (Event->Type) {
-        case QUIC_STREAM_EVENT_RECEIVE:
-            printf("Decoder receive\n");
-            break;
-        case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-            printf("Decoder peer send abort\n");
-            break;
-        case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-            printf("Decoder peer recv abort\n");
-            break;
-        case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-            printf("Decoder shutdown complete\n");
-            break;
-        default:
-            break;
-        }
-        return QUIC_STATUS_SUCCESS;
-    }
+        );
 
     QUIC_STATUS
     UnknownStreamCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
-        )
-    {
-        switch (Event->Type) {
-        case QUIC_STREAM_EVENT_RECEIVE:
-            printf("Unknown receive %lu\n", Event->RECEIVE.TotalBufferLength);
-            if (Event->RECEIVE.TotalBufferLength > 0) {
-                auto H3Type = Event->RECEIVE.Buffers[0].Buffer[0];
-                switch (H3Type) {
-                case H3_STREAM_TYPE_CONTROL:
-                    printf("New Control stream!\n");
-                    Type = H3StreamTypeControl;
-                    break;
-                case H3_STREAM_TYPE_ENCODER:
-                    printf("New Encoder stream!\n");
-                    Type = H3StreamTypeEncoder;
-                    break;
-                case H3_STREAM_TYPE_DECODER:
-                    printf("New Decoder stream!\n");
-                    Type = H3StreamTypeDecoder;
-                    break;
-                default:
-                    printf("Unsupported type %hhu!\n", H3Type);
-                    break;
-                }
-            }
-            break;
-        case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-            printf("Unknown peer send abort\n");
-            break;
-        case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-            printf("Unknown peer recv abort\n");
-            break;
-        case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-            printf("Unknown shutdown complete\n");
-            break;
-        default:
-            break;
-        }
-        return QUIC_STATUS_SUCCESS;
-    }
+        );
 };
-
-void MsH3NewPeerUniDirStream(_In_ MsH3Connection* H3, _In_ const HQUIC QuicSream)
-{
-    new(std::nothrow) MsH3UniDirStream(*H3, QuicSream);
-}
