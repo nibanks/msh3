@@ -172,9 +172,18 @@ void MsH3NewPeerUniDirStream(_In_ struct MsH3Connection* H3, _In_ const HQUIC Qu
 
 struct MsH3Connection : public MsQuicConnection {
 
+    struct lsqpack_enc QPack;
+
     MsH3Connection(const MsQuicRegistration& Registration)
         : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
-    { }
+    {
+        lsqpack_enc_preinit(&QPack, stderr);
+    }
+
+    ~MsH3Connection()
+    {
+        lsqpack_enc_cleanup(&QPack);
+    }
 
     static
     QUIC_STATUS

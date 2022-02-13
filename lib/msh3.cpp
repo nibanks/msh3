@@ -100,8 +100,6 @@ MsH3Get(
     QUIC_BUFFER DecoderStreamTypeBuffer = {sizeof(DecoderStreamType), &DecoderStreamType};
     if (QUIC_FAILED(Decoder.Send(&DecoderStreamTypeBuffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START))) return false;
 
-    printf("waiting...\n");
-
     std::this_thread::sleep_for(std::chrono::seconds(10));
 
     if (!Path) return false;

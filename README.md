@@ -26,5 +26,5 @@ cmake --build .
 # Run
 
 ```
-msh3 -server:cloudflare.com
+msh3app cloudflare.com index.html
 ```
