@@ -15,5 +15,8 @@ target_compile_features(inc INTERFACE cxx_std_20)
 
 add_subdirectory(ls-qpack)
 
+add_library(msh3_headers INTERFACE)
+target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+
 add_subdirectory(lib)
 add_subdirectory(tool)

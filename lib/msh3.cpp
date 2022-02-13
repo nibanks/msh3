@@ -5,8 +5,11 @@
 
 --*/
 
+#include <stdio.h>
+#include <thread>
+
 #include "msh3.hpp"
-#include "../msh3.h" // TODO - Fix include path so relative path isn't necessary
+#include "msh3.h"
 
 const MsQuicApi* MsQuic;
 
@@ -99,7 +102,8 @@ MsH3Get(
 
     printf("waiting...\n");
 
-    sleep(10);
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    //sleep(10); // Above is the cross platform way to sleep in C++
 
     if (!Path) return false;
 
