@@ -145,6 +145,63 @@ MsH3Connection::MsQuicCallback(
     return QUIC_STATUS_SUCCESS;
 }
 
+bool
+MsH3Connection::ReceiveSettingsFrame(
+    _In_ uint32_t BufferLength,
+    _In_reads_bytes_(BufferLength)
+        const uint8_t * const Buffer
+    )
+{
+    uint16_t Offset = 0;
+
+    //printf("Control settings frame len=%u received\n", BufferLength);
+
+    do {
+        QUIC_VAR_INT SettingType, SettingValue;
+        if (!QuicVarIntDecode((uint16_t)BufferLength, Buffer, &Offset, &SettingType) ||
+            !QuicVarIntDecode((uint16_t)BufferLength, Buffer, &Offset, &SettingValue)) {
+            printf("Not enough setting.\n");
+            return false;
+        }
+
+        switch (SettingType) {
+        case H3SettingQPackMaxTableCapacity:
+            printf("Received: QPackMaxTableCapacity=%lu\n", SettingValue);
+            PeerMaxTableSize = (uint32_t)SettingValue;
+            break;
+        case H3SettingMaxHeaderListSize:
+            printf("Received: MaxHeaderListSize=%lu\n", SettingValue);
+            break;
+        case H3SettingQPackBlockedStreamsSize:
+            printf("Received: QPackBlockedStreamsSize=%lu\n", SettingValue);
+            PeerQPackBlockedStreams = SettingValue;
+            break;
+        case H3SettingNumPlaceholders:
+            printf("Received: NumPlaceholders=%lu\n", SettingValue);
+            break;
+        default:
+            printf("Received: Unknown setting 0x%lx val=0x%lx\n", SettingType, SettingValue);
+            break;
+        }
+
+    } while (Offset < (uint16_t)BufferLength);
+
+    if (lsqpack_enc_init(
+            &QPack,
+            stderr,
+            min(PeerMaxTableSize, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY),
+            0,
+            0,
+            LSQPACK_ENC_OPT_STAGE_2,
+            0,
+            0) != 0) {
+        printf("lsqpack_enc_init failed\n");
+        return false;
+    }
+
+    return true;
+}
+
 //
 // MsH3UniDirStream
 //
@@ -230,7 +287,7 @@ MsH3UniDirStream::ControlReceive(
             printf("Received: Header frame len=%lu\n", FrameLength);
             break;
         case H3FrameSettings:
-            if (!ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
+            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
             break;
         default:
             printf("Received: Unknown control frame 0x%lx len=%lu\n", FrameType, FrameLength);
@@ -240,63 +297,6 @@ MsH3UniDirStream::ControlReceive(
         Offset += (uint16_t)FrameLength; // TODO - account for overflow
 
     } while (Offset < (uint16_t)Buffer->Length);
-}
-
-bool
-MsH3UniDirStream::ReceiveSettingsFrame(
-    _In_ uint32_t BufferLength,
-    _In_reads_bytes_(BufferLength)
-        const uint8_t * const Buffer
-    )
-{
-    uint16_t Offset = 0;
-
-    //printf("Control settings frame len=%u received\n", BufferLength);
-
-    do {
-        QUIC_VAR_INT SettingType, SettingValue;
-        if (!QuicVarIntDecode((uint16_t)BufferLength, Buffer, &Offset, &SettingType) ||
-            !QuicVarIntDecode((uint16_t)BufferLength, Buffer, &Offset, &SettingValue)) {
-            printf("Not enough setting.\n");
-            return false;
-        }
-
-        switch (SettingType) {
-        case H3SettingQPackMaxTableCapacity:
-            printf("Received: QPackMaxTableCapacity=%lu\n", SettingValue);
-            H3.PeerMaxTableSize = (uint32_t)SettingValue;
-            break;
-        case H3SettingMaxHeaderListSize:
-            printf("Received: MaxHeaderListSize=%lu\n", SettingValue);
-            break;
-        case H3SettingQPackBlockedStreamsSize:
-            printf("Received: QPackBlockedStreamsSize=%lu\n", SettingValue);
-            H3.PeerQPackBlockedStreams = SettingValue;
-            break;
-        case H3SettingNumPlaceholders:
-            printf("Received: NumPlaceholders=%lu\n", SettingValue);
-            break;
-        default:
-            printf("Received: Unknown setting 0x%lx val=0x%lx\n", SettingType, SettingValue);
-            break;
-        }
-
-    } while (Offset < (uint16_t)BufferLength);
-
-    if (lsqpack_enc_init(
-            &H3.QPack,
-            stderr,
-            min(H3.PeerMaxTableSize, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY),
-            0,
-            0,
-            LSQPACK_ENC_OPT_STAGE_2,
-            0,
-            0) != 0) {
-        printf("lsqpack_enc_init failed\n");
-        return false;
-    }
-
-    return true;
 }
 
 QUIC_STATUS

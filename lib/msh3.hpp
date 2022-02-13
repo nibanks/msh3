@@ -178,6 +178,9 @@ struct MsH3Connection : public MsQuicConnection {
 
 private:
 
+    friend struct MsH3UniDirStream;
+    friend struct MsH3BiDirStream;
+
     static
     QUIC_STATUS
     s_MsQuicCallback(
@@ -192,6 +195,13 @@ private:
     QUIC_STATUS
     MsQuicCallback(
         _Inout_ QUIC_CONNECTION_EVENT* Event
+        );
+
+    bool
+    ReceiveSettingsFrame(
+        _In_ uint32_t BufferLength,
+        _In_reads_bytes_(BufferLength)
+            const uint8_t * const Buffer
         );
 };
 
@@ -237,13 +247,6 @@ private:
     void
     ControlReceive(
         _In_ const QUIC_BUFFER* Buffer
-        );
-
-    bool
-    ReceiveSettingsFrame(
-        _In_ uint32_t BufferLength,
-        _In_reads_bytes_(BufferLength)
-            const uint8_t * const Buffer
         );
 
     QUIC_STATUS
