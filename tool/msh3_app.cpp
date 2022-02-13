@@ -23,11 +23,7 @@ main(int argc, char **argv)
             !strcmp(argv[1], "/?") ||
             !strcmp(argv[1], "help")
         )) {
-        //printf("Usage: msh3 <server> <path>\n");
-        if (MsH3Open()) {
-            MsH3Get("cloudflare.com", "index.html", false);
-            MsH3Close();
-        }
+        printf("Usage: msh3 <server> <path>\n");
         return 1;
     }
 

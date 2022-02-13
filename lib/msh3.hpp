@@ -29,11 +29,10 @@
 #include <quic_var_int.h>
 
 enum H3SettingsType {
-    H3SettingQPackMaxTableCapacity,
-    H3SettingMaxHeaderListSize,
-    H3SettingQPackBlockedStreamsSize,
-    H3SettingNumPlaceholders,
-    H3SettingMax
+    H3SettingQPackMaxTableCapacity = 1,
+    H3SettingMaxHeaderListSize = 6,
+    H3SettingQPackBlockedStreamsSize = 7,
+    H3SettingNumPlaceholders = 9,
 };
 
 struct H3HeadingPair {
@@ -53,59 +52,32 @@ struct H3Settings {
     uint64_t Integer;
 };
 
-enum H3_FRAME_TYPE {
-    H3FrameData,
-    H3FrameHeaders,
-    H3FrameSettings,
-    H3FrameGoaway,
-    H3FrameUnknown,
+enum H3StreamType {
+    H3StreamTypeUnknown = 0xFF,
+    H3StreamTypeControl = 0,
+    H3StreamTypePush,
+    H3StreamTypeEncoder,
+    H3StreamTypeDecoder,
 };
 
-#define H3_STREAM_TYPE_CONTROL 0x00
-#define H3_STREAM_TYPE_PUSH    0x01
-#define H3_STREAM_TYPE_ENCODER 0x02
-#define H3_STREAM_TYPE_DECODER 0x03
-#define H3_STREAM_TYPE_UNKNOWN 0xFF
-
-#define H3_FRAME_TYPE_DATA           0x0
-#define H3_FRAME_TYPE_HEADERS        0x1
-#define H3_FRAME_TYPE_PRIORITY       0x2
-#define H3_FRAME_TYPE_CANCEL_PUSH    0x3
-#define H3_FRAME_TYPE_SETTINGS       0x4
-#define H3_FRAME_TYPE_PUSH_PROMISE   0x5
-#define H3_FRAME_TYPE_RESERVED1      0x6
-#define H3_FRAME_TYPE_GOAWAY         0x7
-#define H3_FRAME_TYPE_RESERVED2      0x8
-#define H3_FRAME_TYPE_RESERVED3      0x9
-
-#define H3_MAX_VARIABLE_LENGTH_INTEGER_SIZE 8ul
-#define H3_MAX_FRAME_HEADER_SIZE (H3_MAX_VARIABLE_LENGTH_INTEGER_SIZE + H3_MAX_VARIABLE_LENGTH_INTEGER_SIZE)
-#define H3_MAX_INTEGER_SETTINGS_SIZE (H3_MAX_VARIABLE_LENGTH_INTEGER_SIZE + H3_MAX_VARIABLE_LENGTH_INTEGER_SIZE)
-
-//
-// Setting IDs
-//
-
-#define H3_SETTING_QPACK_MAX_TABLE_CAPACITY 0x1
-#define H3_QUIC_SETTING_RESERVED1           0x2
-#define H3_SETTING_RESERVED2                0x3
-#define H3_SETTING_RESERVED3                0x4
-#define H3_SETTING_RESERVED4                0x5
-#define H3_SETTING_MAX_HEADER_LIST_SIZE     0x6
-#define H3_SETTING_QPACK_BLOCKED_STREAMS    0x7
-#define H3_SETTING_RESERVED5                0x8
-#define H3_SETTING_NUM_PLACEHOLDERS         0x9
-
-static const uint16_t H3KnownSettingsMap[H3SettingMax] = {
-    H3_SETTING_QPACK_MAX_TABLE_CAPACITY,
-    H3_SETTING_MAX_HEADER_LIST_SIZE,
-    H3_SETTING_QPACK_BLOCKED_STREAMS,
-    H3_SETTING_NUM_PLACEHOLDERS,
+enum H3FrameType {
+    H3FrameData,
+    H3FrameHeaders,
+    H3FramePriority,
+    H3FrameCancelPush,
+    H3FrameSettings,
+    H3FramePushPromise,
+    H3FrameGoaway = 7,
 };
 
 #define H3_RFC_DEFAULT_HEADER_TABLE_SIZE    0
 #define H3_DEFAULT_MAX_HEADER_LIST_SIZE H3_SETTING_MAX_SIZE
 #define H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM 0
+
+const H3Settings SettingsH3[] = {
+    { H3SettingQPackMaxTableCapacity, 4096 },
+    { H3SettingQPackBlockedStreamsSize, 100 },
+};
 
 inline
 bool
@@ -145,11 +117,11 @@ H3WriteSettingsFrame(
 {
     uint32_t PayloadSize = 0;
     for (uint32_t i = 0; i < SettingsCount; i++) {
-        PayloadSize += QuicVarIntSize(H3KnownSettingsMap[Settings[i].Type]);
+        PayloadSize += QuicVarIntSize(Settings[i].Type);
         PayloadSize += QuicVarIntSize(Settings[i].Integer);
     }
     if (!H3WriteFrameHeader(
-            H3_FRAME_TYPE_SETTINGS,
+            H3FrameSettings,
             PayloadSize,
             Offset,
             BufferLength,
@@ -161,7 +133,7 @@ H3WriteSettingsFrame(
     }
     Buffer = Buffer + *Offset;
     for (uint32_t i = 0; i < SettingsCount; i++) {
-        Buffer = QuicVarIntEncode(H3KnownSettingsMap[Settings[i].Type], Buffer);
+        Buffer = QuicVarIntEncode(Settings[i].Type, Buffer);
         Buffer = QuicVarIntEncode(Settings[i].Integer, Buffer);
     }
     *Offset += PayloadSize;
@@ -182,15 +154,6 @@ struct MsH3Connection : public MsQuicConnection {
     MsH3UniDirStream* PeerEncoder {nullptr};
     MsH3UniDirStream* PeerDecoder {nullptr};
 
-    uint8_t RawSettingsBuffer[64];
-    QUIC_BUFFER SettingsBuffer;
-
-    uint8_t EncoderStreamType {H3_STREAM_TYPE_ENCODER};
-    QUIC_BUFFER EncoderStreamTypeBuffer = {sizeof(EncoderStreamType), &EncoderStreamType};
-
-    uint8_t DecoderStreamType {H3_STREAM_TYPE_DECODER};
-    QUIC_BUFFER DecoderStreamTypeBuffer = {sizeof(DecoderStreamType), &DecoderStreamType};
-
     MsH3Connection(const MsQuicRegistration& Registration);
     ~MsH3Connection();
 
@@ -209,21 +172,15 @@ struct MsH3Connection : public MsQuicConnection {
     MsQuicCallback(
         _Inout_ QUIC_CONNECTION_EVENT* Event
         );
-
-    void CreateLocalStreams();
-};
-
-enum H3StreamType {
-    H3StreamTypeUnknown,
-    H3StreamTypeControl,
-    H3StreamTypeEncoder,
-    H3StreamTypeDecoder,
 };
 
 struct MsH3UniDirStream : public MsQuicStream {
 
     MsH3Connection& H3;
     H3StreamType Type;
+
+    uint8_t RawBuffer[256];
+    QUIC_BUFFER Buffer {0, RawBuffer}; // Working space
 
     MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
     MsH3UniDirStream(MsH3Connection* Connection, const HQUIC StreamHandle);
@@ -252,6 +209,18 @@ struct MsH3UniDirStream : public MsQuicStream {
     QUIC_STATUS
     ControlStreamCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
+        );
+
+    void
+    ControlReceive(
+        _In_ const QUIC_BUFFER* Buffer
+        );
+
+    bool
+    ReceiveSettingsFrame(
+        _In_ uint32_t BufferLength,
+        _In_reads_bytes_(BufferLength)
+            const uint8_t * const Buffer
         );
 
     QUIC_STATUS

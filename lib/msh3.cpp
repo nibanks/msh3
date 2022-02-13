@@ -85,7 +85,12 @@ MsH3Connection::MsH3Connection(const MsQuicRegistration& Registration)
     : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
 {
     lsqpack_enc_preinit(&QPack, stderr);
-    CreateLocalStreams();
+    LocalControl = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeControl);
+    if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
+    LocalEncoder = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeEncoder);
+    if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
+    LocalDecoder = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeDecoder);
+    if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
 }
 
 MsH3Connection::~MsH3Connection()
@@ -106,10 +111,10 @@ MsH3Connection::MsQuicCallback(
         printf("Connected\n");
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
-        printf("New Peer Stream Flags=%u\n", Event->PEER_STREAM_STARTED.Flags);
         if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
             new(std::nothrow) MsH3UniDirStream(this, Event->PEER_STREAM_STARTED.Stream);
         } else {
+            printf("Ignoring new peer bidir stream\n");
             MsQuic->StreamClose(Event->PEER_STREAM_STARTED.Stream);
         }
         break;
@@ -123,34 +128,6 @@ MsH3Connection::MsQuicCallback(
     return QUIC_STATUS_SUCCESS;
 }
 
-const H3Settings SettingsH3[] = {
-    { H3SettingQPackMaxTableCapacity, 4096 },
-    { H3SettingQPackBlockedStreamsSize, 100 },
-};
-
-void MsH3Connection::CreateLocalStreams()
-{
-    SettingsBuffer.Buffer = RawSettingsBuffer;
-    SettingsBuffer.Buffer[0] = H3_STREAM_TYPE_CONTROL;
-    SettingsBuffer.Length = 1;
-    if (!H3WriteSettingsFrame(SettingsH3, ARRAYSIZE(SettingsH3), &SettingsBuffer.Length, sizeof(RawSettingsBuffer), RawSettingsBuffer)) {
-        InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
-        return;
-    }
-
-    LocalControl = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeControl);
-    if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
-    if (QUIC_FAILED(InitStatus = LocalControl->Send(&SettingsBuffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START))) return;
-
-    LocalEncoder = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeEncoder);
-    if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
-    if (QUIC_FAILED(InitStatus = LocalEncoder->Send(&EncoderStreamTypeBuffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START))) return;
-
-    LocalDecoder = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeDecoder);
-    if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
-    if (QUIC_FAILED(InitStatus = LocalDecoder->Send(&DecoderStreamTypeBuffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START))) return;
-}
-
 //
 // MsH3UniDirStream
 //
@@ -158,6 +135,16 @@ void MsH3Connection::CreateLocalStreams()
 MsH3UniDirStream::MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags)
     : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(*Connection), Type(Type)
 {
+    if (!IsValid()) return;
+    Buffer.Buffer = RawBuffer;
+    Buffer.Buffer[0] = Type;
+    Buffer.Length = 1;
+    if (Type == H3StreamTypeControl &&
+        !H3WriteSettingsFrame(SettingsH3, ARRAYSIZE(SettingsH3), &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
+        InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
+        return;
+    }
+    InitStatus = Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START);
 }
 
 MsH3UniDirStream::MsH3UniDirStream(MsH3Connection* Connection, const HQUIC StreamHandle)
@@ -172,7 +159,9 @@ MsH3UniDirStream::ControlStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Control receive\n");
+        for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
+            ControlReceive(Event->RECEIVE.Buffers + i);
+        }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         printf("Control peer send abort\n");
@@ -181,12 +170,101 @@ MsH3UniDirStream::ControlStreamCallback(
         printf("Control peer recv abort\n");
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        printf("Control shutdown complete\n");
+        //printf("Control shutdown complete\n");
         break;
     default:
         break;
     }
     return QUIC_STATUS_SUCCESS;
+}
+
+void
+MsH3UniDirStream::ControlReceive(
+    _In_ const QUIC_BUFFER* Buffer
+    )
+{
+    //printf("Control receive %u\n", Buffer->Length);
+
+    if (Buffer->Length > UINT16_MAX) {
+        printf("TOO BIG BUFFER! NOT SUPPORTED RIGHT NOW!\n");
+        return;
+    }
+
+    uint16_t Offset = 0;
+
+    do {
+        QUIC_VAR_INT FrameType, FrameLength;
+        if (!QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
+            !QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
+            printf("Not enough control data yet for frame headers.\n");
+            return; // TODO - Implement local buffering
+        }
+
+        if (FrameType != H3FrameData && Offset + FrameLength > (uint64_t)Buffer->Length) {
+            printf("Not enough control data yet for frame payload.\n");
+            return; // TODO - Implement local buffering
+        }
+
+        switch (FrameType) {
+        case H3FrameData:
+            printf("Received: Data frame len=%lu\n", FrameLength);
+            break;
+        case H3FrameHeaders:
+            printf("Received: Header frame len=%lu\n", FrameLength);
+            break;
+        case H3FrameSettings:
+            if (!ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
+            break;
+        default:
+            printf("Received: Unknown control frame 0x%lx len=%lu\n", FrameType, FrameLength);
+            break;
+        }
+
+        Offset += (uint16_t)FrameLength; // TODO - account for overflow
+
+    } while (Offset < (uint16_t)Buffer->Length);
+}
+
+bool
+MsH3UniDirStream::ReceiveSettingsFrame(
+    _In_ uint32_t BufferLength,
+    _In_reads_bytes_(BufferLength)
+        const uint8_t * const Buffer
+    )
+{
+    uint16_t Offset = 0;
+
+    //printf("Control settings frame len=%u received\n", BufferLength);
+
+    do {
+        QUIC_VAR_INT SettingType, SettingValue;
+        if (!QuicVarIntDecode((uint16_t)BufferLength, Buffer, &Offset, &SettingType) ||
+            !QuicVarIntDecode((uint16_t)BufferLength, Buffer, &Offset, &SettingValue)) {
+            printf("Not enough setting.\n");
+            return false;
+        }
+
+        switch (SettingType) {
+        case H3SettingQPackMaxTableCapacity:
+            printf("Received: QPackMaxTableCapacity=%lu\n", SettingValue);
+            break;
+        case H3SettingMaxHeaderListSize:
+            printf("Received: MaxHeaderListSize=%lu\n", SettingValue);
+            break;
+        case H3SettingQPackBlockedStreamsSize:
+            printf("Received: QPackBlockedStreamsSize=%lu\n", SettingValue);
+            break;
+        case H3SettingNumPlaceholders:
+            printf("Received: NumPlaceholders=%lu\n", SettingValue);
+            break;
+        default:
+            printf("Received: Unknown setting 0x%lx val=0x%lx\n", SettingType, SettingValue);
+            break;
+        }
+
+    } while (Offset < (uint16_t)BufferLength);
+
+    return true;
 }
 
 QUIC_STATUS
@@ -205,7 +283,7 @@ MsH3UniDirStream::EncoderStreamCallback(
         printf("Encoder peer recv abort\n");
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        printf("Encoder shutdown complete\n");
+        //printf("Encoder shutdown complete\n");
         break;
     default:
         break;
@@ -229,7 +307,7 @@ MsH3UniDirStream::DecoderStreamCallback(
         printf("Decoder peer recv abort\n");
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        printf("Decoder shutdown complete\n");
+        //printf("Decoder shutdown complete\n");
         break;
     default:
         break;
@@ -244,23 +322,28 @@ MsH3UniDirStream::UnknownStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Unknown receive %lu\n", Event->RECEIVE.TotalBufferLength);
         if (Event->RECEIVE.TotalBufferLength > 0) {
             auto H3Type = Event->RECEIVE.Buffers[0].Buffer[0];
             switch (H3Type) {
-            case H3_STREAM_TYPE_CONTROL:
-                printf("New Control stream!\n");
+            case H3StreamTypeControl:
+                //printf("New peer control stream!\n");
                 Type = H3StreamTypeControl;
                 H3.PeerControl = this;
-                // TODO - Parse rest of the buffer for peer settings
+                if (Event->RECEIVE.TotalBufferLength > 1) {
+                    auto FirstBuffer = (QUIC_BUFFER*)Event->RECEIVE.Buffers;
+                    FirstBuffer->Buffer++; FirstBuffer->Length--;
+                    for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
+                        ControlReceive(Event->RECEIVE.Buffers + i);
+                    }
+                }
                 break;
-            case H3_STREAM_TYPE_ENCODER:
-                printf("New Encoder stream!\n");
+            case H3StreamTypeEncoder:
+                printf("New peer encoder stream!\n");
                 Type = H3StreamTypeEncoder;
                 H3.PeerEncoder = this;
                 break;
-            case H3_STREAM_TYPE_DECODER:
-                printf("New Decoder stream!\n");
+            case H3StreamTypeDecoder:
+                printf("New peer decoder stream!\n");
                 Type = H3StreamTypeDecoder;
                 H3.PeerDecoder = this;
                 break;
