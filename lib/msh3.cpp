@@ -61,8 +61,7 @@ MsH3Get(
         Unsecure ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
             QUIC_CREDENTIAL_FLAG_CLIENT;
-    MsQuicCredentialConfig Creds(Flags);
-    MsQuicConfiguration Config(Reg, MsQuicAlpn("h3", "h3-29"), Settings, Creds);
+    MsQuicConfiguration Config(Reg, MsQuicAlpn("h3", "h3-29"), Settings, MsQuicCredentialConfig(Flags));
     if (QUIC_FAILED(Config.GetInitStatus())) return false;
 
     MsH3Connection H3(Reg);
