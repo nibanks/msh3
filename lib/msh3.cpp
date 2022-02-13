@@ -11,8 +11,6 @@
 #include "msh3.hpp"
 #include "msh3.h"
 
-#include "lsqpack.h"
-
 const MsQuicApi* MsQuic;
 
 extern "C"

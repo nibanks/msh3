@@ -6,6 +6,7 @@
 --*/
 
 #include <msquic.hpp>
+#include <lsqpack.h>
 
 #if _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
