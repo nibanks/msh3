@@ -15,7 +15,7 @@ __cdecl
 #endif
 main(int argc, char **argv)
 {
-    if (argc < 2 ||
+    if (argc > 1 &&
         (
             !strcmp(argv[1], "?") ||
             !strcmp(argv[1], "-?") ||
@@ -23,12 +23,20 @@ main(int argc, char **argv)
             !strcmp(argv[1], "/?") ||
             !strcmp(argv[1], "help")
         )) {
-        printf("Usage: msh3 <server> <path>\n");
+        printf("Usage: msh3 [server] [path]\n");
         return 1;
     }
 
+    const char* Host = "outlook-evergreen.office.com";
+    const char* Path = "index.html";
+
+    if (argc > 1) Host = argv[1];
+    if (argc > 2) Path = argv[1];
+
+    printf("HTTP/3 GET https://%s/%s\n\n", Host, Path);
+
     if (MsH3Open()) {
-        MsH3Get(argv[1], argv[2], false);
+        MsH3Get(Host, Path, false);
         MsH3Close();
     }
 

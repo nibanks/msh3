@@ -69,10 +69,9 @@ MsH3Get(
 
     //if (ServerIp && QUIC_FAILED(H3.SetRemoteAddr(ServerAddress))) return false;
     if (QUIC_FAILED(H3.Start(Config, ServerName, 443))) return false;
+    if (!H3.SendRequest("get", ServerName, Path)) return false;
 
     std::this_thread::sleep_for(std::chrono::seconds(6));
-
-    if (!Path) return false;
 
     return true;
 }
@@ -96,9 +95,27 @@ MsH3Connection::MsH3Connection(const MsQuicRegistration& Registration)
 MsH3Connection::~MsH3Connection()
 {
     lsqpack_enc_cleanup(&QPack);
+    for (auto Request : Requests) {
+        delete Request;
+    }
     delete LocalDecoder;
     delete LocalEncoder;
     delete LocalControl;
+}
+
+bool
+MsH3Connection::SendRequest(
+    _In_z_ const char* Method,
+    _In_z_ const char* Host,
+    _In_z_ const char* Path
+    )
+{
+    auto Request = new(std::nothrow) MsH3BiDirStream(this, Method, Host, Path);
+    if (!Request->IsValid()) {
+        delete Request;
+        return false;
+    }
+    return true;
 }
 
 QUIC_STATUS
@@ -247,12 +264,14 @@ MsH3UniDirStream::ReceiveSettingsFrame(
         switch (SettingType) {
         case H3SettingQPackMaxTableCapacity:
             printf("Received: QPackMaxTableCapacity=%lu\n", SettingValue);
+            H3.PeerMaxTableSize = (uint32_t)SettingValue;
             break;
         case H3SettingMaxHeaderListSize:
             printf("Received: MaxHeaderListSize=%lu\n", SettingValue);
             break;
         case H3SettingQPackBlockedStreamsSize:
             printf("Received: QPackBlockedStreamsSize=%lu\n", SettingValue);
+            H3.PeerQPackBlockedStreams = SettingValue;
             break;
         case H3SettingNumPlaceholders:
             printf("Received: NumPlaceholders=%lu\n", SettingValue);
@@ -263,6 +282,19 @@ MsH3UniDirStream::ReceiveSettingsFrame(
         }
 
     } while (Offset < (uint16_t)BufferLength);
+
+    if (lsqpack_enc_init(
+            &H3.QPack,
+            stderr,
+            min(H3.PeerMaxTableSize, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY),
+            0,
+            0,
+            LSQPACK_ENC_OPT_STAGE_2,
+            0,
+            0) != 0) {
+        printf("lsqpack_enc_init failed\n");
+        return false;
+    }
 
     return true;
 }
@@ -361,6 +393,79 @@ MsH3UniDirStream::UnknownStreamCallback(
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
         printf("Unknown shutdown complete\n");
+        break;
+    default:
+        break;
+    }
+    return QUIC_STATUS_SUCCESS;
+}
+
+//
+// MsH3BiDirStream
+//
+
+MsH3BiDirStream::MsH3BiDirStream(
+    _In_ MsH3Connection* Connection,
+    _In_z_ const char* Method,
+    _In_z_ const char* Host,
+    _In_z_ const char* Path,
+    _In_ QUIC_STREAM_OPEN_FLAGS Flags
+    ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(*Connection)
+{
+    Headers[0].Name = ":method";
+    Headers[0].NameLength = 7;
+    Headers[0].Value = Method;
+    Headers[0].ValueLength = (uint32_t)strlen(Method);
+
+    Headers[1].Name = ":path";
+    Headers[1].NameLength = 5;
+    Headers[1].Value = Path;
+    Headers[1].ValueLength = (uint32_t)strlen(Path);
+
+    Headers[2].Name = ":scheme";
+    Headers[2].NameLength = 7;
+    Headers[2].Value = "https";
+    Headers[2].ValueLength = 5;
+
+    Headers[3].Name = ":authority";
+    Headers[3].NameLength = 10;
+    Headers[3].Value = Host;
+    Headers[3].ValueLength = (uint32_t)strlen(Host);
+
+    if (!EncodeHeaders()) {
+        InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
+        return;
+    }
+
+    // TODO - Build, send and start
+
+    H3.Requests.push_back(this);
+}
+
+bool
+MsH3BiDirStream::EncodeHeaders(
+    )
+{
+    return true;
+}
+
+QUIC_STATUS
+MsH3BiDirStream::MsQuicCallback(
+    _Inout_ QUIC_STREAM_EVENT* Event
+    )
+{
+    switch (Event->Type) {
+    case QUIC_STREAM_EVENT_RECEIVE:
+        printf("Request receive\n");
+        break;
+    case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
+        printf("Request peer send abort\n");
+        break;
+    case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
+        printf("Request peer recv abort\n");
+        break;
+    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
+        printf("Request shutdown complete\n");
         break;
     default:
         break;

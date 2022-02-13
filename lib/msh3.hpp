@@ -7,6 +7,7 @@
 
 #include <msquic.hpp>
 #include <lsqpack.h>
+#include <vector>
 
 #if _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
@@ -26,6 +27,10 @@
 #define CXPLAT_ANALYSIS_ASSERT(X)
 #endif
 
+#ifndef min
+#define min(a,b) ((a) > (b) ? (b) : (a))
+#endif
+
 #include <quic_var_int.h>
 
 enum H3SettingsType {
@@ -36,8 +41,8 @@ enum H3SettingsType {
 };
 
 struct H3HeadingPair {
-    char* Name;
-    char* Value;
+    const char* Name;
+    const char* Value;
     uint32_t NameLength;
     uint32_t ValueLength;
 };
@@ -71,12 +76,13 @@ enum H3FrameType {
 };
 
 #define H3_RFC_DEFAULT_HEADER_TABLE_SIZE    0
-#define H3_DEFAULT_MAX_HEADER_LIST_SIZE H3_SETTING_MAX_SIZE
 #define H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM 0
+#define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 4096
+#define H3_DEFAULT_QPACK_BLOCKED_STREAMS 100
 
 const H3Settings SettingsH3[] = {
-    { H3SettingQPackMaxTableCapacity, 4096 },
-    { H3SettingQPackBlockedStreamsSize, 100 },
+    { H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
+    { H3SettingQPackBlockedStreamsSize, H3_DEFAULT_QPACK_BLOCKED_STREAMS },
 };
 
 inline
@@ -141,6 +147,7 @@ H3WriteSettingsFrame(
 }
 
 struct MsH3UniDirStream;
+struct MsH3BiDirStream;
 
 struct MsH3Connection : public MsQuicConnection {
 
@@ -154,8 +161,22 @@ struct MsH3Connection : public MsQuicConnection {
     MsH3UniDirStream* PeerEncoder {nullptr};
     MsH3UniDirStream* PeerDecoder {nullptr};
 
+    uint32_t PeerMaxTableSize {H3_RFC_DEFAULT_HEADER_TABLE_SIZE};
+    uint64_t PeerQPackBlockedStreams {H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM};
+
+    std::vector<MsH3BiDirStream*> Requests;
+
     MsH3Connection(const MsQuicRegistration& Registration);
     ~MsH3Connection();
+
+    bool
+    SendRequest(
+        _In_z_ const char* Method,
+        _In_z_ const char* Host,
+        _In_z_ const char* Path
+        );
+
+private:
 
     static
     QUIC_STATUS
@@ -184,6 +205,8 @@ struct MsH3UniDirStream : public MsQuicStream {
 
     MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
     MsH3UniDirStream(MsH3Connection* Connection, const HQUIC StreamHandle);
+
+private:
 
     static
     QUIC_STATUS
@@ -235,6 +258,41 @@ struct MsH3UniDirStream : public MsQuicStream {
 
     QUIC_STATUS
     UnknownStreamCallback(
+        _Inout_ QUIC_STREAM_EVENT* Event
+        );
+};
+
+struct MsH3BiDirStream : public MsQuicStream {
+
+    MsH3Connection& H3;
+
+    H3HeadingPair Headers[4];
+
+    MsH3BiDirStream(
+        _In_ MsH3Connection* Connection,
+        _In_z_ const char* Method,
+        _In_z_ const char* Host,
+        _In_z_ const char* Path,
+        _In_ QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_0_RTT
+        );
+
+private:
+
+    bool EncodeHeaders();
+
+    static
+    QUIC_STATUS
+    s_MsQuicCallback(
+        _In_ MsQuicStream* /* Stream */,
+        _In_opt_ void* Context,
+        _Inout_ QUIC_STREAM_EVENT* Event
+        )
+    {
+        return ((MsH3BiDirStream*)Context)->MsQuicCallback(Event);
+    }
+
+    QUIC_STATUS
+    MsQuicCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
         );
 };
