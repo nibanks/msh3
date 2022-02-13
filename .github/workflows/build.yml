@@ -21,6 +21,8 @@ jobs:
         egress-policy: audit
     - name: Checkout repository
       uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
+      with:
+        submodules: 'recursive'
     - name: Build
       run: |
         mkdir build && cd build
