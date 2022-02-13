@@ -103,7 +103,6 @@ MsH3Get(
     printf("waiting...\n");
 
     std::this_thread::sleep_for(std::chrono::seconds(10));
-    //sleep(10); // Above is the cross platform way to sleep in C++
 
     if (!Path) return false;
 

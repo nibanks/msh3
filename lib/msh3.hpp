@@ -168,6 +168,8 @@ H3WriteSettingsFrame(
     return true;
 }
 
+void MsH3NewPeerUniDirStream(_In_ struct MsH3Connection* H3, _In_ const HQUIC QuicSream);
+
 struct MsH3Connection : public MsQuicConnection {
 
     MsH3Connection(const MsQuicRegistration& Registration)
@@ -196,7 +198,11 @@ struct MsH3Connection : public MsQuicConnection {
             break;
         case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
             printf("New Peer Stream Flags=%u\n", Event->PEER_STREAM_STARTED.Flags);
-            //NewPeerStream(H3, Event->PEER_STREAM_STARTED.Stream, Event->PEER_STREAM_STARTED.Flags);
+            if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
+                MsH3NewPeerUniDirStream(this, Event->PEER_STREAM_STARTED.Stream);
+            } else {
+                MsQuic->StreamClose(Event->PEER_STREAM_STARTED.Stream);
+            }
             break;
         case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
             printf("Connection shutdown complete\n");
@@ -218,14 +224,15 @@ enum H3StreamType {
 
 struct MsH3UniDirStream : public MsQuicStream {
 
+    MsH3Connection& H3;
     H3StreamType Type;
 
-    MsH3UniDirStream(const MsH3Connection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT)
-        : MsQuicStream(Connection, Flags, CleanUpManual, s_MsQuicCallback, this), Type(Type)
+    MsH3UniDirStream(MsH3Connection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT)
+        : MsQuicStream(Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
     { }
 
-    MsH3UniDirStream(const HQUIC StreamHandle)
-        : MsQuicStream(StreamHandle, CleanUpAutoDelete, s_MsQuicCallback, this), Type(H3StreamTypeUnknown)
+    MsH3UniDirStream(MsH3Connection& Connection, const HQUIC StreamHandle)
+        : MsQuicStream(StreamHandle, CleanUpAutoDelete, s_MsQuicCallback, this), H3(Connection), Type(H3StreamTypeUnknown)
     { }
 
     static
@@ -365,3 +372,8 @@ struct MsH3UniDirStream : public MsQuicStream {
         return QUIC_STATUS_SUCCESS;
     }
 };
+
+void MsH3NewPeerUniDirStream(_In_ MsH3Connection* H3, _In_ const HQUIC QuicSream)
+{
+    new(std::nothrow) MsH3UniDirStream(*H3, QuicSream);
+}
