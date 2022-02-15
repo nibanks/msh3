@@ -286,9 +286,11 @@ struct MsH3BiDirStream : public MsQuicStream {
     H3HeadingPair Headers[4];
 
     uint8_t FrameHeaderBuffer[16];
+    uint8_t PrefixBuffer[32];
     uint8_t HeadersBuffer[256];
-    QUIC_BUFFER Buffers[2] = {
+    QUIC_BUFFER Buffers[3] = {
         {0, FrameHeaderBuffer},
+        {0, PrefixBuffer},
         {0, HeadersBuffer}
     };
 
@@ -301,6 +303,11 @@ struct MsH3BiDirStream : public MsQuicStream {
         );
 
 private:
+
+    void
+    Receive(
+        _In_ const QUIC_BUFFER* Buffer
+        );
 
     static
     QUIC_STATUS

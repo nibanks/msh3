@@ -72,7 +72,7 @@ MsH3Get(
 
     std::this_thread::sleep_for(std::chrono::seconds(1)); // TODO - Handle after
 
-    if (!H3.SendRequest("get", ServerName, Path)) return false;
+    if (!H3.SendRequest("GET", ServerName, Path)) return false;
 
     std::this_thread::sleep_for(std::chrono::seconds(6));
 
@@ -328,23 +328,24 @@ bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
         hea_off += hea_size;
     }
 
-    uint8_t pref_buf[0x20];
+    Buffer.Length = (uint32_t)enc_off;
+    Request->Buffers[2].Length = (uint32_t)hea_off;
+
     enum lsqpack_enc_header_flags hflags;
-    auto pref_sz = lsqpack_enc_end_header(&H3.QPack, pref_buf, sizeof(pref_buf), &hflags);
+    auto pref_sz = lsqpack_enc_end_header(&H3.QPack, Request->PrefixBuffer, sizeof(Request->PrefixBuffer), &hflags);
     if (pref_sz < 0) {
         printf("lsqpack_enc_end_header failed\n");
         return false;
     }
 
-    if (enc_off != 0) {
-        printf("Send: Encoder len=%u\n", (uint32_t)enc_off);
-        Buffer.Length = (uint32_t)enc_off;
+    Request->Buffers[1].Length = (uint32_t)pref_sz;
+
+    if (Buffer.Length != 0) {
+        printf("Send: Encoder len=%u\n", Buffer.Length);
         if (QUIC_FAILED(Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT))) {
             printf("Encoder send failed\n");
         }
     }
-
-    Request->Buffers[1].Length = (uint32_t)hea_off;
 
     return true;
 }
@@ -356,7 +357,7 @@ MsH3UniDirStream::EncoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Encoder receive\n");
+        printf("Encoder receive %lu\n", Event->RECEIVE.TotalBufferLength);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         printf("Encoder peer send abort\n");
@@ -380,7 +381,7 @@ MsH3UniDirStream::DecoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Decoder receive\n");
+        printf("Decoder receive %lu\n", Event->RECEIVE.TotalBufferLength);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         printf("Decoder peer send abort\n");
@@ -467,15 +468,17 @@ MsH3BiDirStream::MsH3BiDirStream(
     if (!Headers[1].Set(":path", Path)) return;
     if (!Headers[2].Set(":scheme", "http3")) return;
     if (!Headers[3].Set(":authority", Host)) return;
+    if (QUIC_FAILED(InitStatus = Start())) return;
     if (!H3.LocalEncoder->EncodeHeaders(this)) return;
     H3.Requests.push_back(this);
-    if (Buffers[1].Length != 0) {
-        printf("Request: Send header len=%u\n", Buffers[1].Length);
-        if (!H3WriteFrameHeader(H3FrameHeaders, Buffers[1].Length, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
+    auto HeadersLength = Buffers[1].Length+Buffers[2].Length;
+    if (HeadersLength != 0) {
+        printf("Request: Send header len=%u\n", HeadersLength);
+        if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
             printf("H3WriteFrameHeader failed\n");
             return;
         }
-        if (QUIC_FAILED(Send(Buffers, 2, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_FIN))) {
+        if (QUIC_FAILED(Send(Buffers, 3, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_FIN))) {
             printf("Request send failed\n");
         }
     }
@@ -489,7 +492,9 @@ MsH3BiDirStream::MsQuicCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Request receive\n");
+        for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
+            Receive(Event->RECEIVE.Buffers + i);
+        }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         printf("Request peer send abort\n");
@@ -504,4 +509,55 @@ MsH3BiDirStream::MsQuicCallback(
         break;
     }
     return QUIC_STATUS_SUCCESS;
+}
+
+void
+MsH3BiDirStream::Receive(
+    _In_ const QUIC_BUFFER* Buffer
+    )
+{
+    printf("Request receive %u\n", Buffer->Length);
+
+    if (Buffer->Length > UINT16_MAX) {
+        printf("TOO BIG BUFFER! NOT SUPPORTED RIGHT NOW!\n");
+        return;
+    }
+
+    uint16_t Offset = 0;
+
+    do {
+        QUIC_VAR_INT FrameType, FrameLength;
+        if (!QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
+            !QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
+            printf("Not enough request data yet for frame headers.\n");
+            return; // TODO - Implement local buffering
+        }
+
+        if (FrameType != H3FrameData && Offset + FrameLength > (uint64_t)Buffer->Length) {
+            printf("Not enough request data yet for frame payload.\n");
+            return; // TODO - Implement local buffering
+        }
+
+        switch (FrameType) {
+        case H3FrameData:
+            printf("Received: Data frame len=%lu\n", FrameLength);
+            for (uint32_t i = 0; i < (uint32_t)FrameLength; ++i) {
+                printf("%c", Buffer->Buffer[Offset + i]);
+            }
+            printf("\n");
+            break;
+        case H3FrameHeaders:
+            printf("Received: Header frame len=%lu\n", FrameLength);
+            break;
+        case H3FrameSettings:
+            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
+            break;
+        default:
+            printf("Received: Unknown control frame 0x%lx len=%lu\n", FrameType, FrameLength);
+            break;
+        }
+
+        Offset += (uint16_t)FrameLength; // TODO - account for overflow
+
+    } while (Offset < (uint16_t)Buffer->Length);
 }

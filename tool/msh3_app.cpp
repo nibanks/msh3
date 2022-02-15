@@ -27,13 +27,15 @@ main(int argc, char **argv)
         return 1;
     }
 
-    const char* Host = "outlook-evergreen.office.com";
-    const char* Path = "index.html";
+    //const char* Host = "www.outlook-evergreen.office.com";
+    //const char* Host = "www.google.com";
+    const char* Host = "www.cloudflare.com";
+    const char* Path = "/";
 
     if (argc > 1) Host = argv[1];
     if (argc > 2) Path = argv[1];
 
-    printf("HTTP/3 GET https://%s/%s\n\n", Host, Path);
+    printf("HTTP/3 GET https://%s%s\n\n", Host, Path);
 
     if (MsH3Open()) {
         MsH3Get(Host, Path, false);
