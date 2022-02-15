@@ -8,7 +8,11 @@
 #include <msquic.hpp>
 #include <lsqpack.h>
 #include <lsxpack_header.h>
+#include <stdio.h>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 #if _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
@@ -178,6 +182,14 @@ struct MsH3Connection : public MsQuicConnection {
 
     std::vector<MsH3BiDirStream*> Requests;
 
+    std::mutex HandshakeCompleteMutex;
+    std::condition_variable HandshakeCompleteEvent;
+    bool HandshakeSuccess {false};
+
+    std::mutex ShutdownCompleteMutex;
+    std::condition_variable ShutdownCompleteEvent;
+    bool ShutdownComplete {false};
+
     MsH3Connection(const MsQuicRegistration& Registration);
     ~MsH3Connection();
 
@@ -188,7 +200,30 @@ struct MsH3Connection : public MsQuicConnection {
         _In_z_ const char* Path
         );
 
+    bool WaitOnHandshakeComplete() {
+        std::unique_lock Lock{HandshakeCompleteMutex};
+        HandshakeCompleteEvent.wait(Lock, [&]{return HandshakeComplete;});
+        return HandshakeSuccess;
+    }
+
+    void WaitOnShutdownComplete() {
+        std::unique_lock Lock{ShutdownCompleteMutex};
+        ShutdownCompleteEvent.wait(Lock, [&]{return ShutdownComplete;});
+    }
+
 private:
+
+    void SetHandshakeComplete() {
+        std::lock_guard Lock{HandshakeCompleteMutex};
+        HandshakeComplete = true;
+        HandshakeCompleteEvent.notify_all();
+    }
+
+    void SetShutdownComplete() {
+        std::lock_guard Lock{ShutdownCompleteMutex};
+        ShutdownComplete = true;
+        ShutdownCompleteEvent.notify_all();
+    }
 
     friend struct MsH3UniDirStream;
     friend struct MsH3BiDirStream;

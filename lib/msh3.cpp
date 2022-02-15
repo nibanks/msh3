@@ -5,9 +5,6 @@
 
 --*/
 
-#include <stdio.h>
-#include <thread>
-
 #include "msh3.hpp"
 #include "msh3.h"
 
@@ -69,12 +66,9 @@ MsH3Get(
 
     //if (ServerIp && QUIC_FAILED(H3.SetRemoteAddr(ServerAddress))) return false;
     if (QUIC_FAILED(H3.Start(Config, ServerName, 443))) return false;
-
-    std::this_thread::sleep_for(std::chrono::seconds(1)); // TODO - Handle after
-
+    if (!H3.WaitOnHandshakeComplete()) return false;
     if (!H3.SendRequest("GET", ServerName, Path)) return false;
-
-    std::this_thread::sleep_for(std::chrono::seconds(6));
+    H3.WaitOnShutdownComplete();
 
     return true;
 }
@@ -86,7 +80,7 @@ MsH3Get(
 MsH3Connection::MsH3Connection(const MsQuicRegistration& Registration)
     : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
 {
-    lsqpack_enc_preinit(&QPack, stderr);
+    lsqpack_enc_preinit(&QPack, nullptr);
     LocalControl = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeControl);
     if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
     LocalEncoder = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeEncoder);
@@ -129,16 +123,20 @@ MsH3Connection::MsQuicCallback(
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
         printf("Connected\n");
+        HandshakeSuccess = true;
+        SetHandshakeComplete();
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
         printf("Connection shutdown by transport, 0x%x\n", Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+        SetHandshakeComplete();
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
         printf("Connection shutdown by peer, 0x%lx\n", Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+        SetHandshakeComplete();
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
-        printf("Connection shutdown complete\n");
-        //H3->Shutdown.Set();
+        //printf("Connection shutdown complete\n");
+        SetShutdownComplete();
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
@@ -198,7 +196,7 @@ MsH3Connection::ReceiveSettingsFrame(
     tsu_buf_sz = sizeof(tsu_buf);
     if (lsqpack_enc_init(
             &QPack,
-            stderr,
+            nullptr,
             min(PeerMaxTableSize, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY),
             0,
             0,
@@ -421,12 +419,12 @@ MsH3UniDirStream::UnknownStreamCallback(
                 }
                 break;
             case H3StreamTypeEncoder:
-                printf("New peer encoder stream!\n");
+                //printf("New peer encoder stream!\n");
                 Type = H3StreamTypeEncoder;
                 H3.PeerEncoder = this;
                 break;
             case H3StreamTypeDecoder:
-                printf("New peer decoder stream!\n");
+                //printf("New peer decoder stream!\n");
                 Type = H3StreamTypeDecoder;
                 H3.PeerDecoder = this;
                 break;
@@ -503,7 +501,7 @@ MsH3BiDirStream::MsQuicCallback(
         printf("Request peer recv abort\n");
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        printf("Request shutdown complete\n");
+        //printf("Request shutdown complete\n");
         break;
     default:
         break;
@@ -516,12 +514,12 @@ MsH3BiDirStream::Receive(
     _In_ const QUIC_BUFFER* Buffer
     )
 {
-    printf("Request receive %u\n", Buffer->Length);
+    //printf("Request receive %u\n", Buffer->Length);
 
-    if (Buffer->Length > UINT16_MAX) {
+    /*if (Buffer->Length > UINT16_MAX) {
         printf("TOO BIG BUFFER! NOT SUPPORTED RIGHT NOW!\n");
         return;
-    }
+    }*/
 
     uint16_t Offset = 0;
 
@@ -549,11 +547,8 @@ MsH3BiDirStream::Receive(
         case H3FrameHeaders:
             printf("Received: Header frame len=%lu\n", FrameLength);
             break;
-        case H3FrameSettings:
-            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
-            break;
         default:
-            printf("Received: Unknown control frame 0x%lx len=%lu\n", FrameType, FrameLength);
+            printf("Received: Unknown request frame 0x%lx len=%lu\n", FrameType, FrameLength);
             break;
         }
 
