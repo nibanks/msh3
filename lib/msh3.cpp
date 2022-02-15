@@ -122,12 +122,14 @@ MsH3Connection::MsQuicCallback(
 {
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
-        printf("Connected\n");
+        //printf("Connected\n");
         HandshakeSuccess = true;
         SetHandshakeComplete();
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
-        printf("Connection shutdown by transport, 0x%x\n", Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+        if (Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status != QUIC_STATUS_CONNECTION_IDLE) {
+            printf("Connection shutdown by transport, 0x%x\n", Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+        }
         SetHandshakeComplete();
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
@@ -173,21 +175,21 @@ MsH3Connection::ReceiveSettingsFrame(
 
         switch (SettingType) {
         case H3SettingQPackMaxTableCapacity:
-            printf("Received: QPackMaxTableCapacity=%lu\n", SettingValue);
+            //printf("Received: QPackMaxTableCapacity=%lu\n", SettingValue);
             PeerMaxTableSize = (uint32_t)SettingValue;
             break;
         case H3SettingMaxHeaderListSize:
-            printf("Received: MaxHeaderListSize=%lu\n", SettingValue);
+            //printf("Received: MaxHeaderListSize=%lu\n", SettingValue);
             break;
         case H3SettingQPackBlockedStreamsSize:
-            printf("Received: QPackBlockedStreamsSize=%lu\n", SettingValue);
+            //printf("Received: QPackBlockedStreamsSize=%lu\n", SettingValue);
             PeerQPackBlockedStreams = SettingValue;
             break;
         case H3SettingNumPlaceholders:
-            printf("Received: NumPlaceholders=%lu\n", SettingValue);
+            //printf("Received: NumPlaceholders=%lu\n", SettingValue);
             break;
         default:
-            printf("Received: Unknown setting 0x%lx val=0x%lx\n", SettingType, SettingValue);
+            //printf("Received: Unknown setting 0x%lx val=0x%lx\n", SettingType, SettingValue);
             break;
         }
 
@@ -289,16 +291,16 @@ MsH3UniDirStream::ControlReceive(
 
         switch (FrameType) {
         case H3FrameData:
-            printf("Received: Data frame len=%lu\n", FrameLength);
+            printf("Received: Control Data frame len=%lu\n", FrameLength);
             break;
         case H3FrameHeaders:
-            printf("Received: Header frame len=%lu\n", FrameLength);
+            printf("Received: Control Header frame len=%lu\n", FrameLength);
             break;
         case H3FrameSettings:
             if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
             break;
         default:
-            printf("Received: Unknown control frame 0x%lx len=%lu\n", FrameType, FrameLength);
+            //printf("Received: Unknown control frame 0x%lx len=%lu\n", FrameType, FrameLength);
             break;
         }
 
@@ -339,7 +341,7 @@ bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
     Request->Buffers[1].Length = (uint32_t)pref_sz;
 
     if (Buffer.Length != 0) {
-        printf("Send: Encoder len=%u\n", Buffer.Length);
+        //printf("Send: Encoder len=%u\n", Buffer.Length);
         if (QUIC_FAILED(Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT))) {
             printf("Encoder send failed\n");
         }
@@ -441,7 +443,7 @@ MsH3UniDirStream::UnknownStreamCallback(
         printf("Unknown peer recv abort\n");
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        printf("Unknown shutdown complete\n");
+        //printf("Unknown shutdown complete\n");
         break;
     default:
         break;
@@ -471,7 +473,7 @@ MsH3BiDirStream::MsH3BiDirStream(
     H3.Requests.push_back(this);
     auto HeadersLength = Buffers[1].Length+Buffers[2].Length;
     if (HeadersLength != 0) {
-        printf("Request: Send header len=%u\n", HeadersLength);
+        //printf("Request: Send header len=%u\n", HeadersLength);
         if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
             printf("H3WriteFrameHeader failed\n");
             return;
@@ -516,10 +518,10 @@ MsH3BiDirStream::Receive(
 {
     //printf("Request receive %u\n", Buffer->Length);
 
-    /*if (Buffer->Length > UINT16_MAX) {
+    if (Buffer->Length > UINT16_MAX) {
         printf("TOO BIG BUFFER! NOT SUPPORTED RIGHT NOW!\n");
-        return;
-    }*/
+        exit(1);
+    }
 
     uint16_t Offset = 0;
 
@@ -537,20 +539,26 @@ MsH3BiDirStream::Receive(
             CurFrameType = H3FrameUnknown;
         }
 
-        if (FrameType != H3FrameData && Offset + FrameLength > (uint64_t)Buffer->Length) {
-            printf("Not enough request data yet for frame %lu payload.\n", FrameType);
-            CurFrameType = (H3FrameType)FrameType;
-            CurFrameLength = (Offset + FrameLength) - Buffer->Length;
-            return; // TODO - Implement local buffering
+        uint32_t AvailFrameLength;
+        if (Offset + FrameLength > (uint64_t)Buffer->Length) {
+            if (FrameType != H3FrameData) {
+                printf("Not enough request data yet for frame %lu payload.\n", FrameType);
+                CurFrameType = (H3FrameType)FrameType;
+                CurFrameLength = (Offset + FrameLength) - Buffer->Length;
+                return; // TODO - Implement local buffering
+            }
+            AvailFrameLength = Buffer->Length - Offset;
+        } else {
+            AvailFrameLength = (uint32_t)FrameLength;
         }
 
         switch (FrameType) {
         case H3FrameData:
             //printf("Received: Data frame len=%lu\n", FrameLength);
-            for (uint32_t i = 0; i < (uint32_t)FrameLength; ++i) {
+            for (uint32_t i = 0; i < AvailFrameLength; ++i) {
                 printf("%c", Buffer->Buffer[Offset + i]);
             }
-            printf("\n");
+            //printf("\n");
             if (Offset + FrameLength > (uint64_t)Buffer->Length) {
                 CurFrameType = H3FrameData;
                 CurFrameLength = (Offset + FrameLength) - Buffer->Length;
