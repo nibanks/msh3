@@ -69,6 +69,9 @@ MsH3Get(
 
     //if (ServerIp && QUIC_FAILED(H3.SetRemoteAddr(ServerAddress))) return false;
     if (QUIC_FAILED(H3.Start(Config, ServerName, 443))) return false;
+
+    std::this_thread::sleep_for(std::chrono::seconds(1)); // TODO - Handle after
+
     if (!H3.SendRequest("get", ServerName, Path)) return false;
 
     std::this_thread::sleep_for(std::chrono::seconds(6));
@@ -127,6 +130,16 @@ MsH3Connection::MsQuicCallback(
     case QUIC_CONNECTION_EVENT_CONNECTED:
         printf("Connected\n");
         break;
+    case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
+        printf("Connection shutdown by transport, 0x%x\n", Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+        break;
+    case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
+        printf("Connection shutdown by peer, 0x%lx\n", Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+        break;
+    case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
+        printf("Connection shutdown complete\n");
+        //H3->Shutdown.Set();
+        break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
             new(std::nothrow) MsH3UniDirStream(this, Event->PEER_STREAM_STARTED.Stream);
@@ -134,10 +147,6 @@ MsH3Connection::MsQuicCallback(
             printf("Ignoring new peer bidir stream\n");
             MsQuic->StreamClose(Event->PEER_STREAM_STARTED.Stream);
         }
-        break;
-    case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
-        printf("Connection shutdown complete\n");
-        //H3->Shutdown.Set();
         break;
     default:
         break;
@@ -186,6 +195,7 @@ MsH3Connection::ReceiveSettingsFrame(
 
     } while (Offset < (uint16_t)BufferLength);
 
+    tsu_buf_sz = sizeof(tsu_buf);
     if (lsqpack_enc_init(
             &QPack,
             stderr,
@@ -193,8 +203,8 @@ MsH3Connection::ReceiveSettingsFrame(
             0,
             0,
             LSQPACK_ENC_OPT_STAGE_2,
-            0,
-            0) != 0) {
+            tsu_buf,
+            &tsu_buf_sz) != 0) {
         printf("lsqpack_enc_init failed\n");
         return false;
     }
@@ -297,6 +307,46 @@ MsH3UniDirStream::ControlReceive(
         Offset += (uint16_t)FrameLength; // TODO - account for overflow
 
     } while (Offset < (uint16_t)Buffer->Length);
+}
+
+bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
+{
+    if (lsqpack_enc_start_header(&H3.QPack, Request->ID(), 0) != 0) {
+        printf("lsqpack_enc_start_header failed\n");
+        return false;
+    }
+
+    size_t enc_off = 0, hea_off = 0;
+    for (uint32_t i = 0; i < 4; ++i) {
+        size_t enc_size = sizeof(RawBuffer) - enc_off, hea_size = sizeof(Request->HeadersBuffer) - hea_off;
+        auto result = lsqpack_enc_encode(&H3.QPack, RawBuffer + enc_off, &enc_size, Request->HeadersBuffer + hea_off, &hea_size, &Request->Headers[i], (lsqpack_enc_flags)0);
+        if (result != LQES_OK) {
+            printf("lsqpack_enc_encode failed, %d\n", result);
+            return false;
+        }
+        enc_off += enc_size;
+        hea_off += hea_size;
+    }
+
+    uint8_t pref_buf[0x20];
+    enum lsqpack_enc_header_flags hflags;
+    auto pref_sz = lsqpack_enc_end_header(&H3.QPack, pref_buf, sizeof(pref_buf), &hflags);
+    if (pref_sz < 0) {
+        printf("lsqpack_enc_end_header failed\n");
+        return false;
+    }
+
+    if (enc_off != 0) {
+        printf("Send: Encoder len=%u\n", (uint32_t)enc_off);
+        Buffer.Length = (uint32_t)enc_off;
+        if (QUIC_FAILED(Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT))) {
+            printf("Encoder send failed\n");
+        }
+    }
+
+    Request->Buffers[1].Length = (uint32_t)hea_off;
+
+    return true;
 }
 
 QUIC_STATUS
@@ -412,41 +462,24 @@ MsH3BiDirStream::MsH3BiDirStream(
     _In_ QUIC_STREAM_OPEN_FLAGS Flags
     ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(*Connection)
 {
-    Headers[0].Name = ":method";
-    Headers[0].NameLength = 7;
-    Headers[0].Value = Method;
-    Headers[0].ValueLength = (uint32_t)strlen(Method);
-
-    Headers[1].Name = ":path";
-    Headers[1].NameLength = 5;
-    Headers[1].Value = Path;
-    Headers[1].ValueLength = (uint32_t)strlen(Path);
-
-    Headers[2].Name = ":scheme";
-    Headers[2].NameLength = 7;
-    Headers[2].Value = "https";
-    Headers[2].ValueLength = 5;
-
-    Headers[3].Name = ":authority";
-    Headers[3].NameLength = 10;
-    Headers[3].Value = Host;
-    Headers[3].ValueLength = (uint32_t)strlen(Host);
-
-    if (!EncodeHeaders()) {
-        InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
-        return;
-    }
-
-    // TODO - Build, send and start
-
+    InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
+    if (!Headers[0].Set(":method", Method)) return;
+    if (!Headers[1].Set(":path", Path)) return;
+    if (!Headers[2].Set(":scheme", "http3")) return;
+    if (!Headers[3].Set(":authority", Host)) return;
+    if (!H3.LocalEncoder->EncodeHeaders(this)) return;
     H3.Requests.push_back(this);
-}
-
-bool
-MsH3BiDirStream::EncodeHeaders(
-    )
-{
-    return true;
+    if (Buffers[1].Length != 0) {
+        printf("Request: Send header len=%u\n", Buffers[1].Length);
+        if (!H3WriteFrameHeader(H3FrameHeaders, Buffers[1].Length, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
+            printf("H3WriteFrameHeader failed\n");
+            return;
+        }
+        if (QUIC_FAILED(Send(Buffers, 2, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_FIN))) {
+            printf("Request send failed\n");
+        }
+    }
+    InitStatus = QUIC_STATUS_SUCCESS;
 }
 
 QUIC_STATUS

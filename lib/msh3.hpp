@@ -7,6 +7,7 @@
 
 #include <msquic.hpp>
 #include <lsqpack.h>
+#include <lsxpack_header.h>
 #include <vector>
 
 #if _WIN32
@@ -40,11 +41,20 @@ enum H3SettingsType {
     H3SettingNumPlaceholders = 9,
 };
 
-struct H3HeadingPair {
-    const char* Name;
-    const char* Value;
-    uint32_t NameLength;
-    uint32_t ValueLength;
+// Contiguous buffer for (non-null-terminated) header name and value strings.
+struct H3HeadingPair : public lsxpack_header_t {
+    char Buffer[64] = {0};
+    bool Set(_In_z_ const char* Name, _In_z_ const char* Value) {
+        if (strlen(Name) + strlen(Value) > sizeof(Buffer)) return false;
+        buf = Buffer;
+        name_offset = 0;
+        name_len = (lsxpack_strlen_t)strlen(Name);
+        val_offset = name_len;
+        val_len = (lsxpack_strlen_t)strlen(Value);
+        memcpy(Buffer, Name, name_len);
+        memcpy(Buffer+name_len, Value, val_len);
+        return true;
+    }
 };
 
 struct H3Headers {
@@ -152,6 +162,8 @@ struct MsH3BiDirStream;
 struct MsH3Connection : public MsQuicConnection {
 
     struct lsqpack_enc QPack;
+    uint8_t tsu_buf[LSQPACK_LONGEST_SDTC];
+    size_t tsu_buf_sz;
 
     MsH3UniDirStream* LocalControl {nullptr};
     MsH3UniDirStream* LocalEncoder {nullptr};
@@ -216,6 +228,8 @@ struct MsH3UniDirStream : public MsQuicStream {
     MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
     MsH3UniDirStream(MsH3Connection* Connection, const HQUIC StreamHandle);
 
+    bool EncodeHeaders(_In_ struct MsH3BiDirStream* Request);
+
 private:
 
     static
@@ -252,7 +266,7 @@ private:
     QUIC_STATUS
     EncoderStreamCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
-        );
+        );    
 
     QUIC_STATUS
     DecoderStreamCallback(
@@ -271,6 +285,13 @@ struct MsH3BiDirStream : public MsQuicStream {
 
     H3HeadingPair Headers[4];
 
+    uint8_t FrameHeaderBuffer[16];
+    uint8_t HeadersBuffer[256];
+    QUIC_BUFFER Buffers[2] = {
+        {0, FrameHeaderBuffer},
+        {0, HeadersBuffer}
+    };
+
     MsH3BiDirStream(
         _In_ MsH3Connection* Connection,
         _In_z_ const char* Method,
@@ -280,8 +301,6 @@ struct MsH3BiDirStream : public MsQuicStream {
         );
 
 private:
-
-    bool EncodeHeaders();
 
     static
     QUIC_STATUS

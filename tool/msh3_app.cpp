@@ -5,7 +5,7 @@
 
 --*/
 
-#include "../msh3.h"
+#include "msh3.h"
 #include <stdio.h>
 #include <string.h>
 
