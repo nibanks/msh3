@@ -525,24 +525,36 @@ MsH3BiDirStream::Receive(
 
     do {
         QUIC_VAR_INT FrameType, FrameLength;
-        if (!QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
-            !QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
-            printf("Not enough request data yet for frame headers.\n");
-            return; // TODO - Implement local buffering
+        if (CurFrameType == H3FrameUnknown) {
+            if (!QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
+                !QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
+                printf("Not enough request data yet for frame headers.\n");
+                return; // TODO - Implement local buffering
+            }
+        } else {
+            FrameLength = CurFrameLength;
+            FrameType = CurFrameType;
+            CurFrameType = H3FrameUnknown;
         }
 
         if (FrameType != H3FrameData && Offset + FrameLength > (uint64_t)Buffer->Length) {
-            printf("Not enough request data yet for frame payload.\n");
+            printf("Not enough request data yet for frame %lu payload.\n", FrameType);
+            CurFrameType = (H3FrameType)FrameType;
+            CurFrameLength = (Offset + FrameLength) - Buffer->Length;
             return; // TODO - Implement local buffering
         }
 
         switch (FrameType) {
         case H3FrameData:
-            printf("Received: Data frame len=%lu\n", FrameLength);
+            //printf("Received: Data frame len=%lu\n", FrameLength);
             for (uint32_t i = 0; i < (uint32_t)FrameLength; ++i) {
                 printf("%c", Buffer->Buffer[Offset + i]);
             }
             printf("\n");
+            if (Offset + FrameLength > (uint64_t)Buffer->Length) {
+                CurFrameType = H3FrameData;
+                CurFrameLength = (Offset + FrameLength) - Buffer->Length;
+            }
             break;
         case H3FrameHeaders:
             printf("Received: Header frame len=%lu\n", FrameLength);

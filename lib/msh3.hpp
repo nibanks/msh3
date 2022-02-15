@@ -87,6 +87,7 @@ enum H3FrameType {
     H3FrameSettings,
     H3FramePushPromise,
     H3FrameGoaway = 7,
+    H3FrameUnknown = 0xFF
 };
 
 #define H3_RFC_DEFAULT_HEADER_TABLE_SIZE    0
@@ -328,6 +329,9 @@ struct MsH3BiDirStream : public MsQuicStream {
         {0, PrefixBuffer},
         {0, HeadersBuffer}
     };
+
+    H3FrameType CurFrameType {H3FrameUnknown};
+    uint32_t CurFrameLength {0};
 
     MsH3BiDirStream(
         _In_ MsH3Connection* Connection,

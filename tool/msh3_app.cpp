@@ -27,9 +27,9 @@ main(int argc, char **argv)
         return 1;
     }
 
-    //const char* Host = "www.outlook-evergreen.office.com";
-    //const char* Host = "www.google.com";
-    const char* Host = "www.cloudflare.com";
+    //const char* Host = "outlook-evergreen.office.com";
+    const char* Host = "www.google.com";
+    //const char* Host = "www.cloudflare.com";
     const char* Path = "/";
 
     if (argc > 1) Host = argv[1];
