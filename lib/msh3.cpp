@@ -466,7 +466,7 @@ MsH3BiDirStream::MsH3BiDirStream(
     InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
     if (!Headers[0].Set(":method", Method)) return;
     if (!Headers[1].Set(":path", Path)) return;
-    if (!Headers[2].Set(":scheme", "http3")) return;
+    if (!Headers[2].Set(":scheme", "http")) return;
     if (!Headers[3].Set(":authority", Host)) return;
     if (QUIC_FAILED(InitStatus = Start())) return;
     if (!H3.LocalEncoder->EncodeHeaders(this)) return;

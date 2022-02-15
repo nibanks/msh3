@@ -29,6 +29,6 @@ jobs:
         cmake -G 'Unix Makefiles' ..
         cmake --build .
     - name: GET Google
-      run: build/tool/msh3_app www.google.com
+      run: build/tool/msh3app www.google.com
     - name: GET Cloudflare
-      run: build/tool/msh3_app www.cloudflare.com
+      run: build/tool/msh3app www.cloudflare.com
