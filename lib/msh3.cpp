@@ -9,45 +9,59 @@
 #include "msh3.h"
 
 const MsQuicApi* MsQuic;
+long MsH3RefCount = 0;
 
 extern "C"
-bool
-MSH3_API
-MsH3Open(
+MSH3_API*
+MSH3_CALL
+MsH3ApiOpen(
     void
     )
 {
-    if (!MsQuic) {
+    if (++MsH3RefCount == 1) {
         MsQuic = new(std::nothrow) MsQuicApi();
-        if (QUIC_FAILED(MsQuic->GetInitStatus())) {
-            return false;
+        if (!MsQuic || QUIC_FAILED(MsQuic->GetInitStatus())) {
+            printf("MsQuicApi failed\n");
+            delete MsQuic;
+            MsQuic = nullptr;
+            return nullptr;
         }
     }
-    return true;
+    auto Reg = new(std::nothrow) MsQuicRegistration("h3", QUIC_EXECUTION_PROFILE_LOW_LATENCY, true);
+    if (!Reg || QUIC_FAILED(Reg->GetInitStatus())) {
+        printf("MsQuicRegistration failed\n");
+        delete Reg;
+        delete MsQuic;
+        MsQuic = nullptr;
+        return nullptr;
+    }
+    return (MSH3_API*)Reg;
 }
 
 extern "C"
 void
-MSH3_API
-MsH3Close(
-    void
+MSH3_CALL
+MsH3ApiClose(
+    MSH3_API* Handle
     )
 {
-    delete MsQuic;
-    MsQuic = nullptr;
+    delete (MsQuicRegistration*)Handle;
+    if (--MsH3RefCount == 0) {
+        delete MsQuic;
+        MsQuic = nullptr;
+    }
 }
 
 extern "C"
-bool
-MSH3_API
-MsH3Get(
+MSH3_CONNECTION*
+MSH3_CALL
+MsH3ConnectionOpen(
+    MSH3_API* Handle,
     const char* ServerName,
-    const char* Path,
     bool Unsecure
     )
 {
-    MsQuicRegistration Reg("h3");
-    if (QUIC_FAILED(Reg.GetInitStatus())) return false;
+    auto Reg = (MsQuicRegistration*)Handle;
 
     MsQuicSettings Settings;
     Settings.SetSendBufferingEnabled(false);
@@ -58,18 +72,48 @@ MsH3Get(
         Unsecure ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
             QUIC_CREDENTIAL_FLAG_CLIENT;
-    MsQuicConfiguration Config(Reg, MsQuicAlpn("h3", "h3-29"), Settings, MsQuicCredentialConfig(Flags));
-    if (QUIC_FAILED(Config.GetInitStatus())) return false;
+    MsQuicConfiguration Config(*Reg, MsQuicAlpn("h3", "h3-29"), Settings, MsQuicCredentialConfig(Flags));
+    if (QUIC_FAILED(Config.GetInitStatus())) return nullptr;
 
-    MsH3Connection H3(Reg);
-    if (QUIC_FAILED(H3.GetInitStatus())) return false;
+    auto H3 = new(std::nothrow) MsH3Connection(*Reg);
+    if (!H3 || QUIC_FAILED(H3->GetInitStatus())) {
+        delete H3;
+        return nullptr;
+    }
 
-    //if (ServerIp && QUIC_FAILED(H3.SetRemoteAddr(ServerAddress))) return false;
-    if (QUIC_FAILED(H3.Start(Config, ServerName, 443))) return false;
-    if (!H3.WaitOnHandshakeComplete()) return false;
-    if (!H3.SendRequest("GET", ServerName, Path)) return false;
-    H3.WaitOnShutdownComplete();
+    //if (ServerIp && QUIC_FAILED(H3->SetRemoteAddr(ServerAddress))) return false;
+    if (QUIC_FAILED(H3->Start(Config, ServerName, 443))) {
+        delete H3;
+        return nullptr;
+    }
 
+    return (MSH3_CONNECTION*)H3;
+}
+
+extern "C"
+void
+MSH3_CALL
+MsH3ConnectionClose(
+    MSH3_CONNECTION* Handle
+    )
+{
+    auto H3 = (MsH3Connection*)Handle;
+    H3->WaitOnShutdownComplete();
+    delete H3;
+}
+
+extern "C"
+bool
+MSH3_CALL
+MsH3ConnectionGet(
+    MSH3_CONNECTION* Handle,
+    const char* ServerName,
+    const char* Path
+    )
+{
+    auto H3 = (MsH3Connection*)Handle;
+    if (!H3->WaitOnHandshakeComplete()) return false;
+    if (!H3->SendRequest("GET", ServerName, Path)) return false;
     return true;
 }
 

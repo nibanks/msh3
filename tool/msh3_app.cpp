@@ -37,9 +37,14 @@ main(int argc, char **argv)
 
     printf("HTTP/3 GET https://%s%s\n\n", Host, Path);
 
-    if (MsH3Open()) {
-        MsH3Get(Host, Path, false);
-        MsH3Close();
+    auto Api = MsH3ApiOpen();
+    if (Api) {
+        auto Connection = MsH3ConnectionOpen(Api, Host, false);
+        if (Connection) {
+            MsH3ConnectionGet(Connection, Host, Path);
+            MsH3ConnectionClose(Connection);
+        }
+        MsH3ApiClose(Api);
     }
 
     return 0;

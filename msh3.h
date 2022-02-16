@@ -20,29 +20,46 @@ extern "C" {
 #endif
 
 #ifdef _WIN32
-#define MSH3_API __cdecl
+#define MSH3_CALL __cdecl
 #else
-#define MSH3_API
+#define MSH3_CALL
 #endif
 
-bool
-MSH3_API
-MsH3Open(
+typedef struct MSH3_API MSH3_API;
+typedef struct MSH3_CONNECTION MSH3_CONNECTION;
+
+MSH3_API*
+MSH3_CALL
+MsH3ApiOpen(
     void
     );
 
 void
-MSH3_API
-MsH3Close(
-    void
+MSH3_CALL
+MsH3ApiClose(
+    MSH3_API* Handle
+    );
+
+MSH3_CONNECTION*
+MSH3_CALL
+MsH3ConnectionOpen(
+    MSH3_API* Handle,
+    const char* ServerName,
+    bool Unsecure
+    );
+
+void
+MSH3_CALL
+MsH3ConnectionClose(
+    MSH3_CONNECTION* Handle
     );
 
 bool
-MSH3_API
-MsH3Get(
+MSH3_CALL
+MsH3ConnectionGet(
+    MSH3_CONNECTION* Handle,
     const char* ServerName,
-    const char* Path,
-    bool Unsecure
+    const char* Path
     );
 
 #if defined(__cplusplus)

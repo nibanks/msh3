@@ -258,8 +258,10 @@ struct MsH3Connection : public MsQuicConnection {
         );
 
     bool WaitOnHandshakeComplete() {
-        std::unique_lock Lock{HandshakeCompleteMutex};
-        HandshakeCompleteEvent.wait(Lock, [&]{return HandshakeComplete;});
+        if (!HandshakeComplete) {
+            std::unique_lock Lock{HandshakeCompleteMutex};
+            HandshakeCompleteEvent.wait(Lock, [&]{return HandshakeComplete;});
+        }
         return HandshakeSuccess;
     }
 
@@ -401,7 +403,7 @@ private:
     QUIC_STATUS
     EncoderStreamCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
-        );    
+        );
 
     QUIC_STATUS
     DecoderStreamCallback(
