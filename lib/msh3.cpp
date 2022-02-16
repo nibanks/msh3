@@ -53,7 +53,7 @@ MsH3Get(
     Settings.SetSendBufferingEnabled(false);
     Settings.SetPeerBidiStreamCount(1000);
     Settings.SetPeerUnidiStreamCount(3);
-    Settings.SetIdleTimeoutMs(5000);
+    Settings.SetIdleTimeoutMs(1000);
     auto Flags =
         Unsecure ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
@@ -77,10 +77,17 @@ MsH3Get(
 // MsH3Connection
 //
 
+struct lsqpack_dec_hset_if
+MsH3Connection::hset_if = {
+    .dhi_unblocked      = s_DecodeUnblocked,
+    .dhi_prepare_decode = s_DecodePrepare,
+    .dhi_process_header = s_DecodeProcess,
+};
+
 MsH3Connection::MsH3Connection(const MsQuicRegistration& Registration)
     : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
 {
-    lsqpack_enc_preinit(&QPack, nullptr);
+    lsqpack_enc_preinit(&Encoder, nullptr);
     LocalControl = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeControl);
     if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
     LocalEncoder = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeEncoder);
@@ -91,7 +98,7 @@ MsH3Connection::MsH3Connection(const MsQuicRegistration& Registration)
 
 MsH3Connection::~MsH3Connection()
 {
-    lsqpack_enc_cleanup(&QPack);
+    lsqpack_enc_cleanup(&Encoder);
     for (auto Request : Requests) {
         delete Request;
     }
@@ -161,14 +168,14 @@ MsH3Connection::ReceiveSettingsFrame(
         const uint8_t * const Buffer
     )
 {
-    uint16_t Offset = 0;
+    uint32_t Offset = 0;
 
     //printf("Control settings frame len=%u received\n", BufferLength);
 
     do {
         QUIC_VAR_INT SettingType, SettingValue;
-        if (!QuicVarIntDecode((uint16_t)BufferLength, Buffer, &Offset, &SettingType) ||
-            !QuicVarIntDecode((uint16_t)BufferLength, Buffer, &Offset, &SettingValue)) {
+        if (!MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingType) ||
+            !MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingValue)) {
             printf("Not enough setting.\n");
             return false;
         }
@@ -193,11 +200,11 @@ MsH3Connection::ReceiveSettingsFrame(
             break;
         }
 
-    } while (Offset < (uint16_t)BufferLength);
+    } while (Offset < BufferLength);
 
     tsu_buf_sz = sizeof(tsu_buf);
     if (lsqpack_enc_init(
-            &QPack,
+            &Encoder,
             nullptr,
             min(PeerMaxTableSize, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY),
             0,
@@ -209,7 +216,59 @@ MsH3Connection::ReceiveSettingsFrame(
         return false;
     }
 
+    lsqpack_dec_init(
+        &Decoder,
+        nullptr, //stderr,
+        0,
+        0,
+        &hset_if,
+        (lsqpack_dec_opts)0);
+
     return true;
+}
+
+void
+MsH3Connection::DecodeUnblocked()
+{
+    printf("DecodeUnblocked\n");
+}
+
+struct lsxpack_header*
+MsH3Connection::DecodePrepare(
+    struct lsxpack_header* Header,
+    size_t Space
+    )
+{
+    //printf("DecodePrepare %lu\n", Space);
+    if (Space > sizeof(DecodeBuffer)) {
+        printf("Space too big\n");
+        return nullptr;
+    }
+    if (Header) {
+        Header->buf = DecodeBuffer;
+        Header->val_len = Space;
+    } else {
+        Header = &CurDecodeHeader;
+        lsxpack_header_prepare_decode(Header, DecodeBuffer, 0, Space);
+    }
+    return Header;
+}
+
+int
+MsH3Connection::DecodeProcess(
+    struct lsxpack_header* Header
+    )
+{
+    //printf("DecodeProcess\n");
+    for (uint32_t i = 0; i < Header->name_len; ++i) {
+        printf("%c", Header->buf[Header->name_offset+i]);
+    }
+    printf(":");
+    for (uint32_t i = 0; i < Header->val_len; ++i) {
+        printf("%c", Header->buf[Header->val_offset+i]);
+    }
+    printf("\n");
+    return 0;
 }
 
 //
@@ -269,22 +328,17 @@ MsH3UniDirStream::ControlReceive(
 {
     //printf("Control receive %u\n", Buffer->Length);
 
-    if (Buffer->Length > UINT16_MAX) {
-        printf("TOO BIG BUFFER! NOT SUPPORTED RIGHT NOW!\n");
-        return;
-    }
-
-    uint16_t Offset = 0;
+    uint32_t Offset = 0;
 
     do {
         QUIC_VAR_INT FrameType, FrameLength;
-        if (!QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
-            !QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
+        if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
+            !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
             printf("Not enough control data yet for frame headers.\n");
             return; // TODO - Implement local buffering
         }
 
-        if (FrameType != H3FrameData && Offset + FrameLength > (uint64_t)Buffer->Length) {
+        if (FrameType != H3FrameData && Offset + (uint32_t)FrameLength > Buffer->Length) {
             printf("Not enough control data yet for frame payload.\n");
             return; // TODO - Implement local buffering
         }
@@ -304,14 +358,14 @@ MsH3UniDirStream::ControlReceive(
             break;
         }
 
-        Offset += (uint16_t)FrameLength; // TODO - account for overflow
+        Offset += (uint32_t)FrameLength; // TODO - account for overflow
 
-    } while (Offset < (uint16_t)Buffer->Length);
+    } while (Offset < Buffer->Length);
 }
 
 bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
 {
-    if (lsqpack_enc_start_header(&H3.QPack, Request->ID(), 0) != 0) {
+    if (lsqpack_enc_start_header(&H3.Encoder, Request->ID(), 0) != 0) {
         printf("lsqpack_enc_start_header failed\n");
         return false;
     }
@@ -319,7 +373,7 @@ bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
     size_t enc_off = 0, hea_off = 0;
     for (uint32_t i = 0; i < 4; ++i) {
         size_t enc_size = sizeof(RawBuffer) - enc_off, hea_size = sizeof(Request->HeadersBuffer) - hea_off;
-        auto result = lsqpack_enc_encode(&H3.QPack, RawBuffer + enc_off, &enc_size, Request->HeadersBuffer + hea_off, &hea_size, &Request->Headers[i], (lsqpack_enc_flags)0);
+        auto result = lsqpack_enc_encode(&H3.Encoder, RawBuffer + enc_off, &enc_size, Request->HeadersBuffer + hea_off, &hea_size, &Request->Headers[i], (lsqpack_enc_flags)0);
         if (result != LQES_OK) {
             printf("lsqpack_enc_encode failed, %d\n", result);
             return false;
@@ -332,7 +386,7 @@ bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
     Request->Buffers[2].Length = (uint32_t)hea_off;
 
     enum lsqpack_enc_header_flags hflags;
-    auto pref_sz = lsqpack_enc_end_header(&H3.QPack, Request->PrefixBuffer, sizeof(Request->PrefixBuffer), &hflags);
+    auto pref_sz = lsqpack_enc_end_header(&H3.Encoder, Request->PrefixBuffer, sizeof(Request->PrefixBuffer), &hflags);
     if (pref_sz < 0) {
         printf("lsqpack_enc_end_header failed\n");
         return false;
@@ -518,18 +572,13 @@ MsH3BiDirStream::Receive(
 {
     //printf("Request receive %u\n", Buffer->Length);
 
-    if (Buffer->Length > UINT16_MAX) {
-        printf("TOO BIG BUFFER! NOT SUPPORTED RIGHT NOW!\n");
-        exit(1);
-    }
-
-    uint16_t Offset = 0;
+    uint32_t Offset = 0;
 
     do {
         QUIC_VAR_INT FrameType, FrameLength;
         if (CurFrameType == H3FrameUnknown) {
-            if (!QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
-                !QuicVarIntDecode((uint16_t)Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
+            if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
+                !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
                 printf("Not enough request data yet for frame headers.\n");
                 return; // TODO - Implement local buffering
             }
@@ -540,7 +589,7 @@ MsH3BiDirStream::Receive(
         }
 
         uint32_t AvailFrameLength;
-        if (Offset + FrameLength > (uint64_t)Buffer->Length) {
+        if (Offset + (uint32_t)FrameLength > Buffer->Length) {
             if (FrameType != H3FrameData) {
                 printf("Not enough request data yet for frame %lu payload.\n", FrameType);
                 CurFrameType = (H3FrameType)FrameType;
@@ -558,21 +607,44 @@ MsH3BiDirStream::Receive(
             for (uint32_t i = 0; i < AvailFrameLength; ++i) {
                 printf("%c", Buffer->Buffer[Offset + i]);
             }
-            //printf("\n");
             if (Offset + FrameLength > (uint64_t)Buffer->Length) {
                 CurFrameType = H3FrameData;
                 CurFrameLength = (Offset + FrameLength) - Buffer->Length;
             }
             break;
         case H3FrameHeaders:
-            printf("Received: Header frame len=%lu\n", FrameLength);
+            ParseHeaderFrame(Buffer->Buffer + Offset, (uint32_t)FrameLength);
             break;
         default:
-            printf("Received: Unknown request frame 0x%lx len=%lu\n", FrameType, FrameLength);
+            //printf("Received: Unknown request frame 0x%lx len=%lu\n", FrameType, FrameLength);
             break;
         }
 
-        Offset += (uint16_t)FrameLength; // TODO - account for overflow
+        Offset += (uint32_t)FrameLength; // TODO - account for overflow
 
-    } while (Offset < (uint16_t)Buffer->Length);
+    } while (Offset < Buffer->Length);
+}
+
+void
+MsH3BiDirStream::ParseHeaderFrame(
+    _In_reads_(FrameLength)
+        const uint8_t* Frame,
+    _In_ uint32_t FrameLength
+    )
+{
+    //printf("Received: Header frame len=%u\n", FrameLength);
+
+    auto rhs =
+        lsqpack_dec_header_in(
+            &H3.Decoder,
+            &H3,
+            ID(),
+            FrameLength,
+            &Frame,
+            FrameLength,
+            nullptr,
+            nullptr);
+    if (rhs != LQRHS_DONE) {
+        printf("dec res=%u\n", rhs);
+    }
 }

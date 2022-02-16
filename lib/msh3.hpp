@@ -92,13 +92,64 @@ enum H3FrameType {
 
 #define H3_RFC_DEFAULT_HEADER_TABLE_SIZE    0
 #define H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM 0
-#define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 4096
+#define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 0
 #define H3_DEFAULT_QPACK_BLOCKED_STREAMS 100
 
 const H3Settings SettingsH3[] = {
-    { H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
+    //{ H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
     { H3SettingQPackBlockedStreamsSize, H3_DEFAULT_QPACK_BLOCKED_STREAMS },
 };
+
+// Copied from QuicVanIntDecode and changed to uint32_t offset/length
+inline
+_Success_(return != FALSE)
+BOOLEAN
+MsH3VarIntDecode(
+    _In_ uint32_t BufferLength,
+    _In_reads_bytes_(BufferLength)
+        const uint8_t * const Buffer,
+    _Inout_
+    _Deref_in_range_(0, BufferLength)
+    _Deref_out_range_(0, BufferLength)
+        uint32_t* Offset,
+    _Out_ QUIC_VAR_INT* Value
+    )
+{
+    if (BufferLength < sizeof(uint8_t) + *Offset) {
+        return FALSE;
+    }
+    if (Buffer[*Offset] < 0x40) {
+        *Value = Buffer[*Offset];
+        CXPLAT_ANALYSIS_ASSERT(*Value < 0x100ULL);
+        *Offset += sizeof(uint8_t);
+    } else if (Buffer[*Offset] < 0x80) {
+        if (BufferLength < sizeof(uint16_t) + *Offset) {
+            return FALSE;
+        }
+        *Value = ((uint64_t)(Buffer[*Offset] & 0x3fUL)) << 8;
+        *Value |= Buffer[*Offset + 1];
+        CXPLAT_ANALYSIS_ASSERT(*Value < 0x10000ULL);
+        *Offset += sizeof(uint16_t);
+    } else if (Buffer[*Offset] < 0xc0) {
+        if (BufferLength < sizeof(uint32_t) + *Offset) {
+            return FALSE;
+        }
+        uint32_t v;
+        memcpy(&v, Buffer + *Offset, sizeof(uint32_t));
+        *Value = CxPlatByteSwapUint32(v) & 0x3fffffffUL;
+        CXPLAT_ANALYSIS_ASSERT(*Value < 0x100000000ULL);
+        *Offset += sizeof(uint32_t);
+    } else {
+        if (BufferLength < sizeof(uint64_t) + *Offset) {
+            return FALSE;
+        }
+        uint64_t v;
+        memcpy(&v, Buffer + *Offset, sizeof(uint64_t));
+        *Value = CxPlatByteSwapUint64(v) & 0x3fffffffffffffffULL;
+        *Offset += sizeof(uint64_t);
+    }
+    return TRUE;
+}
 
 inline
 bool
@@ -166,9 +217,14 @@ struct MsH3BiDirStream;
 
 struct MsH3Connection : public MsQuicConnection {
 
-    struct lsqpack_enc QPack;
+    struct lsqpack_enc Encoder;
+    struct lsqpack_dec Decoder;
     uint8_t tsu_buf[LSQPACK_LONGEST_SDTC];
     size_t tsu_buf_sz;
+
+    static struct lsqpack_dec_hset_if hset_if;
+    struct lsxpack_header CurDecodeHeader;
+    char DecodeBuffer[512];
 
     MsH3UniDirStream* LocalControl {nullptr};
     MsH3UniDirStream* LocalEncoder {nullptr};
@@ -250,6 +306,49 @@ private:
         _In_ uint32_t BufferLength,
         _In_reads_bytes_(BufferLength)
             const uint8_t * const Buffer
+        );
+
+    static
+    void
+    s_DecodeUnblocked(
+        void *Context
+        )
+    {
+        ((MsH3Connection*)Context)->DecodeUnblocked();
+    }
+
+    void DecodeUnblocked();
+
+    static
+    struct lsxpack_header*
+    s_DecodePrepare(
+        void *Context,
+        struct lsxpack_header* Header,
+        size_t Space
+        )
+    {
+        return ((MsH3Connection*)Context)->DecodePrepare(Header, Space);
+    }
+
+    struct lsxpack_header*
+    DecodePrepare(
+        struct lsxpack_header* Header,
+        size_t Space
+        );
+
+    static
+    int
+    s_DecodeProcess(
+        void *Context,
+        struct lsxpack_header* Header
+        )
+    {
+        return ((MsH3Connection*)Context)->DecodeProcess(Header);
+    }
+
+    int
+    DecodeProcess(
+        struct lsxpack_header* Header
         );
 };
 
@@ -346,6 +445,13 @@ private:
     void
     Receive(
         _In_ const QUIC_BUFFER* Buffer
+        );
+
+    void
+    ParseHeaderFrame(
+        _In_reads_(FrameLength)
+            const uint8_t* Frame,
+        _In_ uint32_t FrameLength
         );
 
     static
