@@ -129,7 +129,6 @@ MsH3Connection::MsQuicCallback(
 {
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
-        //printf("Connected\n");
         HandshakeSuccess = true;
         SetHandshakeComplete();
         break;
@@ -144,14 +143,12 @@ MsH3Connection::MsQuicCallback(
         SetHandshakeComplete();
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
-        //printf("Connection shutdown complete\n");
         SetShutdownComplete();
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
             new(std::nothrow) MsH3UniDirStream(this, Event->PEER_STREAM_STARTED.Stream);
         } else {
-            printf("Ignoring new peer bidir stream\n");
             MsQuic->StreamClose(Event->PEER_STREAM_STARTED.Stream);
         }
         break;
@@ -170,8 +167,6 @@ MsH3Connection::ReceiveSettingsFrame(
 {
     uint32_t Offset = 0;
 
-    //printf("Control settings frame len=%u received\n", BufferLength);
-
     do {
         QUIC_VAR_INT SettingType, SettingValue;
         if (!MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingType) ||
@@ -182,56 +177,30 @@ MsH3Connection::ReceiveSettingsFrame(
 
         switch (SettingType) {
         case H3SettingQPackMaxTableCapacity:
-            //printf("Received: QPackMaxTableCapacity=%lu\n", SettingValue);
             PeerMaxTableSize = (uint32_t)SettingValue;
             break;
-        case H3SettingMaxHeaderListSize:
-            //printf("Received: MaxHeaderListSize=%lu\n", SettingValue);
-            break;
         case H3SettingQPackBlockedStreamsSize:
-            //printf("Received: QPackBlockedStreamsSize=%lu\n", SettingValue);
             PeerQPackBlockedStreams = SettingValue;
             break;
-        case H3SettingNumPlaceholders:
-            //printf("Received: NumPlaceholders=%lu\n", SettingValue);
-            break;
         default:
-            //printf("Received: Unknown setting 0x%lx val=0x%lx\n", SettingType, SettingValue);
             break;
         }
 
     } while (Offset < BufferLength);
 
     tsu_buf_sz = sizeof(tsu_buf);
-    if (lsqpack_enc_init(
-            &Encoder,
-            nullptr,
-            min(PeerMaxTableSize, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY),
-            0,
-            0,
-            LSQPACK_ENC_OPT_STAGE_2,
-            tsu_buf,
-            &tsu_buf_sz) != 0) {
+    if (lsqpack_enc_init(&Encoder, nullptr, 0, 0, 0, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
         printf("lsqpack_enc_init failed\n");
         return false;
     }
-
-    lsqpack_dec_init(
-        &Decoder,
-        nullptr, //stderr,
-        0,
-        0,
-        &hset_if,
-        (lsqpack_dec_opts)0);
+    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &hset_if, (lsqpack_dec_opts)0);
 
     return true;
 }
 
 void
 MsH3Connection::DecodeUnblocked()
-{
-    printf("DecodeUnblocked\n");
-}
+{ }
 
 struct lsxpack_header*
 MsH3Connection::DecodePrepare(
@@ -239,7 +208,6 @@ MsH3Connection::DecodePrepare(
     size_t Space
     )
 {
-    //printf("DecodePrepare %lu\n", Space);
     if (Space > sizeof(DecodeBuffer)) {
         printf("Space too big\n");
         return nullptr;
@@ -259,7 +227,6 @@ MsH3Connection::DecodeProcess(
     struct lsxpack_header* Header
     )
 {
-    //printf("DecodeProcess\n");
     for (uint32_t i = 0; i < Header->name_len; ++i) {
         printf("%c", Header->buf[Header->name_offset+i]);
     }
@@ -292,8 +259,7 @@ MsH3UniDirStream::MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type
 
 MsH3UniDirStream::MsH3UniDirStream(MsH3Connection* Connection, const HQUIC StreamHandle)
     : MsQuicStream(StreamHandle, CleanUpAutoDelete, s_MsQuicCallback, this), H3(*Connection), Type(H3StreamTypeUnknown)
-{
-}
+{ }
 
 QUIC_STATUS
 MsH3UniDirStream::ControlStreamCallback(
@@ -312,9 +278,6 @@ MsH3UniDirStream::ControlStreamCallback(
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Control peer recv abort\n");
         break;
-    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        //printf("Control shutdown complete\n");
-        break;
     default:
         break;
     }
@@ -326,8 +289,6 @@ MsH3UniDirStream::ControlReceive(
     _In_ const QUIC_BUFFER* Buffer
     )
 {
-    //printf("Control receive %u\n", Buffer->Length);
-
     uint32_t Offset = 0;
 
     do {
@@ -343,22 +304,11 @@ MsH3UniDirStream::ControlReceive(
             return; // TODO - Implement local buffering
         }
 
-        switch (FrameType) {
-        case H3FrameData:
-            printf("Received: Control Data frame len=%lu\n", FrameLength);
-            break;
-        case H3FrameHeaders:
-            printf("Received: Control Header frame len=%lu\n", FrameLength);
-            break;
-        case H3FrameSettings:
+        if (FrameType == H3FrameSettings) {
             if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
-            break;
-        default:
-            //printf("Received: Unknown control frame 0x%lx len=%lu\n", FrameType, FrameLength);
-            break;
         }
 
-        Offset += (uint32_t)FrameLength; // TODO - account for overflow
+        Offset += (uint32_t)FrameLength;
 
     } while (Offset < Buffer->Length);
 }
@@ -381,7 +331,6 @@ bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
         enc_off += enc_size;
         hea_off += hea_size;
     }
-
     Buffer.Length = (uint32_t)enc_off;
     Request->Buffers[2].Length = (uint32_t)hea_off;
 
@@ -391,11 +340,9 @@ bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
         printf("lsqpack_enc_end_header failed\n");
         return false;
     }
-
     Request->Buffers[1].Length = (uint32_t)pref_sz;
 
     if (Buffer.Length != 0) {
-        //printf("Send: Encoder len=%u\n", Buffer.Length);
         if (QUIC_FAILED(Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT))) {
             printf("Encoder send failed\n");
         }
@@ -419,9 +366,6 @@ MsH3UniDirStream::EncoderStreamCallback(
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Encoder peer recv abort\n");
         break;
-    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        //printf("Encoder shutdown complete\n");
-        break;
     default:
         break;
     }
@@ -443,9 +387,6 @@ MsH3UniDirStream::DecoderStreamCallback(
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Decoder peer recv abort\n");
         break;
-    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        //printf("Decoder shutdown complete\n");
-        break;
     default:
         break;
     }
@@ -463,7 +404,6 @@ MsH3UniDirStream::UnknownStreamCallback(
             auto H3Type = Event->RECEIVE.Buffers[0].Buffer[0];
             switch (H3Type) {
             case H3StreamTypeControl:
-                //printf("New peer control stream!\n");
                 Type = H3StreamTypeControl;
                 H3.PeerControl = this;
                 if (Event->RECEIVE.TotalBufferLength > 1) {
@@ -475,17 +415,14 @@ MsH3UniDirStream::UnknownStreamCallback(
                 }
                 break;
             case H3StreamTypeEncoder:
-                //printf("New peer encoder stream!\n");
                 Type = H3StreamTypeEncoder;
                 H3.PeerEncoder = this;
                 break;
             case H3StreamTypeDecoder:
-                //printf("New peer decoder stream!\n");
                 Type = H3StreamTypeDecoder;
                 H3.PeerDecoder = this;
                 break;
             default:
-                printf("Unsupported type %hhu!\n", H3Type);
                 break;
             }
         }
@@ -495,9 +432,6 @@ MsH3UniDirStream::UnknownStreamCallback(
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Unknown peer recv abort\n");
-        break;
-    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        //printf("Unknown shutdown complete\n");
         break;
     default:
         break;
@@ -527,7 +461,6 @@ MsH3BiDirStream::MsH3BiDirStream(
     H3.Requests.push_back(this);
     auto HeadersLength = Buffers[1].Length+Buffers[2].Length;
     if (HeadersLength != 0) {
-        //printf("Request: Send header len=%u\n", HeadersLength);
         if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
             printf("H3WriteFrameHeader failed\n");
             return;
@@ -553,12 +486,6 @@ MsH3BiDirStream::MsQuicCallback(
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         printf("Request peer send abort\n");
         break;
-    case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Request peer recv abort\n");
-        break;
-    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        //printf("Request shutdown complete\n");
-        break;
     default:
         break;
     }
@@ -570,8 +497,6 @@ MsH3BiDirStream::Receive(
     _In_ const QUIC_BUFFER* Buffer
     )
 {
-    //printf("Request receive %u\n", Buffer->Length);
-
     uint32_t Offset = 0;
 
     do {
@@ -590,61 +515,39 @@ MsH3BiDirStream::Receive(
 
         uint32_t AvailFrameLength;
         if (Offset + (uint32_t)FrameLength > Buffer->Length) {
+            AvailFrameLength = Buffer->Length - Offset;
+            CurFrameType = (H3FrameType)FrameType;
+            CurFrameLength = (uint32_t)FrameLength - AvailFrameLength;
             if (FrameType != H3FrameData) {
                 printf("Not enough request data yet for frame %lu payload.\n", FrameType);
-                CurFrameType = (H3FrameType)FrameType;
-                CurFrameLength = (Offset + FrameLength) - Buffer->Length;
                 return; // TODO - Implement local buffering
             }
-            AvailFrameLength = Buffer->Length - Offset;
         } else {
             AvailFrameLength = (uint32_t)FrameLength;
         }
 
-        switch (FrameType) {
-        case H3FrameData:
-            //printf("Received: Data frame len=%lu\n", FrameLength);
+        if (FrameType == H3FrameData) {
             for (uint32_t i = 0; i < AvailFrameLength; ++i) {
                 printf("%c", Buffer->Buffer[Offset + i]);
             }
-            if (Offset + FrameLength > (uint64_t)Buffer->Length) {
-                CurFrameType = H3FrameData;
-                CurFrameLength = (Offset + FrameLength) - Buffer->Length;
+        } else if (FrameType == H3FrameHeaders) {
+            const uint8_t* Frame = Buffer->Buffer + Offset;
+            auto rhs =
+                lsqpack_dec_header_in(
+                    &H3.Decoder,
+                    &H3,
+                    ID(),
+                    (uint32_t)FrameLength,
+                    &Frame,
+                    AvailFrameLength,
+                    nullptr,
+                    nullptr);
+            if (rhs != LQRHS_DONE) {
+                printf("lsqpack_dec_header_in not done res=%u\n", rhs);
             }
-            break;
-        case H3FrameHeaders:
-            ParseHeaderFrame(Buffer->Buffer + Offset, (uint32_t)FrameLength);
-            break;
-        default:
-            //printf("Received: Unknown request frame 0x%lx len=%lu\n", FrameType, FrameLength);
-            break;
         }
 
-        Offset += (uint32_t)FrameLength; // TODO - account for overflow
+        Offset += (uint32_t)FrameLength;
 
     } while (Offset < Buffer->Length);
-}
-
-void
-MsH3BiDirStream::ParseHeaderFrame(
-    _In_reads_(FrameLength)
-        const uint8_t* Frame,
-    _In_ uint32_t FrameLength
-    )
-{
-    //printf("Received: Header frame len=%u\n", FrameLength);
-
-    auto rhs =
-        lsqpack_dec_header_in(
-            &H3.Decoder,
-            &H3,
-            ID(),
-            FrameLength,
-            &Frame,
-            FrameLength,
-            nullptr,
-            nullptr);
-    if (rhs != LQRHS_DONE) {
-        printf("dec res=%u\n", rhs);
-    }
 }

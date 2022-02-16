@@ -447,13 +447,6 @@ private:
         _In_ const QUIC_BUFFER* Buffer
         );
 
-    void
-    ParseHeaderFrame(
-        _In_reads_(FrameLength)
-            const uint8_t* Frame,
-        _In_ uint32_t FrameLength
-        );
-
     static
     QUIC_STATUS
     s_MsQuicCallback(
