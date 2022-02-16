@@ -246,7 +246,6 @@ MsH3UniDirStream::MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type
     : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(*Connection), Type(Type)
 {
     if (!IsValid()) return;
-    Buffer.Buffer = RawBuffer;
     Buffer.Buffer[0] = Type;
     Buffer.Length = 1;
     if (Type == H3StreamTypeControl &&
@@ -273,10 +272,10 @@ MsH3UniDirStream::ControlStreamCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Control peer send abort\n");
+        printf("Control peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Control peer recv abort\n");
+        printf("Control peer recv abort, 0x%lx\n", Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default:
         break;
@@ -361,10 +360,10 @@ MsH3UniDirStream::EncoderStreamCallback(
         printf("Encoder receive %lu\n", Event->RECEIVE.TotalBufferLength);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Encoder peer send abort\n");
+        printf("Encoder peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Encoder peer recv abort\n");
+        printf("Encoder peer recv abort, 0x%lx\n", Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default:
         break;
@@ -382,10 +381,10 @@ MsH3UniDirStream::DecoderStreamCallback(
         printf("Decoder receive %lu\n", Event->RECEIVE.TotalBufferLength);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Decoder peer send abort\n");
+        printf("Decoder peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Decoder peer recv abort\n");
+        printf("Decoder peer recv abort, 0x%lx\n", Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default:
         break;
@@ -401,8 +400,7 @@ MsH3UniDirStream::UnknownStreamCallback(
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
         if (Event->RECEIVE.TotalBufferLength > 0) {
-            auto H3Type = Event->RECEIVE.Buffers[0].Buffer[0];
-            switch (H3Type) {
+            switch (Event->RECEIVE.Buffers[0].Buffer[0]) {
             case H3StreamTypeControl:
                 Type = H3StreamTypeControl;
                 H3.PeerControl = this;
@@ -428,10 +426,10 @@ MsH3UniDirStream::UnknownStreamCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Unknown peer send abort\n");
+        printf("Unknown peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Unknown peer recv abort\n");
+        printf("Unknown peer recv abort, 0x%lx\n", Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default:
         break;
@@ -451,6 +449,7 @@ MsH3BiDirStream::MsH3BiDirStream(
     _In_ QUIC_STREAM_OPEN_FLAGS Flags
     ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(*Connection)
 {
+    if (!IsValid()) return;
     InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
     if (!Headers[0].Set(":method", Method)) return;
     if (!Headers[1].Set(":path", Path)) return;
@@ -484,7 +483,7 @@ MsH3BiDirStream::MsQuicCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Request peer send abort\n");
+        printf("Request peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     default:
         break;
