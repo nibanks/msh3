@@ -6,7 +6,6 @@
 --*/
 
 #include "msh3.hpp"
-#include "msh3.h"
 
 const MsQuicApi* MsQuic;
 long MsH3RefCount = 0;
@@ -107,26 +106,21 @@ bool
 MSH3_CALL
 MsH3ConnectionGet(
     MSH3_CONNECTION* Handle,
+    const MSH3_REQUEST_IF* Interface,
+    void* IfContext,
     const char* ServerName,
     const char* Path
     )
 {
     auto H3 = (MsH3Connection*)Handle;
     if (!H3->WaitOnHandshakeComplete()) return false;
-    if (!H3->SendRequest("GET", ServerName, Path)) return false;
+    if (!H3->SendRequest(Interface, IfContext, "GET", ServerName, Path)) return false;
     return true;
 }
 
 //
 // MsH3Connection
 //
-
-struct lsqpack_dec_hset_if
-MsH3Connection::hset_if = {
-    .dhi_unblocked      = s_DecodeUnblocked,
-    .dhi_prepare_decode = s_DecodePrepare,
-    .dhi_process_header = s_DecodeProcess,
-};
 
 MsH3Connection::MsH3Connection(const MsQuicRegistration& Registration)
     : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
@@ -153,12 +147,14 @@ MsH3Connection::~MsH3Connection()
 
 bool
 MsH3Connection::SendRequest(
+    _In_ const MSH3_REQUEST_IF* Interface,
+    _In_ void* IfContext,
     _In_z_ const char* Method,
     _In_z_ const char* Host,
     _In_z_ const char* Path
     )
 {
-    auto Request = new(std::nothrow) MsH3BiDirStream(this, Method, Host, Path);
+    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Method, Host, Path);
     if (!Request->IsValid()) {
         delete Request;
         return false;
@@ -237,49 +233,9 @@ MsH3Connection::ReceiveSettingsFrame(
         printf("lsqpack_enc_init failed\n");
         return false;
     }
-    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &hset_if, (lsqpack_dec_opts)0);
+    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3BiDirStream::hset_if, (lsqpack_dec_opts)0);
 
     return true;
-}
-
-void
-MsH3Connection::DecodeUnblocked()
-{ }
-
-struct lsxpack_header*
-MsH3Connection::DecodePrepare(
-    struct lsxpack_header* Header,
-    size_t Space
-    )
-{
-    if (Space > sizeof(DecodeBuffer)) {
-        printf("Space too big\n");
-        return nullptr;
-    }
-    if (Header) {
-        Header->buf = DecodeBuffer;
-        Header->val_len = Space;
-    } else {
-        Header = &CurDecodeHeader;
-        lsxpack_header_prepare_decode(Header, DecodeBuffer, 0, Space);
-    }
-    return Header;
-}
-
-int
-MsH3Connection::DecodeProcess(
-    struct lsxpack_header* Header
-    )
-{
-    for (uint32_t i = 0; i < Header->name_len; ++i) {
-        printf("%c", Header->buf[Header->name_offset+i]);
-    }
-    printf(":");
-    for (uint32_t i = 0; i < Header->val_len; ++i) {
-        printf("%c", Header->buf[Header->val_offset+i]);
-    }
-    printf("\n");
-    return 0;
 }
 
 //
@@ -485,13 +441,23 @@ MsH3UniDirStream::UnknownStreamCallback(
 // MsH3BiDirStream
 //
 
+struct lsqpack_dec_hset_if
+MsH3BiDirStream::hset_if = {
+    .dhi_unblocked      = s_DecodeUnblocked,
+    .dhi_prepare_decode = s_DecodePrepare,
+    .dhi_process_header = s_DecodeProcess,
+};
+
 MsH3BiDirStream::MsH3BiDirStream(
     _In_ MsH3Connection* Connection,
+    _In_ const MSH3_REQUEST_IF* Interface,
+    _In_ void* IfContext,
     _In_z_ const char* Method,
     _In_z_ const char* Host,
     _In_z_ const char* Path,
     _In_ QUIC_STREAM_OPEN_FLAGS Flags
-    ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(*Connection)
+    ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this),
+        H3(*Connection), Callbacks(*Interface), Context(IfContext)
 {
     if (!IsValid()) return;
     InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
@@ -570,15 +536,13 @@ MsH3BiDirStream::Receive(
         }
 
         if (FrameType == H3FrameData) {
-            for (uint32_t i = 0; i < AvailFrameLength; ++i) {
-                printf("%c", Buffer->Buffer[Offset + i]);
-            }
+            Callbacks.DataReceived(Context, AvailFrameLength, Buffer->Buffer + Offset);
         } else if (FrameType == H3FrameHeaders) {
             const uint8_t* Frame = Buffer->Buffer + Offset;
             auto rhs =
                 lsqpack_dec_header_in(
                     &H3.Decoder,
-                    &H3,
+                    this,
                     ID(),
                     (uint32_t)FrameLength,
                     &Frame,
@@ -593,4 +557,42 @@ MsH3BiDirStream::Receive(
         Offset += (uint32_t)FrameLength;
 
     } while (Offset < Buffer->Length);
+}
+
+void
+MsH3BiDirStream::DecodeUnblocked()
+{ }
+
+struct lsxpack_header*
+MsH3BiDirStream::DecodePrepare(
+    struct lsxpack_header* Header,
+    size_t Space
+    )
+{
+    if (Space > sizeof(DecodeBuffer)) {
+        printf("Space too big\n");
+        return nullptr;
+    }
+    if (Header) {
+        Header->buf = DecodeBuffer;
+        Header->val_len = Space;
+    } else {
+        Header = &CurDecodeHeader;
+        lsxpack_header_prepare_decode(Header, DecodeBuffer, 0, Space);
+    }
+    return Header;
+}
+
+int
+MsH3BiDirStream::DecodeProcess(
+    struct lsxpack_header* Header
+    )
+{
+    MSH3_HEADER h;
+    h.Name = Header->buf + Header->name_offset;
+    h.NameLength = Header->name_len;
+    h.Value = Header->buf + Header->val_offset;
+    h.ValueLength = Header->val_len;
+    Callbacks.HeaderReceived(Context, &h);
+    return 0;
 }

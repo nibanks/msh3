@@ -54,10 +54,24 @@ MsH3ConnectionClose(
     MSH3_CONNECTION* Handle
     );
 
+typedef struct MSH3_HEADER {
+    const char* Name;
+    uint32_t NameLength;
+    const char* Value;
+    uint32_t ValueLength;
+} MSH3_HEADER;
+
+typedef struct MSH3_REQUEST_IF {
+    void MSH3_CALL (*HeaderReceived)(void* IfContext, const MSH3_HEADER* Header);
+    void MSH3_CALL (*DataReceived)(void* IfContext, uint32_t Length, const uint8_t* Data);
+} MSH3_REQUEST_IF;
+
 bool
 MSH3_CALL
 MsH3ConnectionGet(
     MSH3_CONNECTION* Handle,
+    const MSH3_REQUEST_IF* Interface,
+    void* IfContext,
     const char* ServerName,
     const char* Path
     );

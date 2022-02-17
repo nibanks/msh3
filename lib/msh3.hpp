@@ -14,6 +14,8 @@
 #include <mutex>
 #include <condition_variable>
 
+#include "msh3.h"
+
 #if _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
 #define CxPlatByteSwapUint32 _byteswap_ulong
@@ -222,10 +224,6 @@ struct MsH3Connection : public MsQuicConnection {
     uint8_t tsu_buf[LSQPACK_LONGEST_SDTC];
     size_t tsu_buf_sz;
 
-    static struct lsqpack_dec_hset_if hset_if;
-    struct lsxpack_header CurDecodeHeader;
-    char DecodeBuffer[512];
-
     MsH3UniDirStream* LocalControl {nullptr};
     MsH3UniDirStream* LocalEncoder {nullptr};
     MsH3UniDirStream* LocalDecoder {nullptr};
@@ -252,6 +250,8 @@ struct MsH3Connection : public MsQuicConnection {
 
     bool
     SendRequest(
+        _In_ const MSH3_REQUEST_IF* Interface,
+        _In_ void* IfContext,
         _In_z_ const char* Method,
         _In_z_ const char* Host,
         _In_z_ const char* Path
@@ -308,49 +308,6 @@ private:
         _In_ uint32_t BufferLength,
         _In_reads_bytes_(BufferLength)
             const uint8_t * const Buffer
-        );
-
-    static
-    void
-    s_DecodeUnblocked(
-        void *Context
-        )
-    {
-        ((MsH3Connection*)Context)->DecodeUnblocked();
-    }
-
-    void DecodeUnblocked();
-
-    static
-    struct lsxpack_header*
-    s_DecodePrepare(
-        void *Context,
-        struct lsxpack_header* Header,
-        size_t Space
-        )
-    {
-        return ((MsH3Connection*)Context)->DecodePrepare(Header, Space);
-    }
-
-    struct lsxpack_header*
-    DecodePrepare(
-        struct lsxpack_header* Header,
-        size_t Space
-        );
-
-    static
-    int
-    s_DecodeProcess(
-        void *Context,
-        struct lsxpack_header* Header
-        )
-    {
-        return ((MsH3Connection*)Context)->DecodeProcess(Header);
-    }
-
-    int
-    DecodeProcess(
-        struct lsxpack_header* Header
         );
 };
 
@@ -420,6 +377,9 @@ struct MsH3BiDirStream : public MsQuicStream {
 
     MsH3Connection& H3;
 
+    MSH3_REQUEST_IF Callbacks;
+    void* Context;
+
     H3HeadingPair Headers[4];
 
     uint8_t FrameHeaderBuffer[16];
@@ -431,11 +391,17 @@ struct MsH3BiDirStream : public MsQuicStream {
         {0, HeadersBuffer}
     };
 
+    static struct lsqpack_dec_hset_if hset_if;
+    struct lsxpack_header CurDecodeHeader;
+    char DecodeBuffer[512];
+
     H3FrameType CurFrameType {H3FrameUnknown};
     uint32_t CurFrameLength {0};
 
     MsH3BiDirStream(
         _In_ MsH3Connection* Connection,
+        _In_ const MSH3_REQUEST_IF* Interface,
+        _In_ void* IfContext,
         _In_z_ const char* Method,
         _In_z_ const char* Host,
         _In_z_ const char* Path,
@@ -463,5 +429,48 @@ private:
     QUIC_STATUS
     MsQuicCallback(
         _Inout_ QUIC_STREAM_EVENT* Event
+        );
+
+    static
+    void
+    s_DecodeUnblocked(
+        void *Context
+        )
+    {
+        ((MsH3BiDirStream*)Context)->DecodeUnblocked();
+    }
+
+    void DecodeUnblocked();
+
+    static
+    struct lsxpack_header*
+    s_DecodePrepare(
+        void *Context,
+        struct lsxpack_header* Header,
+        size_t Space
+        )
+    {
+        return ((MsH3BiDirStream*)Context)->DecodePrepare(Header, Space);
+    }
+
+    struct lsxpack_header*
+    DecodePrepare(
+        struct lsxpack_header* Header,
+        size_t Space
+        );
+
+    static
+    int
+    s_DecodeProcess(
+        void *Context,
+        struct lsxpack_header* Header
+        )
+    {
+        return ((MsH3BiDirStream*)Context)->DecodeProcess(Header);
+    }
+
+    int
+    DecodeProcess(
+        struct lsxpack_header* Header
         );
 };
