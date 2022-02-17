@@ -492,8 +492,16 @@ MsH3BiDirStream::MsQuicCallback(
             Receive(Event->RECEIVE.Buffers + i);
         }
         break;
+    case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
+        Complete = true;
+        Callbacks.Complete(Context, false, 0);
+        break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Request peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
+        Complete = true;
+        Callbacks.Complete(Context, true, Event->PEER_SEND_ABORTED.ErrorCode);
+        break;
+    case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
+        if (!Complete) Callbacks.Complete(Context, true, 0);
         break;
     default:
         break;

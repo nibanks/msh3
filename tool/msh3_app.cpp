@@ -20,7 +20,12 @@ void MSH3_CALL DataReceived(void* , uint32_t Length, const uint8_t* Data) {
     fwrite(Data, 1, Length, stdout);
 }
 
-const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived };
+void MSH3_CALL Complete(void* , bool Aborted, uint64_t AbortError) {
+    printf("\n");
+    if (Aborted) printf("Request aborted: 0x%lx", AbortError);
+}
+
+const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete };
 
 int MSH3_CALL main(int argc, char **argv) {
     if (argc > 1 && (!strcmp(argv[1], "?") || !strcmp(argv[1], "help"))) {

@@ -400,6 +400,8 @@ struct MsH3BiDirStream : public MsQuicStream {
     H3FrameType CurFrameType {H3FrameUnknown};
     uint32_t CurFrameLength {0};
 
+    bool Complete {false};
+
     MsH3BiDirStream(
         _In_ MsH3Connection* Connection,
         _In_ const MSH3_REQUEST_IF* Interface,

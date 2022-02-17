@@ -60,6 +60,7 @@ typedef struct MSH3_HEADER {
 typedef struct MSH3_REQUEST_IF {
     void MSH3_CALL (*HeaderReceived)(void* IfContext, const MSH3_HEADER* Header);
     void MSH3_CALL (*DataReceived)(void* IfContext, uint32_t Length, const uint8_t* Data);
+    void MSH3_CALL (*Complete)(void* IfContext, bool Aborted, uint64_t AbortError);
 } MSH3_REQUEST_IF;
 
 bool
