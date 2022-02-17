@@ -8,7 +8,7 @@
 #include "msh3.hpp"
 #include <atomic>
 
-static const MsQuicApi* MsQuic;
+const MsQuicApi* MsQuic;
 static std::atomic_int MsH3RefCount{0};
 
 extern "C"
