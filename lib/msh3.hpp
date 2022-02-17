@@ -5,6 +5,8 @@
 
 --*/
 
+#pragma once
+
 #include <msquic.hpp>
 #include <lsqpack.h>
 #include <lsxpack_header.h>

@@ -8,10 +8,6 @@
 #ifndef _MSH3_
 #define _MSH3_
 
-#ifdef _WIN32
-#pragma once
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
