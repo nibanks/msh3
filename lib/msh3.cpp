@@ -6,9 +6,10 @@
 --*/
 
 #include "msh3.hpp"
+#include <atomic>
 
-const MsQuicApi* MsQuic;
-long MsH3RefCount = 0;
+static const MsQuicApi* MsQuic;
+static std::atomic_int MsH3RefCount{0};
 
 extern "C"
 MSH3_API*
@@ -17,7 +18,7 @@ MsH3ApiOpen(
     void
     )
 {
-    if (++MsH3RefCount == 1) {
+    if (MsH3RefCount.fetch_add(1) == 0) {
         MsQuic = new(std::nothrow) MsQuicApi();
         if (!MsQuic || QUIC_FAILED(MsQuic->GetInitStatus())) {
             printf("MsQuicApi failed\n");
@@ -45,7 +46,7 @@ MsH3ApiClose(
     )
 {
     delete (MsQuicRegistration*)Handle;
-    if (--MsH3RefCount == 0) {
+    if (MsH3RefCount.fetch_sub(1) == 1) {
         delete MsQuic;
         MsQuic = nullptr;
     }
