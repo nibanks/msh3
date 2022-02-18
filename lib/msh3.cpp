@@ -188,7 +188,9 @@ MsH3Connection::MsQuicCallback(
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
-            new(std::nothrow) MsH3UniDirStream(this, Event->PEER_STREAM_STARTED.Stream);
+            if (new(std::nothrow) MsH3UniDirStream(this, Event->PEER_STREAM_STARTED.Stream) == nullptr) {
+                MsQuic->StreamClose(Event->PEER_STREAM_STARTED.Stream);
+            }
         } else {
             MsQuic->StreamClose(Event->PEER_STREAM_STARTED.Stream);
         }
@@ -518,52 +520,47 @@ MsH3BiDirStream::Receive(
     uint32_t Offset = 0;
 
     do {
-        QUIC_VAR_INT FrameType, FrameLength;
-        if (CurFrameType == H3FrameUnknown) {
-            if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
-                !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
+        if (CurFrameLengthLeft == 0) {
+            if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &CurFrameType) ||
+                !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &CurFrameLength)) {
                 printf("Not enough request data yet for frame headers.\n");
                 return; // TODO - Implement local buffering
             }
-        } else {
-            FrameLength = CurFrameLength;
-            FrameType = CurFrameType;
-            CurFrameType = H3FrameUnknown;
+            CurFrameLengthLeft = CurFrameLength;
         }
 
         uint32_t AvailFrameLength;
-        if (Offset + (uint32_t)FrameLength > Buffer->Length) {
-            AvailFrameLength = Buffer->Length - Offset;
-            CurFrameType = (H3FrameType)FrameType;
-            CurFrameLength = (uint32_t)FrameLength - AvailFrameLength;
-            if (FrameType != H3FrameData) {
-                printf("Not enough request data yet for frame %lu payload.\n", FrameType);
-                return; // TODO - Implement local buffering
-            }
+        if (Offset + CurFrameLengthLeft > (uint64_t)Buffer->Length) {
+            AvailFrameLength = Buffer->Length - Offset; // Rest of the buffer
         } else {
-            AvailFrameLength = (uint32_t)FrameLength;
+            AvailFrameLength = (uint32_t)CurFrameLengthLeft;
         }
 
-        if (FrameType == H3FrameData) {
+        if (CurFrameType == H3FrameData) {
             Callbacks.DataReceived(Context, AvailFrameLength, Buffer->Buffer + Offset);
-        } else if (FrameType == H3FrameHeaders) {
+        } else if (CurFrameType == H3FrameHeaders) {
             const uint8_t* Frame = Buffer->Buffer + Offset;
-            auto rhs =
-                lsqpack_dec_header_in(
-                    &H3.Decoder,
-                    this,
-                    ID(),
-                    (uint32_t)FrameLength,
-                    &Frame,
-                    AvailFrameLength,
-                    nullptr,
-                    nullptr);
-            if (rhs != LQRHS_DONE) {
-                printf("lsqpack_dec_header_in not done res=%u\n", rhs);
+            if (CurFrameLengthLeft == CurFrameLength) {
+                auto rhs =
+                    lsqpack_dec_header_in(
+                        &H3.Decoder, this, ID(), (size_t)CurFrameLength, &Frame,
+                        AvailFrameLength, nullptr, nullptr);
+                if (rhs != LQRHS_DONE && rhs != LQRHS_NEED) {
+                    printf("lsqpack_dec_header_in failure res=%u\n", rhs);
+                }
+            } else { // Continued from a previous partial read
+                auto rhs =
+                    lsqpack_dec_header_read(
+                        &H3.Decoder, this, &Frame, AvailFrameLength, nullptr,
+                        nullptr);
+                if (rhs != LQRHS_DONE && rhs != LQRHS_NEED) {
+                    printf("lsqpack_dec_header_read failure res=%u\n", rhs);
+                }
             }
         }
 
-        Offset += (uint32_t)FrameLength;
+        CurFrameLengthLeft -= AvailFrameLength;
+        Offset += AvailFrameLength;
 
     } while (Offset < Buffer->Length);
 }
@@ -579,7 +576,7 @@ MsH3BiDirStream::DecodePrepare(
     )
 {
     if (Space > sizeof(DecodeBuffer)) {
-        printf("Space too big\n");
+        printf("Header too big, %zu\n", Space);
         return nullptr;
     }
     if (Header) {
