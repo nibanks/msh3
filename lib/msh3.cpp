@@ -521,10 +521,24 @@ MsH3BiDirStream::Receive(
 
     do {
         if (CurFrameLengthLeft == 0) {
-            if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &CurFrameType) ||
-                !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &CurFrameLength)) {
-                printf("Not enough request data yet for frame headers.\n");
-                return; // TODO - Implement local buffering
+            if (BufferedHeadersLength == 0) {
+                if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &CurFrameType) ||
+                    !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &CurFrameLength)) {
+                    BufferedHeadersLength = Buffer->Length - Offset;
+                    memcpy(BufferedHeaders, Buffer->Buffer + Offset, BufferedHeadersLength);
+                    return;
+                }
+            } else {
+                uint32_t ToCopy = sizeof(BufferedHeaders) - BufferedHeadersLength;
+                if (ToCopy > Buffer->Length) ToCopy = Buffer->Length;
+                memcpy(BufferedHeaders + BufferedHeadersLength, Buffer->Buffer, ToCopy);
+                if (!MsH3VarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &Offset, &CurFrameType) ||
+                    !MsH3VarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &Offset, &CurFrameLength)) {
+                    BufferedHeadersLength += ToCopy;
+                    return;
+                }
+                Offset -= BufferedHeadersLength;
+                BufferedHeadersLength = 0;
             }
             CurFrameLengthLeft = CurFrameLength;
         }

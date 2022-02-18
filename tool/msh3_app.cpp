@@ -7,6 +7,7 @@
 
 #include "msh3.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 bool Print = true;
@@ -24,26 +25,31 @@ void MSH3_CALL DataReceived(void* , uint32_t Length, const uint8_t* Data) {
     if (Print) fwrite(Data, 1, Length, stdout);
 }
 
-void MSH3_CALL Complete(void* , bool Aborted, uint64_t AbortError) {
+void MSH3_CALL Complete(void* Context, bool Aborted, uint64_t AbortError) {
+    const uint32_t Index = (uint32_t)(size_t)Context;
     if (Print) printf("\n");
-    if (Aborted) printf("Request aborted: 0x%lx\n", AbortError);
+    if (Aborted) printf("Request %u aborted: 0x%lx\n", Index, AbortError);
+    else         printf("Request %u complete\n", Index);
 }
 
 const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete };
 
 int MSH3_CALL main(int argc, char **argv) {
     if (argc > 1 && (!strcmp(argv[1], "?") || !strcmp(argv[1], "help"))) {
-        printf("Usage: msh3 [server] [path] [unsecure]\n");
+        printf("Usage: msh3 [server] [path] [unsecure] [count]\n");
         return 1;
     }
 
     const char* Host = "www.google.com";
     const char* Path = "/";
     bool Secure = true;
+    uint32_t Count = 1;
 
     if (argc > 1) Host = argv[1];
     if (argc > 2) Path = argv[2];
     if (argc > 3 && !strcmp(argv[3], "unsecure")) Secure = false;
+    if (argc > 4) Count = (uint32_t)atoi(argv[4]);
+    Print = Count == 1;
 
     printf("HTTP/3 GET https://%s%s\n\n", Host, Path);
 
@@ -51,7 +57,8 @@ int MSH3_CALL main(int argc, char **argv) {
     if (Api) {
         auto Connection = MsH3ConnectionOpen(Api, Host, Secure);
         if (Connection) {
-            MsH3ConnectionGet(Connection, &Callbacks, NULL, Host, Path);
+            for (uint32_t i = 0; i < Count; ++i)
+                MsH3ConnectionGet(Connection, &Callbacks, (void*)(size_t)(i+1), Host, Path);
             MsH3ConnectionClose(Connection);
         }
         MsH3ApiClose(Api);

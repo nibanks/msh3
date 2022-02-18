@@ -401,6 +401,9 @@ struct MsH3BiDirStream : public MsQuicStream {
     QUIC_VAR_INT CurFrameLength {0};
     QUIC_VAR_INT CurFrameLengthLeft {0};
 
+    uint8_t BufferedHeaders[2*sizeof(uint64_t)];
+    uint32_t BufferedHeadersLength {0};
+
     bool Complete {false};
 
     MsH3BiDirStream(
