@@ -9,20 +9,26 @@
 #include <stdio.h>
 #include <string.h>
 
+bool Print = true;
+
 void MSH3_CALL HeaderReceived(void* , const MSH3_HEADER* Header) {
-    fwrite(Header->Name, 1, Header->NameLength, stdout);
-    printf(":");
-    fwrite(Header->Value, 1, Header->ValueLength, stdout);
-    printf("\n");
+    if (Print) {
+        fwrite(Header->Name, 1, Header->NameLength, stdout);
+        printf(":");
+        fwrite(Header->Value, 1, Header->ValueLength, stdout);
+        printf("\n");
+    }
 }
 
 void MSH3_CALL DataReceived(void* , uint32_t Length, const uint8_t* Data) {
-    fwrite(Data, 1, Length, stdout);
+    if (Print) fwrite(Data, 1, Length, stdout);
 }
 
 void MSH3_CALL Complete(void* , bool Aborted, uint64_t AbortError) {
-    printf("\n");
-    if (Aborted) printf("Request aborted: 0x%lx", AbortError);
+    if (Print) printf("\n");
+    if (Aborted) printf("Request aborted: 0x%lx\n", AbortError);
+    //static uint32_t i = 0;
+    //printf("Complete %u\n", ++i);
 }
 
 const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete };
@@ -47,7 +53,8 @@ int MSH3_CALL main(int argc, char **argv) {
     if (Api) {
         auto Connection = MsH3ConnectionOpen(Api, Host, Secure);
         if (Connection) {
-            MsH3ConnectionGet(Connection, &Callbacks, NULL, Host, Path);
+            //for (uint32_t i = 0; i < 10000; ++i)
+                MsH3ConnectionGet(Connection, &Callbacks, NULL, Host, Path);
             MsH3ConnectionClose(Connection);
         }
         MsH3ApiClose(Api);

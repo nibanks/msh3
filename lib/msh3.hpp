@@ -395,7 +395,7 @@ struct MsH3BiDirStream : public MsQuicStream {
 
     static struct lsqpack_dec_hset_if hset_if;
     struct lsxpack_header CurDecodeHeader;
-    char DecodeBuffer[512];
+    char DecodeBuffer[1024];
 
     QUIC_VAR_INT CurFrameType {0};
     QUIC_VAR_INT CurFrameLength {0};
