@@ -40,7 +40,7 @@ int MSH3_CALL main(int argc, char **argv) {
         return 1;
     }
 
-    const char* Host = "www.google.com";
+    const char* Host = "msquic.net";
     const char* Path = "/";
     bool Secure = true;
     uint32_t Count = 1;
@@ -58,7 +58,10 @@ int MSH3_CALL main(int argc, char **argv) {
         auto Connection = MsH3ConnectionOpen(Api, Host, Secure);
         if (Connection) {
             for (uint32_t i = 0; i < Count; ++i)
-                MsH3ConnectionGet(Connection, &Callbacks, (void*)(size_t)(i+1), Host, Path);
+                if (!MsH3ConnectionGet(Connection, &Callbacks, (void*)(size_t)(i+1), Host, Path)) {
+                    printf("Request %u failed to start\n", i+1);
+                    break;
+                }
             MsH3ConnectionClose(Connection);
         }
         MsH3ApiClose(Api);
