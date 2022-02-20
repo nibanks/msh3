@@ -259,6 +259,13 @@ struct MsH3Connection : public MsQuicConnection {
         _In_z_ const char* Path
         );
 
+    MSH3_CONNECTION_STATE GetState() const {
+        if (!HandshakeComplete) return MSH3_CONN_CONNECTING;
+        if (!HandshakeSuccess)  return MSH3_CONN_HANDSHAKE_FAILED;
+        if (!ShutdownComplete)  return MSH3_CONN_CONNECTED;
+        return MSH3_CONN_DISCONNECTED;
+    }
+
     bool WaitOnHandshakeComplete() {
         if (!HandshakeComplete) {
             std::unique_lock Lock{HandshakeCompleteMutex};

@@ -103,6 +103,19 @@ MsH3ConnectionClose(
 }
 
 extern "C"
+MSH3_CONNECTION_STATE
+MSH3_CALL
+MsH3ConnectionGetState(
+    MSH3_CONNECTION* Handle,
+    bool WaitForHandshakeComplete
+    )
+{
+    auto H3 = (MsH3Connection*)Handle;
+    if (WaitForHandshakeComplete) H3->WaitOnHandshakeComplete();
+    return H3->GetState();
+}
+
+extern "C"
 bool
 MSH3_CALL
 MsH3ConnectionGet(

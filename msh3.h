@@ -50,6 +50,20 @@ MsH3ConnectionClose(
     MSH3_CONNECTION* Handle
     );
 
+typedef enum MSH3_CONNECTION_STATE {
+    MSH3_CONN_CONNECTING,
+    MSH3_CONN_HANDSHAKE_FAILED,
+    MSH3_CONN_CONNECTED,
+    MSH3_CONN_DISCONNECTED,
+};
+
+MSH3_CONNECTION_STATE
+MSH3_CALL
+MsH3ConnectionGetState(
+    MSH3_CONNECTION* Handle,
+    bool WaitForHandshakeComplete
+    );
+
 typedef struct MSH3_HEADER {
     const char* Name;
     uint32_t NameLength;
