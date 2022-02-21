@@ -46,12 +46,12 @@ int MSH3_CALL main(int argc, char **argv) {
 
     const char* Host = "msquic.net";
     const char* Path = "/";
-    bool Secure = true;
+    bool Unsecure = false;
     uint32_t Count = 1;
 
     if (argc > 1) Host = argv[1];
     if (argc > 2) Path = argv[2];
-    if (argc > 3 && !strcmp(argv[3], "unsecure")) Secure = false;
+    if (argc > 3 && !strcmp(argv[3], "unsecure")) Unsecure = true;
     if (argc > 4) Count = (uint32_t)atoi(argv[4]);
     Print = Count == 1;
 
@@ -59,7 +59,7 @@ int MSH3_CALL main(int argc, char **argv) {
 
     auto Api = MsH3ApiOpen();
     if (Api) {
-        auto Connection = MsH3ConnectionOpen(Api, Host, Secure);
+        auto Connection = MsH3ConnectionOpen(Api, Host, Unsecure);
         if (Connection) {
             for (uint32_t i = 0; i < Count; ++i) {
                 auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Path);
