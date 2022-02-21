@@ -3,7 +3,7 @@
 
 set(SOURCES msh3.cpp)
 add_library(msh3 SHARED ${SOURCES})
-target_link_libraries(msh3 PRIVATE inc warnings msquic ls-qpack msh3_headers)
+target_link_libraries(msh3 inc warnings msquic ls-qpack msh3_headers)
 
 install(TARGETS msh3 EXPORT msh3 DESTINATION lib)
 install(FILES ../msh3.h DESTINATION include)
