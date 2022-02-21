@@ -28,7 +28,8 @@ jobs:
         mkdir build && cd build
         cmake -G 'Unix Makefiles' ..
         cmake --build .
-    - name: GET Google
-      run: build/tool/msh3app www.google.com
-    - name: GET Cloudflare
-      run: build/tool/msh3app www.cloudflare.com
+    # TODO - Figure out what GitHub Action blocks our requests and then reenable them.
+    #- name: GET Google
+    #  run: build/tool/msh3app www.google.com
+    #- name: GET Cloudflare
+    #  run: build/tool/msh3app www.cloudflare.com
