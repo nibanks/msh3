@@ -62,31 +62,11 @@ MsH3ConnectionOpen(
     )
 {
     auto Reg = (MsQuicRegistration*)Handle;
-
-    MsQuicSettings Settings;
-    Settings.SetSendBufferingEnabled(false);
-    Settings.SetPeerBidiStreamCount(1000);
-    Settings.SetPeerUnidiStreamCount(3);
-    Settings.SetIdleTimeoutMs(1000);
-    auto Flags =
-        Unsecure ?
-            QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
-            QUIC_CREDENTIAL_FLAG_CLIENT;
-    MsQuicConfiguration Config(*Reg, MsQuicAlpn("h3", "h3-29"), Settings, MsQuicCredentialConfig(Flags));
-    if (QUIC_FAILED(Config.GetInitStatus())) return nullptr;
-
-    auto H3 = new(std::nothrow) MsH3Connection(*Reg);
+    auto H3 = new(std::nothrow) MsH3Connection(*Reg, ServerName, 443, Unsecure);
     if (!H3 || QUIC_FAILED(H3->GetInitStatus())) {
         delete H3;
         return nullptr;
     }
-
-    //if (ServerIp && QUIC_FAILED(H3->SetRemoteAddr(ServerAddress))) return false;
-    if (QUIC_FAILED(H3->Start(Config, ServerName, 443))) {
-        delete H3;
-        return nullptr;
-    }
-
     return (MSH3_CONNECTION*)H3;
 }
 
@@ -103,29 +83,48 @@ MsH3ConnectionClose(
 }
 
 extern "C"
-bool
+MSH3_REQUEST*
 MSH3_CALL
-MsH3ConnectionGet(
+MsH3RequestOpen(
     MSH3_CONNECTION* Handle,
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
-    const char* ServerName,
     const char* Path
     )
 {
     auto H3 = (MsH3Connection*)Handle;
-    if (!H3->WaitOnHandshakeComplete()) return false;
-    if (!H3->SendRequest(Interface, IfContext, "GET", ServerName, Path)) return false;
-    return true;
+    if (!H3->WaitOnHandshakeComplete()) return nullptr;
+    return (MSH3_REQUEST*)H3->SendRequest(Interface, IfContext, "GET", Path);
+}
+
+extern "C"
+void
+MSH3_CALL
+MsH3RequestClose(
+    MSH3_REQUEST* Handle
+    )
+{
+    delete (MsH3BiDirStream*)Handle;
 }
 
 //
 // MsH3Connection
 //
 
-MsH3Connection::MsH3Connection(const MsQuicRegistration& Registration)
-    : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
+MsH3Connection::MsH3Connection(
+        const MsQuicRegistration& Registration,
+        const char* ServerName,
+        uint16_t Port,
+        bool Unsecure
+    ) : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
 {
+    if (!IsValid()) return;
+    size_t ServerNameLen = strlen(ServerName);
+    if (ServerNameLen >= sizeof(HostName)) {
+        InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
+        return;
+    }
+    memcpy(HostName, ServerName, ServerNameLen+1);
     lsqpack_enc_preinit(&Encoder, nullptr);
     LocalControl = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeControl);
     if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
@@ -133,34 +132,45 @@ MsH3Connection::MsH3Connection(const MsQuicRegistration& Registration)
     if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
     LocalDecoder = new(std::nothrow) MsH3UniDirStream(this, H3StreamTypeDecoder);
     if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
+
+    MsQuicSettings Settings;
+    Settings.SetSendBufferingEnabled(false);
+    Settings.SetPeerBidiStreamCount(1000);
+    Settings.SetPeerUnidiStreamCount(3);
+    Settings.SetIdleTimeoutMs(1000);
+    auto Flags =
+        Unsecure ?
+            QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
+            QUIC_CREDENTIAL_FLAG_CLIENT;
+    MsQuicConfiguration Config(Registration, MsQuicAlpn("h3", "h3-29"), Settings, MsQuicCredentialConfig(Flags));
+    if (QUIC_FAILED(InitStatus = Config.GetInitStatus())) return;
+
+    //if (ServerIp && InitStatus = QUIC_FAILED(H3->SetRemoteAddr(ServerAddress))) return;
+    if (QUIC_FAILED(InitStatus = Start(Config, HostName, Port))) return;
 }
 
 MsH3Connection::~MsH3Connection()
 {
     lsqpack_enc_cleanup(&Encoder);
-    for (auto Request : Requests) {
-        delete Request;
-    }
     delete LocalDecoder;
     delete LocalEncoder;
     delete LocalControl;
 }
 
-bool
+MsH3BiDirStream*
 MsH3Connection::SendRequest(
     _In_ const MSH3_REQUEST_IF* Interface,
     _In_ void* IfContext,
     _In_z_ const char* Method,
-    _In_z_ const char* Host,
     _In_z_ const char* Path
     )
 {
-    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Method, Host, Path);
+    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Method, HostName, Path);
     if (!Request->IsValid()) {
         delete Request;
-        return false;
+        return nullptr;
     }
-    return true;
+    return Request;
 }
 
 QUIC_STATUS
@@ -469,16 +479,17 @@ MsH3BiDirStream::MsH3BiDirStream(
     if (!Headers[2].Set(":scheme", "http")) return;
     if (!Headers[3].Set(":authority", Host)) return;
     if (QUIC_FAILED(InitStatus = Start())) return;
+    InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
     if (!H3.LocalEncoder->EncodeHeaders(this)) return;
-    H3.Requests.push_back(this);
     auto HeadersLength = Buffers[1].Length+Buffers[2].Length;
     if (HeadersLength != 0) {
         if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
             printf("H3WriteFrameHeader failed\n");
             return;
         }
-        if (QUIC_FAILED(Send(Buffers, 3, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_FIN))) {
+        if (QUIC_FAILED(InitStatus = Send(Buffers, 3, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_FIN))) {
             printf("Request send failed\n");
+            return;
         }
     }
     InitStatus = QUIC_STATUS_SUCCESS;
@@ -497,14 +508,15 @@ MsH3BiDirStream::MsQuicCallback(
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         Complete = true;
-        Callbacks.Complete(Context, false, 0);
+        Callbacks.Complete((MSH3_REQUEST*)this, Context, false, 0);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         Complete = true;
-        Callbacks.Complete(Context, true, Event->PEER_SEND_ABORTED.ErrorCode);
+        Callbacks.Complete((MSH3_REQUEST*)this, Context, true, Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        if (!Complete) Callbacks.Complete(Context, true, 0);
+        if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0);
+        Callbacks.Shutdown((MSH3_REQUEST*)this, Context);
         break;
     default:
         break;
@@ -551,7 +563,7 @@ MsH3BiDirStream::Receive(
         }
 
         if (CurFrameType == H3FrameData) {
-            Callbacks.DataReceived(Context, AvailFrameLength, Buffer->Buffer + Offset);
+            Callbacks.DataReceived((MSH3_REQUEST*)this, Context, AvailFrameLength, Buffer->Buffer + Offset);
         } else if (CurFrameType == H3FrameHeaders) {
             const uint8_t* Frame = Buffer->Buffer + Offset;
             if (CurFrameLengthLeft == CurFrameLength) {
@@ -613,6 +625,6 @@ MsH3BiDirStream::DecodeProcess(
     h.NameLength = Header->name_len;
     h.Value = Header->buf + Header->val_offset;
     h.ValueLength = Header->val_len;
-    Callbacks.HeaderReceived(Context, &h);
+    Callbacks.HeaderReceived((MSH3_REQUEST*)this, Context, &h);
     return 0;
 }

@@ -23,6 +23,7 @@ extern "C" {
 
 typedef struct MSH3_API MSH3_API;
 typedef struct MSH3_CONNECTION MSH3_CONNECTION;
+typedef struct MSH3_REQUEST MSH3_REQUEST;
 
 MSH3_API*
 MSH3_CALL
@@ -58,19 +59,25 @@ typedef struct MSH3_HEADER {
 } MSH3_HEADER;
 
 typedef struct MSH3_REQUEST_IF {
-    void MSH3_CALL (*HeaderReceived)(void* IfContext, const MSH3_HEADER* Header);
-    void MSH3_CALL (*DataReceived)(void* IfContext, uint32_t Length, const uint8_t* Data);
-    void MSH3_CALL (*Complete)(void* IfContext, bool Aborted, uint64_t AbortError);
+    void MSH3_CALL (*HeaderReceived)(MSH3_REQUEST* Request, void* IfContext, const MSH3_HEADER* Header);
+    void MSH3_CALL (*DataReceived)(MSH3_REQUEST* Request, void* IfContext, uint32_t Length, const uint8_t* Data);
+    void MSH3_CALL (*Complete)(MSH3_REQUEST* Request, void* IfContext, bool Aborted, uint64_t AbortError);
+    void MSH3_CALL (*Shutdown)(MSH3_REQUEST* Request, void* IfContext);
 } MSH3_REQUEST_IF;
 
-bool
+MSH3_REQUEST*
 MSH3_CALL
-MsH3ConnectionGet(
+MsH3RequestOpen(
     MSH3_CONNECTION* Handle,
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
-    const char* ServerName,
     const char* Path
+    );
+
+void
+MSH3_CALL
+MsH3RequestClose(
+    MSH3_REQUEST* Handle
     );
 
 #if defined(__cplusplus)
