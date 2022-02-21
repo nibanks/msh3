@@ -29,7 +29,7 @@ jobs:
         cmake -G 'Unix Makefiles' ..
         cmake --build .
     - name: Install
-      run: cd build && cmake --install .
+      run: cd build && sudo cmake --install .
     # TODO - Figure out what GitHub Action blocks our requests and then reenable them.
     #- name: GET Google
     #  run: build/tool/msh3app www.google.com
