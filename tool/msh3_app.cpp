@@ -12,7 +12,7 @@
 
 bool Print = true;
 
-void MSH3_CALL HeaderReceived(void* , const MSH3_HEADER* Header) {
+void MSH3_CALL HeaderReceived(MSH3_REQUEST* , void* , const MSH3_HEADER* Header) {
     if (Print) {
         fwrite(Header->Name, 1, Header->NameLength, stdout);
         printf(":");
@@ -21,18 +21,22 @@ void MSH3_CALL HeaderReceived(void* , const MSH3_HEADER* Header) {
     }
 }
 
-void MSH3_CALL DataReceived(void* , uint32_t Length, const uint8_t* Data) {
+void MSH3_CALL DataReceived(MSH3_REQUEST* , void* , uint32_t Length, const uint8_t* Data) {
     if (Print) fwrite(Data, 1, Length, stdout);
 }
 
-void MSH3_CALL Complete(void* Context, bool Aborted, uint64_t AbortError) {
+void MSH3_CALL Complete(MSH3_REQUEST* , void* Context, bool Aborted, uint64_t AbortError) {
     const uint32_t Index = (uint32_t)(size_t)Context;
     if (Print) printf("\n");
     if (Aborted) printf("Request %u aborted: 0x%lx\n", Index, AbortError);
     else         printf("Request %u complete\n", Index);
 }
 
-const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete };
+void MSH3_CALL Shutdown(MSH3_REQUEST* Request, void* ) {
+    MsH3RequestClose(Request);
+}
+
+const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete, Shutdown };
 
 int MSH3_CALL main(int argc, char **argv) {
     if (argc > 1 && (!strcmp(argv[1], "?") || !strcmp(argv[1], "help"))) {
@@ -57,11 +61,13 @@ int MSH3_CALL main(int argc, char **argv) {
     if (Api) {
         auto Connection = MsH3ConnectionOpen(Api, Host, Secure);
         if (Connection) {
-            for (uint32_t i = 0; i < Count; ++i)
-                if (!MsH3ConnectionGet(Connection, &Callbacks, (void*)(size_t)(i+1), Host, Path)) {
+            for (uint32_t i = 0; i < Count; ++i) {
+                auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Path);
+                if (!Request) {
                     printf("Request %u failed to start\n", i+1);
                     break;
                 }
+            }
             MsH3ConnectionClose(Connection);
         }
         MsH3ApiClose(Api);

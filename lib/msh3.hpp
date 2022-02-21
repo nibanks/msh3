@@ -237,8 +237,6 @@ struct MsH3Connection : public MsQuicConnection {
     uint32_t PeerMaxTableSize {H3_RFC_DEFAULT_HEADER_TABLE_SIZE};
     uint64_t PeerQPackBlockedStreams {H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM};
 
-    std::vector<MsH3BiDirStream*> Requests;
-
     std::mutex HandshakeCompleteMutex;
     std::condition_variable HandshakeCompleteEvent;
     bool HandshakeSuccess {false};
@@ -247,15 +245,21 @@ struct MsH3Connection : public MsQuicConnection {
     std::condition_variable ShutdownCompleteEvent;
     bool ShutdownComplete {false};
 
-    MsH3Connection(const MsQuicRegistration& Registration);
+    char HostName[256];
+
+    MsH3Connection(
+        const MsQuicRegistration& Registration,
+        const char* ServerName,
+        uint16_t Port,
+        bool Unsecure
+        );
     ~MsH3Connection();
 
-    bool
+    MsH3BiDirStream*
     SendRequest(
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
         _In_z_ const char* Method,
-        _In_z_ const char* Host,
         _In_z_ const char* Path
         );
 
