@@ -85,7 +85,8 @@ MsH3RequestOpen(
     MSH3_CONNECTION* Handle,
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
-    const char* Path
+    const MSH3_HEADER* Headers,
+    uint32_t HeadersCount
     );
 
 void
