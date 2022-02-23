@@ -102,12 +102,13 @@ MsH3RequestOpen(
     MSH3_CONNECTION* Handle,
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
-    const char* Path
+    const MSH3_HEADER* Headers,
+    uint32_t HeadersCount
     )
 {
     auto H3 = (MsH3Connection*)Handle;
     if (!H3->WaitOnHandshakeComplete()) return nullptr;
-    return (MSH3_REQUEST*)H3->SendRequest(Interface, IfContext, "GET", Path);
+    return (MSH3_REQUEST*)H3->SendRequest(Interface, IfContext, Headers, HeadersCount);
 }
 
 extern "C"
@@ -174,11 +175,12 @@ MsH3BiDirStream*
 MsH3Connection::SendRequest(
     _In_ const MSH3_REQUEST_IF* Interface,
     _In_ void* IfContext,
-    _In_z_ const char* Method,
-    _In_z_ const char* Path
+    _In_reads_(HeadersCount)
+        const MSH3_HEADER* Headers,
+    _In_ uint32_t HeadersCount
     )
 {
-    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Method, HostName, Path);
+    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Headers, HeadersCount);
     if (!Request->IsValid()) {
         delete Request;
         return nullptr;
@@ -338,7 +340,13 @@ MsH3UniDirStream::ControlReceive(
     } while (Offset < Buffer->Length);
 }
 
-bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
+bool 
+MsH3UniDirStream::EncodeHeaders(
+    _In_ MsH3BiDirStream* Request,
+    _In_reads_(HeadersCount)
+        const MSH3_HEADER* Headers,
+    _In_ uint32_t HeadersCount
+    )
 {
     if (lsqpack_enc_start_header(&H3.Encoder, Request->ID(), 0) != 0) {
         printf("lsqpack_enc_start_header failed\n");
@@ -346,9 +354,14 @@ bool MsH3UniDirStream::EncodeHeaders(_In_ MsH3BiDirStream* Request)
     }
 
     size_t enc_off = 0, hea_off = 0;
-    for (uint32_t i = 0; i < 4; ++i) {
+    for (uint32_t i = 0; i < HeadersCount; ++i) {
+        H3HeadingPair Header;
+        if (!Header.Set(Headers+i)) {
+            printf("Header.Set failed\n");
+            return false;
+        }
         size_t enc_size = sizeof(RawBuffer) - enc_off, hea_size = sizeof(Request->HeadersBuffer) - hea_off;
-        auto result = lsqpack_enc_encode(&H3.Encoder, RawBuffer + enc_off, &enc_size, Request->HeadersBuffer + hea_off, &hea_size, &Request->Headers[i], (lsqpack_enc_flags)0);
+        auto result = lsqpack_enc_encode(&H3.Encoder, RawBuffer + enc_off, &enc_size, Request->HeadersBuffer + hea_off, &hea_size, &Header, (lsqpack_enc_flags)0);
         if (result != LQES_OK) {
             printf("lsqpack_enc_encode failed, %d\n", result);
             return false;
@@ -478,22 +491,18 @@ MsH3BiDirStream::MsH3BiDirStream(
     _In_ MsH3Connection* Connection,
     _In_ const MSH3_REQUEST_IF* Interface,
     _In_ void* IfContext,
-    _In_z_ const char* Method,
-    _In_z_ const char* Host,
-    _In_z_ const char* Path,
+    _In_reads_(HeadersCount)
+        const MSH3_HEADER* Headers,
+    _In_ uint32_t HeadersCount,
     _In_ QUIC_STREAM_OPEN_FLAGS Flags
     ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this),
         H3(*Connection), Callbacks(*Interface), Context(IfContext)
 {
     if (!IsValid()) return;
     InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
-    if (!Headers[0].Set(":method", Method)) return;
-    if (!Headers[1].Set(":path", Path)) return;
-    if (!Headers[2].Set(":scheme", "http")) return;
-    if (!Headers[3].Set(":authority", Host)) return;
     if (QUIC_FAILED(InitStatus = Start())) return;
     InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
-    if (!H3.LocalEncoder->EncodeHeaders(this)) return;
+    if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return;
     auto HeadersLength = Buffers[1].Length+Buffers[2].Length;
     if (HeadersLength != 0) {
         if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {

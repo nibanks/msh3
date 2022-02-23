@@ -51,16 +51,16 @@ enum H3SettingsType {
 
 // Contiguous buffer for (non-null-terminated) header name and value strings.
 struct H3HeadingPair : public lsxpack_header_t {
-    char Buffer[64] = {0};
-    bool Set(_In_z_ const char* Name, _In_z_ const char* Value) {
-        if (strlen(Name) + strlen(Value) > sizeof(Buffer)) return false;
+    char Buffer[512] = {0};
+    bool Set(const MSH3_HEADER* Header) {
+        if (Header->NameLength + Header->ValueLength > sizeof(Buffer)) return false;
         buf = Buffer;
         name_offset = 0;
-        name_len = (lsxpack_strlen_t)strlen(Name);
+        name_len = (lsxpack_strlen_t)Header->NameLength;
         val_offset = name_len;
-        val_len = (lsxpack_strlen_t)strlen(Value);
-        memcpy(Buffer, Name, name_len);
-        memcpy(Buffer+name_len, Value, val_len);
+        val_len = (lsxpack_strlen_t)Header->ValueLength;
+        memcpy(Buffer, Header->Name, name_len);
+        memcpy(Buffer+name_len, Header->Value, val_len);
         return true;
     }
 };
@@ -259,8 +259,9 @@ struct MsH3Connection : public MsQuicConnection {
     SendRequest(
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
-        _In_z_ const char* Method,
-        _In_z_ const char* Path
+        _In_reads_(HeadersCount)
+            const MSH3_HEADER* Headers,
+        _In_ uint32_t HeadersCount
         );
 
     MSH3_CONNECTION_STATE GetState() const {
@@ -335,7 +336,13 @@ struct MsH3UniDirStream : public MsQuicStream {
     MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
     MsH3UniDirStream(MsH3Connection* Connection, const HQUIC StreamHandle);
 
-    bool EncodeHeaders(_In_ struct MsH3BiDirStream* Request);
+    bool
+    EncodeHeaders(
+        _In_ struct MsH3BiDirStream* Request,
+        _In_reads_(HeadersCount)
+            const MSH3_HEADER* Headers,
+        _In_ uint32_t HeadersCount
+        );
 
 private:
 
@@ -393,8 +400,6 @@ struct MsH3BiDirStream : public MsQuicStream {
     MSH3_REQUEST_IF Callbacks;
     void* Context;
 
-    H3HeadingPair Headers[4];
-
     uint8_t FrameHeaderBuffer[16];
     uint8_t PrefixBuffer[32];
     uint8_t HeadersBuffer[256];
@@ -421,9 +426,9 @@ struct MsH3BiDirStream : public MsQuicStream {
         _In_ MsH3Connection* Connection,
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
-        _In_z_ const char* Method,
-        _In_z_ const char* Host,
-        _In_z_ const char* Path,
+        _In_reads_(HeadersCount)
+            const MSH3_HEADER* Headers,
+        _In_ uint32_t HeadersCount,
         _In_ QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_0_RTT
         );
 

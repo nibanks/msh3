@@ -55,6 +55,13 @@ int MSH3_CALL main(int argc, char **argv) {
     if (argc > 4) Count = (uint32_t)atoi(argv[4]);
     Print = Count == 1;
 
+    const MSH3_HEADER Headers[4] = {
+        { ":method", 7, "GET", 3 },
+        { ":path", 5, Path, (uint32_t)strlen(Path) },
+        { ":scheme", 7, "http", 4 },
+        { ":authority", 10, Host, (uint32_t)strlen(Host) },
+    };
+
     printf("HTTP/3 GET https://%s%s\n\n", Host, Path);
 
     auto Api = MsH3ApiOpen();
@@ -62,7 +69,7 @@ int MSH3_CALL main(int argc, char **argv) {
         auto Connection = MsH3ConnectionOpen(Api, Host, Unsecure);
         if (Connection) {
             for (uint32_t i = 0; i < Count; ++i) {
-                auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Path);
+                auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Headers, 4);
                 if (!Request) {
                     printf("Request %u failed to start\n", i+1);
                     break;
