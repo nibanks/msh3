@@ -103,7 +103,7 @@ MsH3RequestOpen(
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
     const MSH3_HEADER* Headers,
-    uint32_t HeadersCount
+    size_t HeadersCount
     )
 {
     auto H3 = (MsH3Connection*)Handle;
@@ -177,7 +177,7 @@ MsH3Connection::SendRequest(
     _In_ void* IfContext,
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
-    _In_ uint32_t HeadersCount
+    _In_ size_t HeadersCount
     )
 {
     auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Headers, HeadersCount);
@@ -340,12 +340,12 @@ MsH3UniDirStream::ControlReceive(
     } while (Offset < Buffer->Length);
 }
 
-bool 
+bool
 MsH3UniDirStream::EncodeHeaders(
     _In_ MsH3BiDirStream* Request,
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
-    _In_ uint32_t HeadersCount
+    _In_ size_t HeadersCount
     )
 {
     if (lsqpack_enc_start_header(&H3.Encoder, Request->ID(), 0) != 0) {
@@ -354,7 +354,7 @@ MsH3UniDirStream::EncodeHeaders(
     }
 
     size_t enc_off = 0, hea_off = 0;
-    for (uint32_t i = 0; i < HeadersCount; ++i) {
+    for (size_t i = 0; i < HeadersCount; ++i) {
         H3HeadingPair Header;
         if (!Header.Set(Headers+i)) {
             printf("Header.Set failed\n");
@@ -493,7 +493,7 @@ MsH3BiDirStream::MsH3BiDirStream(
     _In_ void* IfContext,
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
-    _In_ uint32_t HeadersCount,
+    _In_ size_t HeadersCount,
     _In_ QUIC_STREAM_OPEN_FLAGS Flags
     ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this),
         H3(*Connection), Callbacks(*Interface), Context(IfContext)
