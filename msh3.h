@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #if defined(__cplusplus)
 extern "C" {
@@ -67,9 +68,9 @@ MsH3ConnectionGetState(
 
 typedef struct MSH3_HEADER {
     const char* Name;
-    uint32_t NameLength;
+    size_t NameLength;
     const char* Value;
-    uint32_t ValueLength;
+    size_t ValueLength;
 } MSH3_HEADER;
 
 typedef struct MSH3_REQUEST_IF {
@@ -86,7 +87,7 @@ MsH3RequestOpen(
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
     const MSH3_HEADER* Headers,
-    uint32_t HeadersCount
+    size_t HeadersCount
     );
 
 void

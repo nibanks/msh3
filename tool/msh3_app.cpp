@@ -44,7 +44,7 @@ int MSH3_CALL main(int argc, char **argv) {
         return 1;
     }
 
-    const char* Host = "msquic.net";
+    const char* Host = "outlook.office.net";
     const char* Path = "/";
     bool Unsecure = false;
     uint32_t Count = 1;
@@ -55,12 +55,15 @@ int MSH3_CALL main(int argc, char **argv) {
     if (argc > 4) Count = (uint32_t)atoi(argv[4]);
     Print = Count == 1;
 
-    const MSH3_HEADER Headers[4] = {
+    const MSH3_HEADER Headers[] = {
         { ":method", 7, "GET", 3 },
-        { ":path", 5, Path, (uint32_t)strlen(Path) },
-        { ":scheme", 7, "http", 4 },
-        { ":authority", 10, Host, (uint32_t)strlen(Host) },
+        { ":path", 5, Path, strlen(Path) },
+        { ":scheme", 7, "https", 5 },
+        { ":authority", 10, Host, strlen(Host) },
+        { "accept", 6, "*/*", 3 },
+        { "user-agent", 10, "curl/7.82.0-DEV", 15 },
     };
+    const size_t HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
 
     printf("HTTP/3 GET https://%s%s\n\n", Host, Path);
 
@@ -69,7 +72,7 @@ int MSH3_CALL main(int argc, char **argv) {
         auto Connection = MsH3ConnectionOpen(Api, Host, Unsecure);
         if (Connection) {
             for (uint32_t i = 0; i < Count; ++i) {
-                auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Headers, 4);
+                auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Headers, HeadersCount);
                 if (!Request) {
                     printf("Request %u failed to start\n", i+1);
                     break;

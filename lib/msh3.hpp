@@ -261,7 +261,7 @@ struct MsH3Connection : public MsQuicConnection {
         _In_ void* IfContext,
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
-        _In_ uint32_t HeadersCount
+        _In_ size_t HeadersCount
         );
 
     MSH3_CONNECTION_STATE GetState() const {
@@ -341,7 +341,7 @@ struct MsH3UniDirStream : public MsQuicStream {
         _In_ struct MsH3BiDirStream* Request,
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
-        _In_ uint32_t HeadersCount
+        _In_ size_t HeadersCount
         );
 
 private:
@@ -428,7 +428,7 @@ struct MsH3BiDirStream : public MsQuicStream {
         _In_ void* IfContext,
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
-        _In_ uint32_t HeadersCount,
+        _In_ size_t HeadersCount,
         _In_ QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_0_RTT
         );
 
