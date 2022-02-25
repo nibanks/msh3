@@ -5,8 +5,6 @@
 
 --*/
 
-#pragma warning(disable:4477) // 'printf' : format string '%lx' requires an argument of type 'unsigned long', but variadic argument 2 has type 'uint64_t'
-
 #include "msh3.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -7,10 +7,6 @@
 
 #pragma once
 
-#pragma warning(disable:4244) // conversion from 'int' to 'uint8_t', possible loss of data
-#pragma warning(disable:4267) // conversion from 'size_t' to 'lsxpack_strlen_t', possible loss of data
-#pragma warning(disable:4477) // 'printf' : format string '%lx' requires an argument of type 'unsigned long', but variadic argument 1 has type 'QUIC_UINT62'
-
 #include <msquic.hpp>
 #include <lsqpack.h>
 #include <lsxpack_header.h>
