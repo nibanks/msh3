@@ -7,11 +7,21 @@ Minimal HTTP/3 client on top of [microsoft/msquic](https://github.com/microsoft/
 ```c
 const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete, Shutdown };
 
+const MSH3_HEADER Headers[] = {
+    { ":method", 7, "GET", 3 },
+    { ":path", 5, Path, strlen(Path) },
+    { ":scheme", 7, "https", 5 },
+    { ":authority", 10, Host, strlen(Host) },
+    { "accept", 6, "*/*", 3 },
+};
+const size_t HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
+
 MSH3_API* Api = MsH3ApiOpen();
 if (Api) {
-    MSH3_CONNECTION* Connection = MsH3ConnectionOpen(Api, Host, Secure);
+    MSH3_CONNECTION* Connection = MsH3ConnectionOpen(Api, Host, Unsecure);
     if (Connection) {
-        MsH3RequestOpen(Connection, &Callbacks, NULL, Path);
+        MSH3_REQUEST* Request = MsH3RequestOpen(Connection, &Callbacks, NULL, Headers, HeadersCount);
+        // ...
         MsH3ConnectionClose(Connection);
     }
     MsH3ApiClose(Api);
@@ -42,6 +52,7 @@ cmake --build .
 # Run
 
 ```
+msh3app outlook.office.com
 msh3app www.cloudflare.com
-msh3app www.google.com /index.html
+msh3app www.google.com
 ```
