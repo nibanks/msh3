@@ -28,7 +28,7 @@ void MSH3_CALL DataReceived(MSH3_REQUEST* , void* , uint32_t Length, const uint8
 void MSH3_CALL Complete(MSH3_REQUEST* , void* Context, bool Aborted, uint64_t AbortError) {
     const uint32_t Index = (uint32_t)(size_t)Context;
     if (Print) printf("\n");
-    if (Aborted) printf("Request %u aborted: 0x%lx\n", Index, AbortError);
+    if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
     else         printf("Request %u complete\n", Index);
 }
 
