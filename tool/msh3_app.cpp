@@ -60,8 +60,8 @@ int MSH3_CALL main(int argc, char **argv) {
         { ":path", 5, Path, strlen(Path) },
         { ":scheme", 7, "https", 5 },
         { ":authority", 10, Host, strlen(Host) },
-        { "accept", 6, "*/*", 3 },
         { "user-agent", 10, "curl/7.82.0-DEV", 15 },
+        { "accept", 6, "*/*", 3 },
     };
     const size_t HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
 

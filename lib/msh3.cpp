@@ -181,7 +181,7 @@ MsH3Connection::SendRequest(
     )
 {
     auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Headers, HeadersCount);
-    if (!Request->IsValid()) {
+    if (!Request || !Request->IsValid()) {
         delete Request;
         return nullptr;
     }
