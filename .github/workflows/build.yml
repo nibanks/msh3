@@ -45,13 +45,13 @@ jobs:
       uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
       with:
         submodules: 'recursive'
-    - name: Build ls-qpack
-      run: |
-        cd ls-qpack
-        vcpkg install getopt:x64-windows
-        vcpkg integrate install
-        cmake -DLSQPACK_TESTS=ON -DCMAKE_GENERATOR_PLATFORM=x64 -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CONFIGURATION_TYPES=Debug -DCMAKE_TOOLCHAIN_FILE=c:/tools/vcpkg/scripts/buildsystems/vcpkg.cmake -DGETOPT_INCLUDE_DIR=c:/tools/vcpkg/installed/x64-windows/include -DGETOPT_LIB=c:/tools/vcpkg/installed/x64-windows/lib/getopt.lib .
-        cmake -- build .
+    #- name: Build ls-qpack
+    #  run: |
+    #    cd ls-qpack
+    #    vcpkg install getopt:x64-windows
+    #    vcpkg integrate install
+    #    cmake -DCMAKE_GENERATOR_PLATFORM=x64 -DVCPKG_TARGET_TRIPLET=x64-windows -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CONFIGURATION_TYPES=Debug -DCMAKE_TOOLCHAIN_FILE=c:/tools/vcpkg/scripts/buildsystems/vcpkg.cmake -DGETOPT_INCLUDE_DIR=c:/tools/vcpkg/installed/x64-windows/include -DGETOPT_LIB=c:/tools/vcpkg/installed/x64-windows/lib/getopt.lib .
+    #    cmake -- build .
     - name: Build
       run: |
         mkdir build && cd build
