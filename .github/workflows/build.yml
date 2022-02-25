@@ -28,7 +28,7 @@ jobs:
     - name: Build
       run: cd build && cmake --build .
     - name: Install
-      run: cd build && sudo cmake --install .
+      run: cd build && sudo cmake --install . --config Debug
     # TODO - Figure out what GitHub Action blocks our requests and then reenable them.
     #- name: GET Google
     #  run: build/tool/msh3app www.google.com
@@ -49,4 +49,4 @@ jobs:
     - name: Build
       run: cd build && cmake --build .
     - name: Install
-      run: cd build && cmake --install .
+      run: cd build && cmake --install . --config Debug
