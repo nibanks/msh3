@@ -44,7 +44,7 @@ int MSH3_CALL main(int argc, char **argv) {
         return 1;
     }
 
-    const char* Host = "outlook.office.net";
+    const char* Host = "outlook.office.com";
     const char* Path = "/";
     bool Unsecure = false;
     uint32_t Count = 1;
