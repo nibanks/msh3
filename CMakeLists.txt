@@ -9,8 +9,6 @@ add_library(msh3_headers INTERFACE)
 target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Build lsqpack dependency.
-set(LSQPACK_BIN "Build binaries" OFF)
-set(LSQPACK_TESTS "Build tests" OFF)
 add_subdirectory(ls-qpack)
 
 # Configure and build msquic dependency.

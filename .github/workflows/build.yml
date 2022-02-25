@@ -26,7 +26,7 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake -G 'Unix Makefiles' ..
+        cmake -G 'Unix Makefiles' -DLSQPACK_BIN=OFF -DLSQPACK_TEST=OFF ..
         cmake --build .
     - name: Install
       run: cd build && sudo cmake --install .
@@ -55,5 +55,5 @@ jobs:
     - name: Build
       run: |
         mkdir build && cd build
-        cmake -G 'Visual Studio 17 2022' -A x64 ..
+        cmake -G 'Visual Studio 17 2022' -A x64 -DLSQPACK_BIN=OFF -DLSQPACK_TEST=OFF ..
         cmake --build .
