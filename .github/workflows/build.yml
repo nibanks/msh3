@@ -48,3 +48,5 @@ jobs:
       run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 ..
     - name: Build
       run: cd build && cmake --build .
+    - name: Install
+      run: cd build && cmake --install .
