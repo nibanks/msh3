@@ -274,7 +274,7 @@ MsH3UniDirStream::MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type
     : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(*Connection), Type(Type)
 {
     if (!IsValid()) return;
-    Buffer.Buffer[0] = Type;
+    Buffer.Buffer[0] = (uint8_t)Type;
     Buffer.Length = 1;
     if (Type == H3StreamTypeControl &&
         !H3WriteSettingsFrame(SettingsH3, ARRAYSIZE(SettingsH3), &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
@@ -313,31 +313,31 @@ MsH3UniDirStream::ControlStreamCallback(
 
 void
 MsH3UniDirStream::ControlReceive(
-    _In_ const QUIC_BUFFER* Buffer
+    _In_ const QUIC_BUFFER* RecvBuffer
     )
 {
     uint32_t Offset = 0;
 
     do {
         QUIC_VAR_INT FrameType, FrameLength;
-        if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
-            !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
+        if (!MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameType) ||
+            !MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameLength)) {
             printf("Not enough control data yet for frame headers.\n");
             return; // TODO - Implement local buffering
         }
 
-        if (FrameType != H3FrameData && Offset + (uint32_t)FrameLength > Buffer->Length) {
+        if (FrameType != H3FrameData && Offset + (uint32_t)FrameLength > RecvBuffer->Length) {
             printf("Not enough control data yet for frame payload.\n");
             return; // TODO - Implement local buffering
         }
 
         if (FrameType == H3FrameSettings) {
-            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
+            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, RecvBuffer->Buffer + Offset)) return;
         }
 
         Offset += (uint32_t)FrameLength;
 
-    } while (Offset < Buffer->Length);
+    } while (Offset < RecvBuffer->Length);
 }
 
 bool
@@ -629,7 +629,7 @@ MsH3BiDirStream::DecodePrepare(
     }
     if (Header) {
         Header->buf = DecodeBuffer;
-        Header->val_len = Space;
+        Header->val_len = (lsxpack_strlen_t)Space;
     } else {
         Header = &CurDecodeHeader;
         lsxpack_header_prepare_decode(Header, DecodeBuffer, 0, Space);
