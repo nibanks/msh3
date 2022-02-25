@@ -16,6 +16,8 @@ add_subdirectory(msquic)
 target_compile_features(inc INTERFACE cxx_std_20)
 
 # Build lsqpack dependency.
+set(LSQPACK_BIN OFF)
+set(LSQPACK_TESTS OFF)
 add_subdirectory(ls-qpack)
 
 # Build msh3 library (and cmd line tool).
