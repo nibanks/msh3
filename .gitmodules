@@ -1,7 +1,6 @@
 [submodule "msquic"]
 	path = msquic
 	url = https://github.com/microsoft/msquic
-	branch = nibanks/no-copyonly
 [submodule "ls-qpack"]
 	path = ls-qpack
 	url = https://github.com/nibanks/ls-qpack
