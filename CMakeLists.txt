@@ -8,11 +8,10 @@ cmake_minimum_required(VERSION 3.16)
 add_library(msh3_headers INTERFACE)
 target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Configure and build ls-qpack dependency.
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-set(LSQPACK_BIN OFF)
-set(LSQPACK_TESTS)
-
-# Build lsqpack dependency.
+option(LSQPACK_TESTS "Build tests" OFF)
+option(LSQPACK_BIN "Build binaries" OFF)
 add_subdirectory(ls-qpack)
 
 # Configure and build msquic dependency.
