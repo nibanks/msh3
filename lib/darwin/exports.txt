@@ -1,0 +1,7 @@
+_MsH3ApiOpen
+_MsH3ApiClose
+_MsH3ConnectionOpen
+_MsH3ConnectionClose
+_MsH3ConnectionGetState
+_MsH3RequestOpen
+_MsH3RequestClose

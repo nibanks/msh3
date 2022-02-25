@@ -8,15 +8,18 @@ cmake_minimum_required(VERSION 3.16)
 add_library(msh3_headers INTERFACE)
 target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Configure and build ls-qpack dependency.
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+option(LSQPACK_TESTS "Build tests" OFF)
+option(LSQPACK_BIN "Build binaries" OFF)
+add_subdirectory(ls-qpack)
+
 # Configure and build msquic dependency.
 set(QUIC_TLS "openssl")
 set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
 set(CMAKE_BUILD_TYPE "Release")
 add_subdirectory(msquic)
 target_compile_features(inc INTERFACE cxx_std_20)
-
-# Build lsqpack dependency.
-add_subdirectory(ls-qpack)
 
 # Build msh3 library (and cmd line tool).
 add_subdirectory(lib)

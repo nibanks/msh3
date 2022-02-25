@@ -1,0 +1,10 @@
+LIBRARY MSH3
+
+EXPORTS
+    MsH3ApiOpen
+    MsH3ApiClose
+    MsH3ConnectionOpen
+    MsH3ConnectionClose
+    MsH3ConnectionGetState
+    MsH3RequestOpen
+    MsH3RequestClose

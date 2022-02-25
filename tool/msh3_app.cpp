@@ -28,7 +28,7 @@ void MSH3_CALL DataReceived(MSH3_REQUEST* , void* , uint32_t Length, const uint8
 void MSH3_CALL Complete(MSH3_REQUEST* , void* Context, bool Aborted, uint64_t AbortError) {
     const uint32_t Index = (uint32_t)(size_t)Context;
     if (Print) printf("\n");
-    if (Aborted) printf("Request %u aborted: 0x%lx\n", Index, AbortError);
+    if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
     else         printf("Request %u complete\n", Index);
 }
 
@@ -60,8 +60,8 @@ int MSH3_CALL main(int argc, char **argv) {
         { ":path", 5, Path, strlen(Path) },
         { ":scheme", 7, "https", 5 },
         { ":authority", 10, Host, strlen(Host) },
-        { "accept", 6, "*/*", 3 },
         { "user-agent", 10, "curl/7.82.0-DEV", 15 },
+        { "accept", 6, "*/*", 3 },
     };
     const size_t HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
 

@@ -9,10 +9,10 @@ on:
 permissions: read-all
 
 jobs:
-  build:
+  build-linux:
     permissions:
       contents: read
-    name: Build
+    name: Build Linux
     runs-on: ubuntu-latest
     steps:
     - name: Harden Runner
@@ -23,11 +23,10 @@ jobs:
       uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
       with:
         submodules: 'recursive'
+    - name: Generate
+      run: mkdir build && cd build && cmake -G 'Unix Makefiles' ..
     - name: Build
-      run: |
-        mkdir build && cd build
-        cmake -G 'Unix Makefiles' ..
-        cmake --build .
+      run: cd build && cmake --build .
     - name: Install
       run: cd build && sudo cmake --install .
     # TODO - Figure out what GitHub Action blocks our requests and then reenable them.
@@ -35,3 +34,17 @@ jobs:
     #  run: build/tool/msh3app www.google.com
     #- name: GET Cloudflare
     #  run: build/tool/msh3app www.cloudflare.com
+  build-windows:
+    permissions:
+      contents: read
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
+      with:
+        submodules: 'recursive'
+    - name: Generate
+      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 ..
+    - name: Build
+      run: cd build && cmake --build .

@@ -5,8 +5,18 @@
 
 --*/
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4244) // LSQpack int conversion
+#pragma warning(disable:4267) // LSQpack int conversion
+#endif
+
 #include "msh3.hpp"
 #include <atomic>
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 const MsQuicApi* MsQuic;
 static std::atomic_int MsH3RefCount{0};
@@ -181,7 +191,7 @@ MsH3Connection::SendRequest(
     )
 {
     auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Headers, HeadersCount);
-    if (!Request->IsValid()) {
+    if (!Request || !Request->IsValid()) {
         delete Request;
         return nullptr;
     }
@@ -200,12 +210,12 @@ MsH3Connection::MsQuicCallback(
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
         if (Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status != QUIC_STATUS_CONNECTION_IDLE) {
-            printf("Connection shutdown by transport, 0x%x\n", Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+            printf("Connection shutdown by transport, 0x%lx\n", (unsigned long)Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
         }
         SetHandshakeComplete();
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
-        printf("Connection shutdown by peer, 0x%lx\n", Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+        printf("Connection shutdown by peer, 0x%llx\n", (unsigned long long)Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
         SetHandshakeComplete();
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
@@ -274,7 +284,7 @@ MsH3UniDirStream::MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type
     : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(*Connection), Type(Type)
 {
     if (!IsValid()) return;
-    Buffer.Buffer[0] = Type;
+    Buffer.Buffer[0] = (uint8_t)Type;
     Buffer.Length = 1;
     if (Type == H3StreamTypeControl &&
         !H3WriteSettingsFrame(SettingsH3, ARRAYSIZE(SettingsH3), &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
@@ -300,10 +310,10 @@ MsH3UniDirStream::ControlStreamCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Control peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
+        printf("Control peer send abort, 0x%llx\n", (unsigned long long)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Control peer recv abort, 0x%lx\n", Event->PEER_RECEIVE_ABORTED.ErrorCode);
+        printf("Control peer recv abort, 0x%llx\n", (unsigned long long)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default:
         break;
@@ -313,31 +323,31 @@ MsH3UniDirStream::ControlStreamCallback(
 
 void
 MsH3UniDirStream::ControlReceive(
-    _In_ const QUIC_BUFFER* Buffer
+    _In_ const QUIC_BUFFER* RecvBuffer
     )
 {
     uint32_t Offset = 0;
 
     do {
         QUIC_VAR_INT FrameType, FrameLength;
-        if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameType) ||
-            !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &FrameLength)) {
+        if (!MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameType) ||
+            !MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameLength)) {
             printf("Not enough control data yet for frame headers.\n");
             return; // TODO - Implement local buffering
         }
 
-        if (FrameType != H3FrameData && Offset + (uint32_t)FrameLength > Buffer->Length) {
+        if (FrameType != H3FrameData && Offset + (uint32_t)FrameLength > RecvBuffer->Length) {
             printf("Not enough control data yet for frame payload.\n");
             return; // TODO - Implement local buffering
         }
 
         if (FrameType == H3FrameSettings) {
-            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, Buffer->Buffer + Offset)) return;
+            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, RecvBuffer->Buffer + Offset)) return;
         }
 
         Offset += (uint32_t)FrameLength;
 
-    } while (Offset < Buffer->Length);
+    } while (Offset < RecvBuffer->Length);
 }
 
 bool
@@ -396,13 +406,13 @@ MsH3UniDirStream::EncoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Encoder receive %lu\n", Event->RECEIVE.TotalBufferLength);
+        printf("Encoder receive %llu\n", (long long unsigned)Event->RECEIVE.TotalBufferLength);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Encoder peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
+        printf("Encoder peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Encoder peer recv abort, 0x%lx\n", Event->PEER_RECEIVE_ABORTED.ErrorCode);
+        printf("Encoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default:
         break;
@@ -417,13 +427,13 @@ MsH3UniDirStream::DecoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Decoder receive %lu\n", Event->RECEIVE.TotalBufferLength);
+        printf("Decoder receive %llu\n", (long long unsigned)Event->RECEIVE.TotalBufferLength);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Decoder peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
+        printf("Decoder peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Decoder peer recv abort, 0x%lx\n", Event->PEER_RECEIVE_ABORTED.ErrorCode);
+        printf("Decoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default:
         break;
@@ -465,10 +475,10 @@ MsH3UniDirStream::UnknownStreamCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Unknown peer send abort, 0x%lx\n", Event->PEER_SEND_ABORTED.ErrorCode);
+        printf("Unknown peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Unknown peer recv abort, 0x%lx\n", Event->PEER_RECEIVE_ABORTED.ErrorCode);
+        printf("Unknown peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default:
         break;
@@ -629,7 +639,7 @@ MsH3BiDirStream::DecodePrepare(
     }
     if (Header) {
         Header->buf = DecodeBuffer;
-        Header->val_len = Space;
+        Header->val_len = (lsxpack_strlen_t)Space;
     } else {
         Header = &CurDecodeHeader;
         lsxpack_header_prepare_decode(Header, DecodeBuffer, 0, Space);

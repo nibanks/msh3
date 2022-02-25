@@ -38,7 +38,6 @@ cmake --build .
 cmake -G 'Visual Studio 17 2022' -A x64 ..
 cmake --build .
 ```
-> **Note** - Doesn't currently work! See [#3](https://github.com/nibanks/msh3/issues/3).
 
 # Run
 

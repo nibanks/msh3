@@ -1,0 +1,5 @@
+msquic
+{
+  global: MsH3ApiOpen; MsH3ApiClose; MsH3ConnectionOpen; MsH3ConnectionClose; MsH3ConnectionGetState; MsH3RequestOpen; MsH3RequestClose;
+  local: *;
+};
