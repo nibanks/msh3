@@ -3,5 +3,4 @@
 	url = https://github.com/microsoft/msquic
 [submodule "ls-qpack"]
 	path = ls-qpack
-	url = https://github.com/nibanks/ls-qpack
-	branch = no-win-getopt
+	url = https://github.com/litespeedtech/ls-qpack
