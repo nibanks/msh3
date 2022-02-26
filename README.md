@@ -1,6 +1,11 @@
 # msh3
 
-Minimal HTTP/3 client on top of [microsoft/msquic](https://github.com/microsoft/msquic) and [litespeedtech/ls-qpack](https://github.com/litespeedtech/ls-qpack).
+Minimal HTTP/3 client on top of [microsoft/msquic](https://github.com/microsoft/msquic) and [litespeedtech/ls-qpack](https://github.com/litespeedtech/ls-qpack). Currently supports:
+
+- Sending request headers.
+- Receiving response headers and payload.
+- Static qpack encoding.
+- Server validation can be optionally disabled ("unsecure" mode).
 
 # API
 
@@ -30,21 +35,19 @@ if (Api) {
 
 # Build
 
-```
-git clone https://github.com/nibanks/msh3
-git submodule update --init --recursive
-cd msh3
-mkdir build && cd build
+```Bash
+git clone --recursive https://github.com/nibanks/msh3
+cd msh3 && mkdir build && cd build
 ```
 
-## Linux
-```
+### Linux
+```Bash
 cmake -G 'Unix Makefiles' ..
 cmake --build .
 ```
 
-## Windows
-```
+### Windows
+```Bash
 cmake -G 'Visual Studio 17 2022' -A x64 ..
 cmake --build .
 ```
