@@ -48,4 +48,5 @@ jobs:
     - name: Install
       run: cd build && cmake --install . --config Debug
     - name: Run
-      run: & 'C:/Program Files/msh3/lib/msh3app'
+      run: |
+        & 'C:/Program Files/msh3/lib/msh3app'
