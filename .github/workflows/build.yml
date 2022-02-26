@@ -24,16 +24,13 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Generate
-      run: mkdir build && cd build && cmake -G 'Unix Makefiles' ..
+      run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DMSH3_TOOL=on ..
     - name: Build
       run: cd build && cmake --build .
     - name: Install
       run: cd build && sudo cmake --install . --config Debug
-    # TODO - Figure out what GitHub Action blocks our requests and then reenable them.
-    #- name: GET Google
-    #  run: build/tool/msh3app www.google.com
-    #- name: GET Cloudflare
-    #  run: build/tool/msh3app www.cloudflare.com
+    - name: Run
+      run: /usr/local/lib/msh3app
   build-windows:
     permissions:
       contents: read
@@ -45,8 +42,11 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Generate
-      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 ..
+      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_TOOL=on ..
     - name: Build
       run: cd build && cmake --build .
     - name: Install
       run: cd build && cmake --install . --config Debug
+    - name: Run
+      run: |
+        & 'C:/Program Files/msh3/lib/msh3app'
