@@ -27,6 +27,13 @@ jobs:
       run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DMSH3_TOOL=on ..
     - name: Build
       run: cd build && cmake --build .
+    - name: Upload
+      uses: actions/upload-artifact@82c141cc518b40d92cc801eee768e7aafc9c2fa2
+      with:
+        name: bin-linux
+        path: |
+          build/**/*.so
+          build/**/msh3app
     - name: Install
       run: cd build && sudo cmake --install . --config Debug
     - name: Run
@@ -45,6 +52,13 @@ jobs:
       run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_TOOL=on ..
     - name: Build
       run: cd build && cmake --build .
+    - name: Upload
+      uses: actions/upload-artifact@82c141cc518b40d92cc801eee768e7aafc9c2fa2
+      with:
+        name: bin-windows
+        path: |
+          build/**/*.dll
+          build/**/msh3app.exe
     - name: Install
       run: cd build && cmake --install . --config Debug
     - name: Run
