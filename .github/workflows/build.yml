@@ -27,6 +27,8 @@ jobs:
       uses: shogo82148/actions-setup-perl@v1.14.2
       with:
         perl-version: '5.34'
+    - name: Set up NASM
+      uses: ilammy/setup-nasm@v1.2.1
     - name: Generate
       run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DMSH3_TOOL=on ..
     - name: Build
