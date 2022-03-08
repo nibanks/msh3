@@ -23,12 +23,6 @@ jobs:
       uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
       with:
         submodules: 'recursive'
-    - name: Install Perl
-      uses: shogo82148/actions-setup-perl@v1.14.2
-      with:
-        perl-version: '5.34'
-    - name: Install NASM
-      uses: ilammy/setup-nasm@v1.2.1
     - name: Generate
       run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DMSH3_TOOL=on ..
     - name: Build
@@ -54,6 +48,12 @@ jobs:
       uses: actions/checkout@629c2de402a417ea7690ca6ce3f33229e27606a5
       with:
         submodules: 'recursive'
+    - name: Install Perl
+      uses: shogo82148/actions-setup-perl@v1.14.2
+      with:
+        perl-version: '5.34'
+    - name: Install NASM
+      uses: ilammy/setup-nasm@v1.2.1
     - name: Generate
       run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_TOOL=on ..
     - name: Build
