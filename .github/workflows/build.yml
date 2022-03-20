@@ -36,8 +36,12 @@ jobs:
           build/**/msh3app
     - name: Install
       run: cd build && sudo cmake --install . --config Debug
-    - name: Run
-      run: /usr/local/lib/msh3app
+    - name: GET outlook.office.com
+      run: /usr/local/lib/msh3app outlook.office.com
+    - name: GET www.cloudflare.com
+      run: /usr/local/lib/msh3app www.cloudflare.com
+    - name: GET www.google.com
+      run: /usr/local/lib/msh3app www.google.com
   build-windows:
     permissions:
       contents: read
@@ -61,6 +65,12 @@ jobs:
           build/**/msh3app.exe
     - name: Install
       run: cd build && cmake --install . --config Debug
-    - name: Run
+    - name: GET outlook.office.com
       run: |
-        & 'C:/Program Files/msh3/lib/msh3app'
+        & 'C:/Program Files/msh3/lib/msh3app outlook.office.com'
+    - name: GET www.cloudflare.com
+      run: |
+        & 'C:/Program Files/msh3/lib/msh3app www.cloudflare.com'
+    - name: GET www.google.com
+      run: |
+        & 'C:/Program Files/msh3/lib/msh3app www.google.com'
