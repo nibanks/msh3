@@ -67,10 +67,10 @@ jobs:
       run: cd build && cmake --install . --config Debug
     - name: GET outlook.office.com
       run: |
-        & 'C:/Program Files/msh3/lib/msh3app outlook.office.com'
+        & 'C:/Program Files/msh3/lib/msh3app' outlook.office.com
     - name: GET www.cloudflare.com
       run: |
-        & 'C:/Program Files/msh3/lib/msh3app www.cloudflare.com'
+        & 'C:/Program Files/msh3/lib/msh3app' www.cloudflare.com
     - name: GET www.google.com
       run: |
-        & 'C:/Program Files/msh3/lib/msh3app www.google.com'
+        & 'C:/Program Files/msh3/lib/msh3app' www.google.com
