@@ -29,7 +29,11 @@ option(LSQPACK_BIN "Build binaries" OFF)
 add_subdirectory(ls-qpack)
 
 # Configure and build msquic dependency.
-set(QUIC_TLS "openssl" CACHE STRING "TLS Library to use")
+if (WIN32)
+    set(QUIC_TLS "schannel" CACHE STRING "TLS Library to use")
+else()
+    set(QUIC_TLS "openssl" CACHE STRING "TLS Library to use")
+endif()
 set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
 set(CMAKE_BUILD_TYPE "Release")
 add_subdirectory(msquic)
