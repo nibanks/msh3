@@ -1,5 +1,7 @@
 # msh3
 
+[![Build](https://github.com/nibanks/msh3/actions/workflows/build.yml/badge.svg)](https://github.com/nibanks/msh3/actions/workflows/build.yml)
+
 Minimal HTTP/3 client on top of [microsoft/msquic](https://github.com/microsoft/msquic) and [litespeedtech/ls-qpack](https://github.com/litespeedtech/ls-qpack). Currently supports:
 
 - Sending request headers.
