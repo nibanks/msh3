@@ -43,6 +43,7 @@ MSH3_CALL
 MsH3ConnectionOpen(
     MSH3_API* Handle,
     const char* ServerName,
+    uint16_t Port,
     bool Unsecure
     );
 
