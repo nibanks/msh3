@@ -25,7 +25,7 @@ const size_t HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
 
 MSH3_API* Api = MsH3ApiOpen();
 if (Api) {
-    MSH3_CONNECTION* Connection = MsH3ConnectionOpen(Api, Host, Unsecure);
+    MSH3_CONNECTION* Connection = MsH3ConnectionOpen(Api, Host, Port, Unsecure);
     if (Connection) {
         MSH3_REQUEST* Request = MsH3RequestOpen(Connection, &Callbacks, NULL, Headers, HeadersCount);
         // ...
@@ -60,4 +60,5 @@ cmake --build .
 msh3app outlook.office.com
 msh3app www.cloudflare.com
 msh3app www.google.com
+msh3app nghttp2.org:4433
 ```

@@ -68,11 +68,12 @@ MSH3_CALL
 MsH3ConnectionOpen(
     MSH3_API* Handle,
     const char* ServerName,
+    uint16_t Port,
     bool Unsecure
     )
 {
     auto Reg = (MsQuicRegistration*)Handle;
-    auto H3 = new(std::nothrow) MsH3Connection(*Reg, ServerName, 443, Unsecure);
+    auto H3 = new(std::nothrow) MsH3Connection(*Reg, ServerName, Port, Unsecure);
     if (!H3 || QUIC_FAILED(H3->GetInitStatus())) {
         delete H3;
         return nullptr;

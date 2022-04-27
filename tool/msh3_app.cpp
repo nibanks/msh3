@@ -45,11 +45,34 @@ int MSH3_CALL main(int argc, char **argv) {
     }
 
     const char* Host = "outlook.office.com";
+    int Port = 443;
+    char *givenHost = NULL;
     const char* Path = "/";
     bool Unsecure = false;
     uint32_t Count = 1;
 
-    if (argc > 1) Host = argv[1];
+    if (argc > 1) {
+        if(strrchr(argv[1], ':') != NULL) {
+            const int len = (int)strlen(argv[1]);
+            givenHost = (char *)calloc(len + sizeof(char), sizeof(char));
+            if (givenHost == NULL) {
+                printf("Failed to allocate memory\n");
+                return -1;
+            }
+#ifdef _WIN32
+            int cnt = sscanf_s(argv[1], "%[^:]:%d", givenHost, len, &Port);
+#else
+            int cnt = sscanf(argv[1], "%[^:]:%d", givenHost, &Port);
+#endif
+            if (cnt != 2) {
+                printf("Failed to parse server address\n");
+                return -1;
+            }
+            Host = givenHost;
+        } else {
+            Host = argv[1];
+        }
+    }
     if (argc > 2) Path = argv[2];
     if (argc > 3 && !strcmp(argv[3], "unsecure")) Unsecure = true;
     if (argc > 4) Count = (uint32_t)atoi(argv[4]);
@@ -65,11 +88,11 @@ int MSH3_CALL main(int argc, char **argv) {
     };
     const size_t HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
 
-    printf("HTTP/3 GET https://%s%s\n\n", Host, Path);
+    printf("HTTP/3 GET https://%s:%d%s\n\n", Host, Port, Path);
 
     auto Api = MsH3ApiOpen();
     if (Api) {
-        auto Connection = MsH3ConnectionOpen(Api, Host, Unsecure);
+        auto Connection = MsH3ConnectionOpen(Api, Host, (uint16_t)Port, Unsecure);
         if (Connection) {
             for (uint32_t i = 0; i < Count; ++i) {
                 auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Headers, HeadersCount);
@@ -82,6 +105,8 @@ int MSH3_CALL main(int argc, char **argv) {
         }
         MsH3ApiClose(Api);
     }
+
+    free(givenHost);
 
     return 0;
 }
