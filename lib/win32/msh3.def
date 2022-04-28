@@ -1,6 +1,7 @@
 LIBRARY MSH3
 
 EXPORTS
+    MsH3Version
     MsH3ApiOpen
     MsH3ApiClose
     MsH3ConnectionOpen
