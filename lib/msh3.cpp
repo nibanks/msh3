@@ -11,7 +11,10 @@
 #pragma warning(disable:4267) // LSQpack int conversion
 #endif
 
+#define MSH3_VERSION_ONLY 1
+
 #include "msh3.hpp"
+#include "msh3.ver"
 #include <atomic>
 
 #ifdef _WIN32
@@ -20,6 +23,19 @@
 
 const MsQuicApi* MsQuic;
 static std::atomic_int MsH3RefCount{0};
+
+extern "C"
+void
+MSH3_CALL
+MsH3Version(
+    uint32_t Version[4]
+    )
+{
+    Version[0] = VER_MAJOR;
+    Version[1] = VER_MINOR;
+    Version[2] = VER_PATCH;
+    Version[3] = VER_BUILD_ID;
+}
 
 extern "C"
 MSH3_API*
