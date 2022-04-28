@@ -26,6 +26,12 @@ typedef struct MSH3_API MSH3_API;
 typedef struct MSH3_CONNECTION MSH3_CONNECTION;
 typedef struct MSH3_REQUEST MSH3_REQUEST;
 
+void
+MSH3_CALL
+MsH3Version(
+    uint32_t Version[4]
+    );
+
 MSH3_API*
 MSH3_CALL
 MsH3ApiOpen(
