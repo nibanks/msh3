@@ -79,7 +79,7 @@ void ParseArgs(int argc, char **argv) {
         } else if (!strcmp(argv[i], "--path") || !strcmp(argv[i], "-p")) {
             if (++i >= argc) { printf("Missing path value(s)\n"); exit(-1); }
 
-            char* Path = (char*)argv[1];
+            char* Path = (char*)argv[i];
             do {
                 char* End = strchr(Path, ',');
                 if (End) *End = 0;
