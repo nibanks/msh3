@@ -4,6 +4,9 @@
 set(SOURCES msh3.cpp)
 add_library(msh3 SHARED ${SOURCES})
 target_link_libraries(msh3 PRIVATE inc warnings msquic ls-qpack msh3_headers)
+if (NOT BUILD_SHARED_LIBS)
+    target_link_libraries(msh3 PRIVATE base_link)
+endif()
 
 if(WIN32)
     SET_TARGET_PROPERTIES(msh3
