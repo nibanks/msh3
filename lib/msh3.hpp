@@ -52,6 +52,7 @@ enum H3SettingsType {
 // Contiguous buffer for (non-null-terminated) header name and value strings.
 struct H3HeadingPair : public lsxpack_header_t {
     char Buffer[512] = {0};
+    H3HeadingPair() { memset(this, 0, sizeof(lsxpack_header_t)); }
     bool Set(const MSH3_HEADER* Header) {
         if (Header->NameLength + Header->ValueLength > sizeof(Buffer)) return false;
         buf = Buffer;
