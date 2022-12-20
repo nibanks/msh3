@@ -85,19 +85,51 @@ typedef struct MSH3_REQUEST_IF {
     void (MSH3_CALL *DataReceived)(MSH3_REQUEST* Request, void* IfContext, uint32_t Length, const uint8_t* Data);
     void (MSH3_CALL *Complete)(MSH3_REQUEST* Request, void* IfContext, bool Aborted, uint64_t AbortError);
     void (MSH3_CALL *Shutdown)(MSH3_REQUEST* Request, void* IfContext);
-    void (MSH3_CALL *DataSent)(MSH3_REQUEST* Request, void* IfContext);
+    void (MSH3_CALL *DataSent)(MSH3_REQUEST* Request, void* IfContext, void* SendContext);
 } MSH3_REQUEST_IF;
+
+typedef enum MSH3_REQUEST_FLAGS {
+    MSH3_REQUEST_FLAG_NONE              = 0x0000,
+    MSH3_REQUEST_FLAG_ALLOW_0_RTT       = 0x0001,   // Allows the use of encrypting with 0-RTT key.
+    MSH3_REQUEST_FLAG_FIN               = 0x0004,   // Indicates the request should be gracefully shutdown too.
+    MSH3_REQUEST_FLAG_DELAY_SEND        = 0x0008,   // Indicates the send should be delayed because more will be queued soon.
+} MSH3_REQUEST_FLAGS;
 
 MSH3_REQUEST*
 MSH3_CALL
 MsH3RequestOpen(
     MSH3_CONNECTION* Handle,
-    const MSH3_REQUEST_IF* Interface,   // required
-    void* IfContext,                    // may be NULL
-    const MSH3_HEADER* Headers,         // required
+    const MSH3_REQUEST_IF* Interface,
+    void* IfContext,
+    const MSH3_HEADER* Headers,
     size_t HeadersCount,
-    const void* Data,                   // may be NULL
-    uint32_t DataLength                 // may be zero
+    MSH3_REQUEST_FLAGS Flags    // Pass MSH3_REQUEST_FLAG_FIN if there is no data to send
+    );
+
+bool
+MSH3_CALL
+MsH3RequestSend(
+    MSH3_REQUEST* Handle,
+    MSH3_REQUEST_FLAGS Flags,
+    const void* Data,
+    uint32_t DataLength,
+    void* AppContext
+    );
+
+typedef enum MSH3_REQUEST_SHUTDOWN_FLAGS {
+    MSH3_REQUEST_SHUTDOWN_FLAG_NONE          = 0x0000,
+    MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL      = 0x0001,   // Cleanly closes the send path.
+    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_SEND    = 0x0002,   // Abruptly closes the send path.
+    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_RECEIVE = 0x0004,   // Abruptly closes the receive path.
+    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT         = 0x0006,   // Abruptly closes both send and receive paths.
+} MSH3_REQUEST_SHUTDOWN_FLAGS;
+
+void
+MSH3_CALL
+MsH3RequestShutdown(
+    MSH3_REQUEST* Handle,
+    MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
+    uint64_t AbortError // Only for MSH3_REQUEST_SHUTDOWN_FLAG_ABORT*
     );
 
 void
