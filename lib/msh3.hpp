@@ -262,7 +262,9 @@ struct MsH3Connection : public MsQuicConnection {
         _In_ void* IfContext,
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
-        _In_ size_t HeadersCount
+        _In_ size_t HeadersCount,
+        _In_reads_bytes_opt_(DataLength) const void* Data,
+        _In_ uint32_t DataLength
         );
 
     MSH3_CONNECTION_STATE GetState() const {
@@ -404,10 +406,12 @@ struct MsH3BiDirStream : public MsQuicStream {
     uint8_t FrameHeaderBuffer[16];
     uint8_t PrefixBuffer[32];
     uint8_t HeadersBuffer[256];
-    QUIC_BUFFER Buffers[3] = {
+    uint8_t DataFrameHeaderBuffer[16];
+    QUIC_BUFFER Buffers[5] = {
         {0, FrameHeaderBuffer},
         {0, PrefixBuffer},
-        {0, HeadersBuffer}
+        {0, HeadersBuffer},
+        {0, NULL} // Data header + app data
     };
 
     static struct lsqpack_dec_hset_if hset_if;
@@ -430,6 +434,8 @@ struct MsH3BiDirStream : public MsQuicStream {
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
         _In_ size_t HeadersCount,
+        _In_reads_bytes_opt_(DataLength) const void* Data,
+        _In_ uint32_t DataLength,
         _In_ QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_0_RTT
         );
 
