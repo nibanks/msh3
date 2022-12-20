@@ -130,12 +130,14 @@ MsH3RequestOpen(
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
     const MSH3_HEADER* Headers,
-    size_t HeadersCount
+    size_t HeadersCount,
+    const void* Data,
+    uint32_t DataLength
     )
 {
     auto H3 = (MsH3Connection*)Handle;
     if (!H3->WaitOnHandshakeComplete()) return nullptr;
-    return (MSH3_REQUEST*)H3->SendRequest(Interface, IfContext, Headers, HeadersCount);
+    return (MSH3_REQUEST*)H3->SendRequest(Interface, IfContext, Headers, HeadersCount, Data, DataLength);
 }
 
 extern "C"
@@ -183,7 +185,7 @@ MsH3Connection::MsH3Connection(
         Unsecure ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
             QUIC_CREDENTIAL_FLAG_CLIENT;
-    MsQuicConfiguration Config(Registration, MsQuicAlpn("h3", "h3-29"), Settings, MsQuicCredentialConfig(Flags));
+    MsQuicConfiguration Config(Registration, MsQuicAlpn("h3"), Settings, MsQuicCredentialConfig(Flags));
     if (QUIC_FAILED(InitStatus = Config.GetInitStatus())) return;
 
     //if (ServerIp && InitStatus = QUIC_FAILED(H3->SetRemoteAddr(ServerAddress))) return;
@@ -204,10 +206,12 @@ MsH3Connection::SendRequest(
     _In_ void* IfContext,
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
-    _In_ size_t HeadersCount
+    _In_ size_t HeadersCount,
+    _In_reads_bytes_opt_(DataLength) const void* Data,
+    _In_ uint32_t DataLength
     )
 {
-    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Headers, HeadersCount);
+    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Headers, HeadersCount, Data, DataLength);
     if (!Request || !Request->IsValid()) {
         delete Request;
         return nullptr;
@@ -521,22 +525,38 @@ MsH3BiDirStream::MsH3BiDirStream(
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
     _In_ size_t HeadersCount,
+    _In_reads_bytes_opt_(DataLength) const void* Data,
+    _In_ uint32_t DataLength,
     _In_ QUIC_STREAM_OPEN_FLAGS Flags
     ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this),
         H3(*Connection), Callbacks(*Interface), Context(IfContext)
 {
     if (!IsValid()) return;
     InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
-    if (QUIC_FAILED(InitStatus = Start())) return;
-    InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
     if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return;
+    uint32_t SendBufferCount = 0;
     auto HeadersLength = Buffers[1].Length+Buffers[2].Length;
     if (HeadersLength != 0) {
         if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
             printf("H3WriteFrameHeader failed\n");
             return;
         }
-        if (QUIC_FAILED(InitStatus = Send(Buffers, 3, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_FIN))) {
+        SendBufferCount += 3;
+    }
+    if (Data && DataLength) {
+        Buffers[SendBufferCount].Buffer = DataFrameHeaderBuffer;
+        if (!H3WriteFrameHeader(H3FrameData, DataLength, &Buffers[SendBufferCount].Length, sizeof(DataFrameHeaderBuffer), DataFrameHeaderBuffer)) {
+            printf("H3WriteFrameHeader(DATA) failed\n");
+            return;
+        }
+        SendBufferCount++;
+        Buffers[SendBufferCount].Buffer = (uint8_t*)Data;
+        Buffers[SendBufferCount].Length = DataLength;
+        SendBufferCount++;
+        HasAppData = true;
+    }
+    if (SendBufferCount) {
+        if (QUIC_FAILED(InitStatus = Send(Buffers, SendBufferCount, QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_FIN))) {
             printf("Request send failed\n");
             return;
         }
@@ -553,6 +573,11 @@ MsH3BiDirStream::MsQuicCallback(
     case QUIC_STREAM_EVENT_RECEIVE:
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             Receive(Event->RECEIVE.Buffers + i);
+        }
+        break;
+    case QUIC_STREAM_EVENT_SEND_COMPLETE:
+        if (HasAppData) {
+            Callbacks.DataSent((MSH3_REQUEST*)this, Context);
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:

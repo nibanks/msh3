@@ -85,16 +85,19 @@ typedef struct MSH3_REQUEST_IF {
     void (MSH3_CALL *DataReceived)(MSH3_REQUEST* Request, void* IfContext, uint32_t Length, const uint8_t* Data);
     void (MSH3_CALL *Complete)(MSH3_REQUEST* Request, void* IfContext, bool Aborted, uint64_t AbortError);
     void (MSH3_CALL *Shutdown)(MSH3_REQUEST* Request, void* IfContext);
+    void (MSH3_CALL *DataSent)(MSH3_REQUEST* Request, void* IfContext);
 } MSH3_REQUEST_IF;
 
 MSH3_REQUEST*
 MSH3_CALL
 MsH3RequestOpen(
     MSH3_CONNECTION* Handle,
-    const MSH3_REQUEST_IF* Interface,
-    void* IfContext,
-    const MSH3_HEADER* Headers,
-    size_t HeadersCount
+    const MSH3_REQUEST_IF* Interface,   // required
+    void* IfContext,                    // may be NULL
+    const MSH3_HEADER* Headers,         // required
+    size_t HeadersCount,
+    const void* Data,                   // may be NULL
+    uint32_t DataLength                 // may be zero
     );
 
 void
