@@ -185,7 +185,7 @@ MsH3Connection::MsH3Connection(
         Unsecure ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
             QUIC_CREDENTIAL_FLAG_CLIENT;
-    MsQuicConfiguration Config(Registration, MsQuicAlpn("h3", "h3-29"), Settings, MsQuicCredentialConfig(Flags));
+    MsQuicConfiguration Config(Registration, MsQuicAlpn("h3"), Settings, MsQuicCredentialConfig(Flags));
     if (QUIC_FAILED(InitStatus = Config.GetInitStatus())) return;
 
     //if (ServerIp && InitStatus = QUIC_FAILED(H3->SetRemoteAddr(ServerAddress))) return;
