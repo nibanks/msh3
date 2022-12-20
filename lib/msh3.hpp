@@ -240,12 +240,13 @@ inline QUIC_STREAM_SHUTDOWN_FLAGS ToQuicShutdownFlags(MSH3_REQUEST_SHUTDOWN_FLAG
     QUIC_STREAM_SHUTDOWN_FLAGS QuicFlags = QUIC_STREAM_SHUTDOWN_FLAG_NONE;
     if (Flags & MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL) {
         QuicFlags |= QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL;
-    }
-    if (Flags & MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_SEND) {
-        QuicFlags |= QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND;
-    }
-    if (Flags & MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_RECEIVE) {
-        QuicFlags |= QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE;
+    } else {
+        if (Flags & MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_SEND) {
+            QuicFlags |= QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND;
+        }
+        if (Flags & MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_RECEIVE) {
+            QuicFlags |= QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE;
+        }
     }
     return QuicFlags;
 }
@@ -498,8 +499,8 @@ struct MsH3BiDirStream : public MsQuicStream {
 
     void
     AppShutdown(
-        MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
-        uint64_t AbortError
+        _In_ MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
+        _In_ uint64_t AbortError
         )
     {
         (void)Shutdown(AbortError, ToQuicShutdownFlags(Flags));
