@@ -85,6 +85,7 @@ typedef struct MSH3_REQUEST_IF {
     void (MSH3_CALL *DataReceived)(MSH3_REQUEST* Request, void* IfContext, uint32_t Length, const uint8_t* Data);
     void (MSH3_CALL *Complete)(MSH3_REQUEST* Request, void* IfContext, bool Aborted, uint64_t AbortError);
     void (MSH3_CALL *Shutdown)(MSH3_REQUEST* Request, void* IfContext);
+    void (MSH3_CALL *DataSent)(MSH3_REQUEST* Request, void* IfContext);
 } MSH3_REQUEST_IF;
 
 MSH3_REQUEST*

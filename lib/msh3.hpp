@@ -426,6 +426,7 @@ struct MsH3BiDirStream : public MsQuicStream {
     uint32_t BufferedHeadersLength {0};
 
     bool Complete {false};
+    bool HasAppData {false};
 
     MsH3BiDirStream(
         _In_ MsH3Connection* Connection,

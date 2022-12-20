@@ -553,6 +553,7 @@ MsH3BiDirStream::MsH3BiDirStream(
         Buffers[SendBufferCount].Buffer = (uint8_t*)Data;
         Buffers[SendBufferCount].Length = DataLength;
         SendBufferCount++;
+        HasAppData = true;
     }
     if (SendBufferCount) {
         if (QUIC_FAILED(InitStatus = Send(Buffers, SendBufferCount, QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_FIN))) {
@@ -572,6 +573,11 @@ MsH3BiDirStream::MsQuicCallback(
     case QUIC_STREAM_EVENT_RECEIVE:
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             Receive(Event->RECEIVE.Buffers + i);
+        }
+        break;
+    case QUIC_STREAM_EVENT_SEND_COMPLETE:
+        if (HasAppData) {
+            Callbacks.DataSent((MSH3_REQUEST*)this, Context);
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
