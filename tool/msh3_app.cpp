@@ -128,7 +128,7 @@ int MSH3_CALL main(int argc, char **argv) {
                 Headers[1].Value = Path;
                 Headers[1].ValueLength = strlen(Path);
                 for (uint32_t i = 0; i < Args.Count; ++i) {
-                    auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Headers, HeadersCount, nullptr, 0);
+                    auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Headers, HeadersCount, MSH3_REQUEST_FLAG_FIN);
                     if (!Request) {
                         printf("Request %u failed to start\n", i+1);
                         break;

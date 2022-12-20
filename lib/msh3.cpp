@@ -131,13 +131,40 @@ MsH3RequestOpen(
     void* IfContext,
     const MSH3_HEADER* Headers,
     size_t HeadersCount,
-    const void* Data,
-    uint32_t DataLength
+    MSH3_REQUEST_FLAGS Flags
     )
 {
     auto H3 = (MsH3Connection*)Handle;
     if (!H3->WaitOnHandshakeComplete()) return nullptr;
-    return (MSH3_REQUEST*)H3->SendRequest(Interface, IfContext, Headers, HeadersCount, Data, DataLength);
+    return (MSH3_REQUEST*)H3->SendRequest(Interface, IfContext, Headers, HeadersCount, Flags);
+}
+
+extern "C"
+bool
+MSH3_CALL
+MsH3RequestSend(
+    MSH3_REQUEST* Handle,
+    MSH3_REQUEST_FLAGS Flags,
+    const void* Data,
+    uint32_t DataLength,
+    void* AppContext
+    )
+{
+    auto Request = (MsH3BiDirStream*)Handle;
+    return Request->SendAppData(Flags, Data, DataLength, AppContext);
+}
+
+extern "C"
+void
+MSH3_CALL
+MsH3RequestShutdown(
+    MSH3_REQUEST* Handle,
+    MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
+    uint64_t AbortError
+    )
+{
+    auto Request = (MsH3BiDirStream*)Handle;
+    Request->AppShutdown(Flags, AbortError);
 }
 
 extern "C"
@@ -207,11 +234,10 @@ MsH3Connection::SendRequest(
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
     _In_ size_t HeadersCount,
-    _In_reads_bytes_opt_(DataLength) const void* Data,
-    _In_ uint32_t DataLength
+    _In_ MSH3_REQUEST_FLAGS Flags
     )
 {
-    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Headers, HeadersCount, Data, DataLength);
+    auto Request = new(std::nothrow) MsH3BiDirStream(this, Interface, IfContext, Headers, HeadersCount, Flags);
     if (!Request || !Request->IsValid()) {
         delete Request;
         return nullptr;
@@ -525,43 +551,45 @@ MsH3BiDirStream::MsH3BiDirStream(
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
     _In_ size_t HeadersCount,
-    _In_reads_bytes_opt_(DataLength) const void* Data,
-    _In_ uint32_t DataLength,
-    _In_ QUIC_STREAM_OPEN_FLAGS Flags
-    ) : MsQuicStream(*Connection, Flags, CleanUpManual, s_MsQuicCallback, this),
+    _In_ MSH3_REQUEST_FLAGS Flags
+    ) : MsQuicStream(*Connection, ToQuicOpenFlags(Flags), CleanUpManual, s_MsQuicCallback, this),
         H3(*Connection), Callbacks(*Interface), Context(IfContext)
 {
     if (!IsValid()) return;
     InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
     if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return;
-    uint32_t SendBufferCount = 0;
-    auto HeadersLength = Buffers[1].Length+Buffers[2].Length;
-    if (HeadersLength != 0) {
-        if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
-            printf("H3WriteFrameHeader failed\n");
-            return;
-        }
-        SendBufferCount += 3;
+    auto HeadersLength = Buffers[1].Length + Buffers[2].Length;
+    if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
+        printf("H3WriteFrameHeader failed\n");
+        return;
     }
-    if (Data && DataLength) {
-        Buffers[SendBufferCount].Buffer = DataFrameHeaderBuffer;
-        if (!H3WriteFrameHeader(H3FrameData, DataLength, &Buffers[SendBufferCount].Length, sizeof(DataFrameHeaderBuffer), DataFrameHeaderBuffer)) {
-            printf("H3WriteFrameHeader(DATA) failed\n");
-            return;
-        }
-        SendBufferCount++;
-        Buffers[SendBufferCount].Buffer = (uint8_t*)Data;
-        Buffers[SendBufferCount].Length = DataLength;
-        SendBufferCount++;
-        HasAppData = true;
-    }
-    if (SendBufferCount) {
-        if (QUIC_FAILED(InitStatus = Send(Buffers, SendBufferCount, QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_FIN))) {
-            printf("Request send failed\n");
-            return;
-        }
+    if (QUIC_FAILED(InitStatus = Send(Buffers, 3, ToQuicSendFlags(Flags)))) {
+        printf("Request send failed\n");
+        return;
     }
     InitStatus = QUIC_STATUS_SUCCESS;
+}
+
+bool
+MsH3BiDirStream::SendAppData(
+    _In_ MSH3_REQUEST_FLAGS Flags,
+    _In_reads_bytes_(DataLength) const void* Data,
+    _In_ uint32_t DataLength,
+    _In_opt_ void* AppContext
+    )
+{
+    auto AppSend = new(std::nothrow) MsH3AppSend(AppContext); // TODO - Pool alloc
+    if (!AppSend) return false;
+    if (!AppSend->SetData(Data, DataLength)) {
+        delete AppSend;
+        return false;
+    }
+    QUIC_STATUS Status;
+    if (QUIC_FAILED(Status = Send(AppSend->Buffers, 2, ToQuicSendFlags(Flags), AppSend))) {
+        delete AppSend;
+        return false;
+    }
+    return true;
 }
 
 QUIC_STATUS
@@ -576,8 +604,10 @@ MsH3BiDirStream::MsQuicCallback(
         }
         break;
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
-        if (HasAppData) {
-            Callbacks.DataSent((MSH3_REQUEST*)this, Context);
+        if (Event->SEND_COMPLETE.ClientContext) {
+            auto AppSend = (MsH3AppSend*)Event->SEND_COMPLETE.ClientContext;
+            Callbacks.DataSent((MSH3_REQUEST*)this, Context, AppSend->AppContext);
+            delete AppSend;
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:

@@ -217,6 +217,39 @@ H3WriteSettingsFrame(
     return true;
 }
 
+inline QUIC_STREAM_OPEN_FLAGS ToQuicOpenFlags(MSH3_REQUEST_FLAGS Flags) {
+    return Flags & MSH3_REQUEST_FLAG_ALLOW_0_RTT ? QUIC_STREAM_OPEN_FLAG_0_RTT : QUIC_STREAM_OPEN_FLAG_NONE;
+}
+
+inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_FLAGS Flags) {
+    QUIC_SEND_FLAGS QuicFlags = QUIC_SEND_FLAG_NONE;
+    if (Flags & MSH3_REQUEST_FLAG_ALLOW_0_RTT) {
+        QuicFlags |= QUIC_SEND_FLAG_ALLOW_0_RTT;
+    }
+    if (Flags & MSH3_REQUEST_FLAG_FIN) {
+        QuicFlags |= QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_FIN;
+    } else if (Flags & MSH3_REQUEST_FLAG_DELAY_SEND) {
+        QuicFlags |= QUIC_SEND_FLAG_DELAY_SEND;
+    } else {
+        QuicFlags |= QUIC_SEND_FLAG_START;
+    }
+    return QuicFlags;
+}
+
+inline QUIC_STREAM_SHUTDOWN_FLAGS ToQuicShutdownFlags(MSH3_REQUEST_SHUTDOWN_FLAGS Flags) {
+    QUIC_STREAM_SHUTDOWN_FLAGS QuicFlags = QUIC_STREAM_SHUTDOWN_FLAG_NONE;
+    if (Flags & MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL) {
+        QuicFlags |= QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL;
+    }
+    if (Flags & MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_SEND) {
+        QuicFlags |= QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND;
+    }
+    if (Flags & MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_RECEIVE) {
+        QuicFlags |= QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE;
+    }
+    return QuicFlags;
+}
+
 struct MsH3UniDirStream;
 struct MsH3BiDirStream;
 
@@ -263,8 +296,7 @@ struct MsH3Connection : public MsQuicConnection {
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
         _In_ size_t HeadersCount,
-        _In_reads_bytes_opt_(DataLength) const void* Data,
-        _In_ uint32_t DataLength
+        _In_ MSH3_REQUEST_FLAGS Flags
         );
 
     MSH3_CONNECTION_STATE GetState() const {
@@ -396,6 +428,25 @@ private:
         );
 };
 
+struct MsH3AppSend {
+    void* AppContext;
+    uint8_t FrameHeaderBuffer[16];
+    QUIC_BUFFER Buffers[2] = {
+        0, FrameHeaderBuffer,
+        0, NULL
+    };
+    MsH3AppSend(_In_opt_ void* AppContext) : AppContext(AppContext) { }
+    bool SetData(
+        _In_reads_bytes_opt_(DataLength) const void* Data,
+        _In_ uint32_t DataLength
+        )
+    {
+        Buffers[1].Length = DataLength;
+        Buffers[1].Buffer = (uint8_t*)Data;
+        return H3WriteFrameHeader(H3FrameData, DataLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer);
+    }
+};
+
 struct MsH3BiDirStream : public MsQuicStream {
 
     MsH3Connection& H3;
@@ -426,7 +477,6 @@ struct MsH3BiDirStream : public MsQuicStream {
     uint32_t BufferedHeadersLength {0};
 
     bool Complete {false};
-    bool HasAppData {false};
 
     MsH3BiDirStream(
         _In_ MsH3Connection* Connection,
@@ -435,10 +485,25 @@ struct MsH3BiDirStream : public MsQuicStream {
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
         _In_ size_t HeadersCount,
-        _In_reads_bytes_opt_(DataLength) const void* Data,
-        _In_ uint32_t DataLength,
-        _In_ QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_0_RTT
+        _In_ MSH3_REQUEST_FLAGS Flags
         );
+
+    bool
+    SendAppData(
+        _In_ MSH3_REQUEST_FLAGS Flags,
+        _In_reads_bytes_(DataLength) const void* Data,
+        _In_ uint32_t DataLength,
+        _In_opt_ void* AppContext
+        );
+
+    void
+    AppShutdown(
+        MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
+        uint64_t AbortError
+        )
+    {
+        (void)Shutdown(AbortError, ToQuicShutdownFlags(Flags));
+    }
 
 private:
 
