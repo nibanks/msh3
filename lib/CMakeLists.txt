@@ -1,7 +1,11 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-set(SOURCES msh3.cpp)
+if (WIN32)
+    set(SOURCES msh3.cpp msh3.rc)
+else()
+    set(SOURCES msh3.cpp)
+endif()
 add_library(msh3 SHARED ${SOURCES})
 target_link_libraries(msh3 PRIVATE inc warnings msquic ls-qpack msh3_headers)
 if (NOT BUILD_SHARED_LIBS)

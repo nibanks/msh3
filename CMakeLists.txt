@@ -6,6 +6,12 @@ cmake_minimum_required(VERSION 3.16)
 
 option(MSH3_TOOL "Build tool" OFF)
 
+set(MSH3_VER_BUILD_ID "0" CACHE STRING "The version build ID")
+message(STATUS "Version Build ID: ${MSH3_VER_BUILD_ID}")
+
+set(MSH3_VER_SUFFIX "-private" CACHE STRING "The version suffix")
+message(STATUS "Version Suffix: ${MSH3_VER_SUFFIX}")
+
 # use, i.e. don't skip the full RPATH for the build tree
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 
@@ -18,8 +24,21 @@ set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 # which point to directories outside the build tree to the install RPATH
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
+if (WIN32)
+    # Statically link the OS included part of the runtime.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /NODEFAULTLIB:libucrt.lib /DEFAULTLIB:ucrt.lib")
+    set(QUIC_COMMON_DEFINES WIN32_LEAN_AND_MEAN SECURITY_WIN32)
+else()
+    set(QUIC_COMMON_DEFINES _GNU_SOURCE)
+endif()
+
+list(APPEND MSH3_COMMON_DEFINES VER_BUILD_ID=${MSH3_VER_BUILD_ID})
+list(APPEND MSH3_COMMON_DEFINES VER_SUFFIX=${MSH3_VER_SUFFIX})
+
 # Public include header.
 add_library(msh3_headers INTERFACE)
+target_compile_definitions(msh3_headers INTERFACE ${MSH3_COMMON_DEFINES})
 target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Configure and build ls-qpack dependency.
