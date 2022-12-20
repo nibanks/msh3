@@ -24,7 +24,7 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Generate
-      run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DMSH3_VER_BUILD_ID=${{ github.run_number }} -DMSH3_TOOL=on ..
+      run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_TOOL=on ..
     - name: Build
       run: cd build && cmake --build .
     - name: Upload
@@ -61,7 +61,7 @@ jobs:
     - name: Install NASM
       uses: ilammy/setup-nasm@321e6ed62a1fc77024a3bd853deb33645e8b22c4
     - name: Generate
-      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_VER_BUILD_ID=${{ github.run_number }} -DQUIC_TLS=openssl -DMSH3_TOOL=on ..
+      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DQUIC_TLS=openssl -DMSH3_TOOL=on ..
     - name: Build
       run: cd build && cmake --build .
     - name: Upload
@@ -96,7 +96,7 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Generate
-      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_VER_BUILD_ID=${{ github.run_number }} -DMSH3_TOOL=on ..
+      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_TOOL=on ..
     - name: Build
       run: cd build && cmake --build .
     - name: Upload
