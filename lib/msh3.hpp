@@ -13,6 +13,10 @@
 #pragma warning(disable:4267) // LSQpack int conversion
 #endif
 
+#ifdef MSH3_SERVER_SUPPORT
+#define MSH3_TEST_MODE 1 // Always built in if server is supported
+#endif
+
 #include <msquic.hpp>
 #include <lsqpack.h>
 #include <lsxpack_header.h>
@@ -299,7 +303,29 @@ struct MsH3Connection : public MsQuicConnection {
         uint16_t Port,
         bool Unsecure
         );
+
+#ifdef MSH3_SERVER_SUPPORT
+    MsH3Connection(
+        HQUIC ServerHandle
+        );
+#endif
+
     ~MsH3Connection();
+
+#ifdef MSH3_SERVER_SUPPORT
+    MSH3_CONNECTION_IF Callbacks;
+    void* Context;
+
+    void
+    SetCallbackInterface(
+        const MSH3_CONNECTION_IF* Interface,
+        void* IfContext
+        )
+    {
+        Callbacks = *Interface;
+        Context = IfContext;
+    }
+#endif // MSH3_SERVER_SUPPORT
 
     MsH3BiDirStream*
     SendRequest(
@@ -379,8 +405,8 @@ struct MsH3UniDirStream : public MsQuicStream {
     uint8_t RawBuffer[256];
     QUIC_BUFFER Buffer {0, RawBuffer}; // Working space
 
-    MsH3UniDirStream(MsH3Connection* Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
-    MsH3UniDirStream(MsH3Connection* Connection, const HQUIC StreamHandle);
+    MsH3UniDirStream(MsH3Connection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
+    MsH3UniDirStream(MsH3Connection& Connection, const HQUIC StreamHandle);
 
     bool
     EncodeHeaders(
@@ -487,7 +513,7 @@ struct MsH3BiDirStream : public MsQuicStream {
     bool Complete {false};
 
     MsH3BiDirStream(
-        _In_ MsH3Connection* Connection,
+        _In_ MsH3Connection& Connection,
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
         _In_reads_(HeadersCount)
@@ -496,6 +522,13 @@ struct MsH3BiDirStream : public MsQuicStream {
         _In_ MSH3_REQUEST_FLAGS Flags
         );
 
+#ifdef MSH3_SERVER_SUPPORT
+    MsH3BiDirStream(
+        _In_ MsH3Connection& Connection,
+        _In_ HQUIC StreamHandle
+        );
+#endif
+
     bool
     SendAppData(
         _In_ MSH3_REQUEST_FLAGS Flags,
@@ -503,6 +536,26 @@ struct MsH3BiDirStream : public MsQuicStream {
         _In_ uint32_t DataLength,
         _In_opt_ void* AppContext
         );
+
+#ifdef MSH3_SERVER_SUPPORT
+    void
+    SetCallbackInterface(
+        const MSH3_REQUEST_IF* Interface,
+        void* IfContext
+        )
+    {
+        Callbacks = *Interface;
+        Context = IfContext;
+    }
+
+    bool
+    SendHeaders(
+        _In_reads_(HeadersCount)
+            const MSH3_HEADER* Headers,
+        _In_ size_t HeadersCount,
+        _In_ MSH3_REQUEST_FLAGS Flags
+        );
+#endif // MSH3_SERVER_SUPPORT
 
 private:
 
@@ -565,3 +618,48 @@ private:
         struct lsxpack_header* Header
         );
 };
+
+#ifdef MSH3_SERVER_SUPPORT
+
+struct MsH3Certificate : public MsQuicConfiguration {
+    MsH3Certificate(
+        const MsQuicRegistration& Registration,
+        const MSH3_CERTIFICATE_CONFIG* Config
+        );
+};
+
+struct MsH3Listener : public MsQuicListener {
+
+    MSH3_LISTENER_IF Callbacks;
+    void* Context;
+
+    MsH3Listener(
+        const MsQuicRegistration& Registration,
+        const MSH3_ADDR* Address,
+        const MSH3_LISTENER_IF* Interface,
+        void* IfContext
+        );
+
+private:
+
+    static
+    _IRQL_requires_max_(PASSIVE_LEVEL)
+    _Function_class_(QUIC_LISTENER_CALLBACK)
+    QUIC_STATUS
+    QUIC_API
+    s_MsQuicCallback(
+        _In_ HQUIC /* Listener */,
+        _In_opt_ void* Context,
+        _Inout_ QUIC_LISTENER_EVENT* Event
+        )
+    {
+        return ((MsH3Listener*)Context)->MsQuicCallback(Event);
+    }
+
+    QUIC_STATUS
+    MsQuicCallback(
+        _Inout_ QUIC_LISTENER_EVENT* Event
+        );
+};
+
+#endif // MSH3_SERVER_SUPPORT
