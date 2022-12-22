@@ -9,11 +9,21 @@ on:
 permissions: read-all
 
 jobs:
-  build-linux-openssl:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, windows]
+        tls: [schannel, openssl]
+        shared: [on, off]
+        server: [on, off]
+        exclude:
+        - os: ubuntu
+          tls: schannel
     permissions:
       contents: read
-    name: Build Linux (OpenSSL)
-    runs-on: ubuntu-latest
+    name: Build
+    runs-on: ${{ matrix.os }}-latest
     steps:
     - name: Harden Runner
       uses: step-security/harden-runner@ebacdc22ef6c2cfb85ee5ded8f2e640f4c776dd5
@@ -23,100 +33,50 @@ jobs:
       uses: actions/checkout@755da8c3cf115ac066823e79a1e1788f8940201b
       with:
         submodules: 'recursive'
-    - name: Generate
-      run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_VER_SUFFIX=-official -DMSH3_TOOL=on ..
-    - name: Build
-      run: cd build && cmake --build .
-    - name: Upload
-      uses: actions/upload-artifact@83fd05a356d7e2593de66fc9913b3002723633cb
-      with:
-        name: bin-linux-openssl
-        path: |
-          build/**/*.so
-          build/**/msh3app
-    - name: Install
-      run: cd build && sudo cmake --install . --config Debug
-    - name: GET outlook.office.com
-      run: /usr/local/lib/msh3app outlook.office.com -v
-    - name: GET www.cloudflare.com
-      run: /usr/local/lib/msh3app www.cloudflare.com -v
-    - name: GET www.google.com
-      run: /usr/local/lib/msh3app www.google.com -v
-    - name: GET nghttp2.org:4433
-      run: /usr/local/lib/msh3app nghttp2:4433 -v
-  build-windows-openssl:
-    permissions:
-      contents: read
-    name: Build Windows (OpenSSL)
-    runs-on: windows-latest
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@755da8c3cf115ac066823e79a1e1788f8940201b
-      with:
-        submodules: 'recursive'
     - name: Install Perl
+      if: runner.os == 'Windows'
       uses: shogo82148/actions-setup-perl@e0737ade83f9863f9f5c00d8470b6d7bec207fee
       with:
         perl-version: '5.34'
     - name: Install NASM
+      if: runner.os == 'Windows'
       uses: ilammy/setup-nasm@321e6ed62a1fc77024a3bd853deb33645e8b22c4
-    - name: Generate
-      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_VER_SUFFIX=-official -DQUIC_TLS=openssl -DMSH3_TOOL=on ..
+    - name: Generate (Linux)
+      if: runner.os == 'Linux'
+      run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DQUIC_TLS=${{ matrix.tls }} -DQUIC_BUILD_SHARED=${{ matrix.shared }} -DMSH3_SERVER_SUPPORT=${{ matrix.server }} -DMSH3_TEST=on -DMSH3_TOOL=on -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_VER_SUFFIX=-official ..
+    - name: Generate (Windows)
+      if: runner.os == 'Windows'
+      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DQUIC_TLS=${{ matrix.tls }} -DQUIC_BUILD_SHARED=${{ matrix.shared }} -DMSH3_SERVER_SUPPORT=${{ matrix.server }} -DMSH3_TEST=on -DMSH3_TOOL=on -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_VER_SUFFIX=-official ..
     - name: Build
       run: cd build && cmake --build .
     - name: Upload
       uses: actions/upload-artifact@83fd05a356d7e2593de66fc9913b3002723633cb
       with:
-        name: bin-windows-openssl
+        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.shared }}-${{ matrix.server }}
         path: |
+          build/**/*.so
           build/**/*.dll
-          build/**/msh3app.exe
-    - name: Install
+          build/**/*.pdb
+          build/**/*.exe
+          build/**/msh3app
+          build/**/msh3test
+    - name: Install (Linux)
+      if: runner.os == 'Linux'
+      run: cd build && sudo cmake --install . --config Debug
+    - name: Install (Windows)
+      if: runner.os == 'Windows'
       run: cd build && cmake --install . --config Debug
-    - name: GET outlook.office.com
+    - name: msh3app (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        /usr/local/lib/msh3app outlook.office.com -v
+        /usr/local/lib/msh3app www.cloudflare.com -v
+        /usr/local/lib/msh3app www.google.com -v
+        /usr/local/lib/msh3app nghttp2:4433 -v
+    - name: msh3app (Windows)
+      if: runner.os == 'Windows'
       run: |
         & 'C:/Program Files/msh3/lib/msh3app' outlook.office.com -v
-    - name: GET www.cloudflare.com
-      run: |
         & 'C:/Program Files/msh3/lib/msh3app' www.cloudflare.com -v
-    - name: GET www.google.com
-      run: |
         & 'C:/Program Files/msh3/lib/msh3app' www.google.com -v
-    - name: GET nghttp2.org:4433
-      run: |
-        & 'C:/Program Files/msh3/lib/msh3app' nghttp2.org:4433 -v
-  build-windows-schannel:
-    permissions:
-      contents: read
-    name: Build Windows (Schannel)
-    runs-on: windows-latest
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@755da8c3cf115ac066823e79a1e1788f8940201b
-      with:
-        submodules: 'recursive'
-    - name: Generate
-      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_VER_SUFFIX=-official -DMSH3_TOOL=on ..
-    - name: Build
-      run: cd build && cmake --build .
-    - name: Upload
-      uses: actions/upload-artifact@83fd05a356d7e2593de66fc9913b3002723633cb
-      with:
-        name: bin-windows-schannel
-        path: |
-          build/**/*.dll
-          build/**/msh3app.exe
-    - name: Install
-      run: cd build && cmake --install . --config Debug
-    - name: GET outlook.office.com
-      run: |
-        & 'C:/Program Files/msh3/lib/msh3app' outlook.office.com -v
-    - name: GET www.cloudflare.com
-      run: |
-        & 'C:/Program Files/msh3/lib/msh3app' www.cloudflare.com -v
-    - name: GET www.google.com
-      run: |
-        & 'C:/Program Files/msh3/lib/msh3app' www.google.com -v
-    - name: GET nghttp2.org:4433
-      run: |
-        & 'C:/Program Files/msh3/lib/msh3app' nghttp2.org:4433 -v
+        & 'C:/Program Files/msh3/lib/msh3app' nghttp2:4433 -v

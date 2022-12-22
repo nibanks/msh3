@@ -60,7 +60,7 @@
 #endif
 
 #ifndef UNREFERENCED_PARAMETER
-#define UNREFERENCED_PARAMETER(P) (P)
+#define UNREFERENCED_PARAMETER(P) (void)(P)
 #endif
 
 #include <quic_var_int.h>
