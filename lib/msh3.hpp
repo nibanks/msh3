@@ -15,6 +15,8 @@
 
 #ifdef MSH3_SERVER_SUPPORT
 #define MSH3_TEST_MODE 1 // Always built in if server is supported
+#define QUIC_TEST_APIS 1
+#include <quic_platform.h>
 #endif
 
 #include <msquic.hpp>
@@ -55,6 +57,10 @@
 
 #ifndef min
 #define min(a,b) ((a) > (b) ? (b) : (a))
+#endif
+
+#ifndef UNREFERENCED_PARAMETER
+#define UNREFERENCED_PARAMETER(P) (P)
 #endif
 
 #include <quic_var_int.h>
@@ -622,10 +628,16 @@ private:
 #ifdef MSH3_SERVER_SUPPORT
 
 struct MsH3Certificate : public MsQuicConfiguration {
+    QUIC_CREDENTIAL_CONFIG* SelfSign {nullptr};
     MsH3Certificate(
         const MsQuicRegistration& Registration,
         const MSH3_CERTIFICATE_CONFIG* Config
         );
+    MsH3Certificate(
+        const MsQuicRegistration& Registration,
+        QUIC_CREDENTIAL_CONFIG* SelfSign
+        );
+    ~MsH3Certificate();
 };
 
 struct MsH3Listener : public MsQuicListener {

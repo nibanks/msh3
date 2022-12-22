@@ -11,6 +11,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2def.h> // for sockaddr_in
+#include <ws2ipdef.h> // for sockaddr_in6
+#endif
 
 #if defined(__cplusplus)
 extern "C" {

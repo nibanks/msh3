@@ -248,6 +248,16 @@ MsH3CertificateOpen(
 {
 #ifdef MSH3_SERVER_SUPPORT
     auto Reg = (MsQuicRegistration*)Handle;
+    if (Config->Type == MSH3_CERTIFICATE_TYPE_SELF_SIGNED) {
+        auto SelfSign = CxPlatGetSelfSignedCert(CXPLAT_SELF_SIGN_CERT_USER, FALSE);
+        if (!SelfSign) return nullptr;
+        auto Cert = new(std::nothrow) MsH3Certificate(*Reg, SelfSign);
+        if (!Cert || QUIC_FAILED(Cert->GetInitStatus())) {
+            delete Cert;
+            return nullptr;
+        }
+        return (MSH3_CERTIFICATE*)Cert;
+    }
     auto Cert = new(std::nothrow) MsH3Certificate(*Reg, Config);
     if (!Cert || QUIC_FAILED(Cert->GetInitStatus())) {
         delete Cert;
@@ -942,6 +952,27 @@ MsH3Certificate::MsH3Certificate(
                 .SetIdleTimeoutMs(30000),
             ToQuicConfig(Config))
 {
+}
+
+MsH3Certificate::MsH3Certificate(
+        const MsQuicRegistration& Registration,
+        QUIC_CREDENTIAL_CONFIG* SelfSign
+    ) : MsQuicConfiguration(
+            Registration,
+            "h3",
+            MsQuicSettings()
+                .SetSendBufferingEnabled(false)
+                .SetPeerBidiStreamCount(1000)
+                .SetPeerUnidiStreamCount(3)
+                .SetIdleTimeoutMs(30000),
+            *SelfSign),
+        SelfSign(SelfSign)
+{
+}
+
+MsH3Certificate::~MsH3Certificate()
+{
+    if (SelfSign) CxPlatFreeSelfSignedCert(SelfSign);
 }
 
 //
