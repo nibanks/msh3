@@ -162,9 +162,7 @@ typedef struct MSH3_CONNECTION_IF {
     //void (MSH3_CALL *ShutdownByPeer)(MSH3_CONNECTION* Connection, void* IfContext, uint64_t ErrorCode);
     //void (MSH3_CALL *ShutdownByTransport)(MSH3_CONNECTION* Connection, void* IfContext);
     void (MSH3_CALL *ShutdownComplete)(MSH3_CONNECTION* Connection, void* IfContext);
-#ifdef MSH3_SERVER_SUPPORT
     void (MSH3_CALL *NewRequest)(MSH3_CONNECTION* Connection, void* IfContext, MSH3_REQUEST* Request);
-#endif // MSH3_SERVER_SUPPORT
 } MSH3_CONNECTION_IF;
 
 MSH3_CONNECTION*

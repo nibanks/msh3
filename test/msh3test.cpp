@@ -13,10 +13,32 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 
 using namespace std;
 
 #define VERIFY(X) if (!(X)) { printf(#X " Failed!\n"); exit(1); } else { printf(#X " Succeeded!\n"); }
+
+std::mutex RequestCompleteMutex;
+std::condition_variable RequestCompleteEvent;
+bool RequestSuccess;
+
+bool WaitOnRequestComplete() {
+    if (!RequestSuccess) {
+        std::unique_lock Lock{RequestCompleteMutex};
+        RequestCompleteEvent.wait(Lock, [&]{return RequestSuccess;});
+    }
+    return RequestSuccess;
+}
+
+void SetRequestComplete() {
+    std::lock_guard Lock{RequestCompleteMutex};
+    RequestSuccess = true;
+    RequestCompleteEvent.notify_all();
+}
 
 MSH3_HEADER RequestHeaders[] = {
     { ":method", 7, "GET", 3 },
@@ -55,12 +77,13 @@ void MSH3_CALL DataReceived(MSH3_REQUEST* , void* , uint32_t Length, const uint8
     fwrite(Data, 1, Length, stdout);
 }
 
-void MSH3_CALL ClientHeaderReceived(MSH3_REQUEST* , void* , bool Aborted, uint64_t AbortError) {
+void MSH3_CALL ClientComplete(MSH3_REQUEST* , void* , bool Aborted, uint64_t AbortError) {
     if (Aborted) printf("Response aborted: 0x%llx\n", (long long unsigned)AbortError);
     else         printf("Response complete\n");
+    SetRequestComplete();
 }
 
-void MSH3_CALL ServerHeaderReceived(MSH3_REQUEST* Request, void* , bool Aborted, uint64_t AbortError) {
+void MSH3_CALL ServerComplete(MSH3_REQUEST* Request, void* , bool Aborted, uint64_t AbortError) {
     if (Aborted) printf("Request aborted: 0x%llx\n", (long long unsigned)AbortError);
     else {
         printf("Request complete\n");
@@ -82,8 +105,8 @@ void MSH3_CALL DataSent(MSH3_REQUEST* , void* , void* ) {
     printf("Data sent\n");
 }
 
-const MSH3_REQUEST_IF ClientRequestIf = { ClientHeaderReceived, DataReceived, ClientHeaderReceived, ClientShutdown, DataSent };
-const MSH3_REQUEST_IF ServerRequestIf = { ServerHeaderReceived, DataReceived, ServerHeaderReceived, ServerShutdown, DataSent };
+const MSH3_REQUEST_IF ClientRequestIf = { ClientHeaderReceived, DataReceived, ClientComplete, ClientShutdown, DataSent };
+const MSH3_REQUEST_IF ServerRequestIf = { ServerHeaderReceived, DataReceived, ServerComplete, ServerShutdown, DataSent };
 
 void MSH3_CALL ConnConnected(MSH3_CONNECTION* , void* ) {
     printf("Connected!\n");
@@ -139,7 +162,7 @@ int MSH3_CALL main(int , char**) {
     auto Request = MsH3RequestOpen(Connection, &ClientRequestIf, nullptr, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN);
     VERIFY(Request);
 
-    Sleep(1000);
+    WaitOnRequestComplete();
 
     printf("Closing request\n");
     MsH3RequestClose(Request);
