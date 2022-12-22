@@ -5,24 +5,14 @@
 
 --*/
 
-#ifdef _WIN32
-#pragma warning(push)
-#pragma warning(disable:4244) // LSQpack int conversion
-#pragma warning(disable:4267) // LSQpack int conversion
-#endif
-
-#define MSH3_VERSION_ONLY 1
-
 #include "msh3.hpp"
-#include "msh3.ver"
-#include <atomic>
-
-#ifdef _WIN32
-#pragma warning(pop)
-#endif
 
 const MsQuicApi* MsQuic;
 static std::atomic_int MsH3RefCount{0};
+
+//
+// Public API
+//
 
 extern "C"
 void
@@ -150,8 +140,7 @@ MsH3RequestSend(
     void* AppContext
     )
 {
-    auto Request = (MsH3BiDirStream*)Handle;
-    return Request->SendAppData(Flags, Data, DataLength, AppContext);
+    return ((MsH3BiDirStream*)Handle)->SendAppData(Flags, Data, DataLength, AppContext);
 }
 
 extern "C"
@@ -163,8 +152,7 @@ MsH3RequestShutdown(
     uint64_t AbortError
     )
 {
-    auto Request = (MsH3BiDirStream*)Handle;
-    Request->AppShutdown(Flags, AbortError);
+    (void)((MsH3BiDirStream*)Handle)->Shutdown(AbortError, ToQuicShutdownFlags(Flags));
 }
 
 extern "C"
@@ -212,9 +200,8 @@ MsH3Connection::MsH3Connection(
         Unsecure ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
             QUIC_CREDENTIAL_FLAG_CLIENT;
-    MsQuicConfiguration Config(Registration, MsQuicAlpn("h3"), Settings, MsQuicCredentialConfig(Flags));
+    MsQuicConfiguration Config(Registration, "h3", Settings, Flags);
     if (QUIC_FAILED(InitStatus = Config.GetInitStatus())) return;
-
     //if (ServerIp && InitStatus = QUIC_FAILED(H3->SetRemoteAddr(ServerAddress))) return;
     if (QUIC_FAILED(InitStatus = Start(Config, HostName, Port))) return;
 }
@@ -296,7 +283,7 @@ MsH3Connection::ReceiveSettingsFrame(
         QUIC_VAR_INT SettingType, SettingValue;
         if (!MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingType) ||
             !MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingValue)) {
-            printf("Not enough setting.\n");
+            printf("Not enough settings.\n");
             return false;
         }
 
@@ -561,13 +548,9 @@ MsH3BiDirStream::MsH3BiDirStream(
     auto HeadersLength = Buffers[1].Length + Buffers[2].Length;
     if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
         printf("H3WriteFrameHeader failed\n");
-        return;
-    }
-    if (QUIC_FAILED(InitStatus = Send(Buffers, 3, ToQuicSendFlags(Flags)))) {
+    } else if (QUIC_FAILED(InitStatus = Send(Buffers, 3, ToQuicSendFlags(Flags)))) {
         printf("Request send failed\n");
-        return;
     }
-    InitStatus = QUIC_STATUS_SUCCESS;
 }
 
 bool
@@ -579,13 +562,8 @@ MsH3BiDirStream::SendAppData(
     )
 {
     auto AppSend = new(std::nothrow) MsH3AppSend(AppContext); // TODO - Pool alloc
-    if (!AppSend) return false;
-    if (!AppSend->SetData(Data, DataLength)) {
-        delete AppSend;
-        return false;
-    }
-    QUIC_STATUS Status;
-    if (QUIC_FAILED(Status = Send(AppSend->Buffers, 2, ToQuicSendFlags(Flags), AppSend))) {
+    if (!AppSend || !AppSend->SetData(Data, DataLength) ||
+        QUIC_FAILED(Send(AppSend->Buffers, 2, ToQuicSendFlags(Flags), AppSend))) {
         delete AppSend;
         return false;
     }
@@ -695,10 +673,6 @@ MsH3BiDirStream::Receive(
     } while (Offset < Buffer->Length);
 }
 
-void
-MsH3BiDirStream::DecodeUnblocked()
-{ }
-
 struct lsxpack_header*
 MsH3BiDirStream::DecodePrepare(
     struct lsxpack_header* Header,
@@ -719,16 +693,15 @@ MsH3BiDirStream::DecodePrepare(
     return Header;
 }
 
-int
+void
 MsH3BiDirStream::DecodeProcess(
     struct lsxpack_header* Header
     )
 {
-    MSH3_HEADER h;
-    h.Name = Header->buf + Header->name_offset;
-    h.NameLength = Header->name_len;
-    h.Value = Header->buf + Header->val_offset;
-    h.ValueLength = Header->val_len;
+    const MSH3_HEADER h {
+        .Name = Header->buf + Header->name_offset,
+        .NameLength = Header->name_len,
+        .Value = Header->buf + Header->val_offset,
+        .ValueLength = Header->val_len };
     Callbacks.HeaderReceived((MSH3_REQUEST*)this, Context, &h);
-    return 0;
 }

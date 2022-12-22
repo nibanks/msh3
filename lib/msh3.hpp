@@ -7,6 +7,12 @@
 
 #pragma once
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable:4244) // LSQpack int conversion
+#pragma warning(disable:4267) // LSQpack int conversion
+#endif
+
 #include <msquic.hpp>
 #include <lsqpack.h>
 #include <lsxpack_header.h>
@@ -15,8 +21,15 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <atomic>
+
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #include "msh3.h"
+#define MSH3_VERSION_ONLY 1
+#include "msh3.ver"
 
 #if _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
@@ -156,8 +169,7 @@ MsH3VarIntDecode(
     return TRUE;
 }
 
-inline
-bool
+inline bool
 H3WriteFrameHeader(
     _In_ uint8_t Type,
     _In_ uint32_t Length,
@@ -180,8 +192,7 @@ H3WriteFrameHeader(
     return true;
 }
 
-inline
-bool
+inline bool
 H3WriteSettingsFrame(
     _In_reads_(SettingsCount)
         const H3Settings* Settings,
@@ -337,8 +348,7 @@ private:
     friend struct MsH3UniDirStream;
     friend struct MsH3BiDirStream;
 
-    static
-    QUIC_STATUS
+    static QUIC_STATUS
     s_MsQuicCallback(
         _In_ MsQuicConnection* /* Connection */,
         _In_opt_ void* Context,
@@ -382,8 +392,7 @@ struct MsH3UniDirStream : public MsQuicStream {
 
 private:
 
-    static
-    QUIC_STATUS
+    static QUIC_STATUS
     s_MsQuicCallback(
         _In_ MsQuicStream* /* Stream */,
         _In_opt_ void* Context,
@@ -458,12 +467,10 @@ struct MsH3BiDirStream : public MsQuicStream {
     uint8_t FrameHeaderBuffer[16];
     uint8_t PrefixBuffer[32];
     uint8_t HeadersBuffer[256];
-    uint8_t DataFrameHeaderBuffer[16];
-    QUIC_BUFFER Buffers[5] = {
+    QUIC_BUFFER Buffers[3] = {
         {0, FrameHeaderBuffer},
         {0, PrefixBuffer},
-        {0, HeadersBuffer},
-        {0, NULL} // Data header + app data
+        {0, HeadersBuffer}
     };
 
     static struct lsqpack_dec_hset_if hset_if;
@@ -497,15 +504,6 @@ struct MsH3BiDirStream : public MsQuicStream {
         _In_opt_ void* AppContext
         );
 
-    void
-    AppShutdown(
-        _In_ MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
-        _In_ uint64_t AbortError
-        )
-    {
-        (void)Shutdown(AbortError, ToQuicShutdownFlags(Flags));
-    }
-
 private:
 
     void
@@ -513,8 +511,7 @@ private:
         _In_ const QUIC_BUFFER* Buffer
         );
 
-    static
-    QUIC_STATUS
+    static QUIC_STATUS
     s_MsQuicCallback(
         _In_ MsQuicStream* /* Stream */,
         _In_opt_ void* Context,
@@ -529,19 +526,15 @@ private:
         _Inout_ QUIC_STREAM_EVENT* Event
         );
 
-    static
-    void
+    static void
     s_DecodeUnblocked(
-        void *Context
+        void* /* Context */
         )
     {
-        ((MsH3BiDirStream*)Context)->DecodeUnblocked();
+        /* no-op currently */
     }
 
-    void DecodeUnblocked();
-
-    static
-    struct lsxpack_header*
+    static struct lsxpack_header*
     s_DecodePrepare(
         void *Context,
         struct lsxpack_header* Header,
@@ -557,17 +550,17 @@ private:
         size_t Space
         );
 
-    static
-    int
+    static int
     s_DecodeProcess(
         void *Context,
         struct lsxpack_header* Header
         )
     {
-        return ((MsH3BiDirStream*)Context)->DecodeProcess(Header);
+        ((MsH3BiDirStream*)Context)->DecodeProcess(Header);
+        return 0;
     }
 
-    int
+    void
     DecodeProcess(
         struct lsxpack_header* Header
         );
