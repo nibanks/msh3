@@ -69,28 +69,47 @@ void MSH3_CALL ServerHeaderReceived(MSH3_REQUEST* Request, void* , bool Aborted,
     }
 }
 
-void MSH3_CALL Shutdown(MSH3_REQUEST*, void* ) {
-    //MsH3RequestClose(Request);
+void MSH3_CALL ClientShutdown(MSH3_REQUEST*, void* ) {
+    printf("client request shutdown\n");
+}
+
+void MSH3_CALL ServerShutdown(MSH3_REQUEST* Request, void* ) {
+    printf("server request shutdown\n");
+    MsH3RequestClose(Request);
 }
 
 void MSH3_CALL DataSent(MSH3_REQUEST* , void* , void* ) {
     printf("Data sent\n");
 }
 
-const MSH3_REQUEST_IF ClientRequestIf = { ClientHeaderReceived, DataReceived, ClientHeaderReceived, Shutdown, DataSent };
-const MSH3_REQUEST_IF ServerRequestIf = { ServerHeaderReceived, DataReceived, ServerHeaderReceived, Shutdown, DataSent };
+const MSH3_REQUEST_IF ClientRequestIf = { ClientHeaderReceived, DataReceived, ClientHeaderReceived, ClientShutdown, DataSent };
+const MSH3_REQUEST_IF ServerRequestIf = { ServerHeaderReceived, DataReceived, ServerHeaderReceived, ServerShutdown, DataSent };
+
+void MSH3_CALL ConnConnected(MSH3_CONNECTION* , void* ) {
+    printf("Connected!\n");
+}
+
+void MSH3_CALL ClientConnShutdownComplete(MSH3_CONNECTION* , void* ) {
+    printf("client shutdown\n");
+}
+
+void MSH3_CALL ServerConnShutdownComplete(MSH3_CONNECTION* Connection, void* ) {
+    printf("server shutdown\n");
+    MsH3ConnectionClose(Connection);
+}
 
 void MSH3_CALL ConnNewRequest(MSH3_CONNECTION* , void* , MSH3_REQUEST* Request) {
     printf("new request\n");
     MsH3RequestSetCallbackInterface(Request, &ServerRequestIf, nullptr);
 }
 
-const MSH3_CONNECTION_IF ConnIf { ConnNewRequest };
+const MSH3_CONNECTION_IF ClientConnIf { ConnConnected, ClientConnShutdownComplete, ConnNewRequest };
+const MSH3_CONNECTION_IF ServerConnIf { ConnConnected, ServerConnShutdownComplete, ConnNewRequest };
 
 void MSH3_CALL ListenerNewConnection(MSH3_LISTENER* , void* Context, MSH3_CONNECTION* Connection, const char* , uint16_t) {
     printf("new connection\n");
     auto Cert = (MSH3_CERTIFICATE*)Context;
-    MsH3ConnectionSetCallbackInterface(Connection, &ConnIf, nullptr);
+    MsH3ConnectionSetCallbackInterface(Connection, &ServerConnIf, nullptr);
     printf("set cert\n");
     MsH3ConnectionSetCertificate(Connection, Cert);
 }
@@ -98,7 +117,6 @@ void MSH3_CALL ListenerNewConnection(MSH3_LISTENER* , void* Context, MSH3_CONNEC
 const MSH3_LISTENER_IF ListenerIf { ListenerNewConnection };
 
 int MSH3_CALL main(int , char**) {
-    printf("start\n");
     auto Api = MsH3ApiOpen();
     VERIFY(Api);
 
@@ -115,7 +133,7 @@ int MSH3_CALL main(int , char**) {
     auto Listener = MsH3ListenerOpen(Api, &Address, &ListenerIf, Cert);
     VERIFY(Listener);
 
-    auto Connection = MsH3ConnectionOpen(Api, "localhost", 443, true);
+    auto Connection = MsH3ConnectionOpen(Api, &ClientConnIf, nullptr, "localhost", 443, true);
     VERIFY(Connection);
 
     auto Request = MsH3RequestOpen(Connection, &ClientRequestIf, nullptr, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN);
@@ -123,9 +141,15 @@ int MSH3_CALL main(int , char**) {
 
     Sleep(1000);
 
+    printf("Closing request\n");
+    MsH3RequestClose(Request);
+    printf("Closing connection\n");
     MsH3ConnectionClose(Connection);
-
+    printf("Closing listener\n");
+    MsH3ListenerClose(Listener);
+    printf("Closing certificate\n");
     MsH3CertificateClose(Cert);
+    printf("Closing api\n");
     MsH3ApiClose(Api);
 
     return 0;

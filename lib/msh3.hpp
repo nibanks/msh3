@@ -277,6 +277,9 @@ struct MsH3BiDirStream;
 
 struct MsH3Connection : public MsQuicConnection {
 
+    MSH3_CONNECTION_IF Callbacks {nullptr};
+    void* Context {nullptr};
+
     struct lsqpack_enc Encoder;
     struct lsqpack_dec Decoder;
     uint8_t tsu_buf[LSQPACK_LONGEST_SDTC];
@@ -305,6 +308,8 @@ struct MsH3Connection : public MsQuicConnection {
 
     MsH3Connection(
         const MsQuicRegistration& Registration,
+        const MSH3_CONNECTION_IF* Interface,
+        void* IfContext,
         const char* ServerName,
         uint16_t Port,
         bool Unsecure
@@ -319,9 +324,6 @@ struct MsH3Connection : public MsQuicConnection {
     ~MsH3Connection();
 
 #ifdef MSH3_SERVER_SUPPORT
-    MSH3_CONNECTION_IF Callbacks;
-    void* Context;
-
     void
     SetCallbackInterface(
         const MSH3_CONNECTION_IF* Interface,

@@ -11,10 +11,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+
 #ifdef _WIN32
 #include <winsock2.h>
-#include <ws2def.h> // for sockaddr_in
-#include <ws2ipdef.h> // for sockaddr_in6
+#include <ws2def.h>
+#include <ws2ipdef.h>
+#else
+#include <netinet/ip.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #endif
 
 #if defined(__cplusplus)
@@ -152,10 +157,22 @@ MsH3ApiClose(
     MSH3_API* Handle
     );
 
+typedef struct MSH3_CONNECTION_IF {
+    void (MSH3_CALL *Connected)(MSH3_CONNECTION* Connection, void* IfContext);
+    //void (MSH3_CALL *ShutdownByPeer)(MSH3_CONNECTION* Connection, void* IfContext, uint64_t ErrorCode);
+    //void (MSH3_CALL *ShutdownByTransport)(MSH3_CONNECTION* Connection, void* IfContext);
+    void (MSH3_CALL *ShutdownComplete)(MSH3_CONNECTION* Connection, void* IfContext);
+#ifdef MSH3_SERVER_SUPPORT
+    void (MSH3_CALL *NewRequest)(MSH3_CONNECTION* Connection, void* IfContext, MSH3_REQUEST* Request);
+#endif // MSH3_SERVER_SUPPORT
+} MSH3_CONNECTION_IF;
+
 MSH3_CONNECTION*
 MSH3_CALL
 MsH3ConnectionOpen(
     MSH3_API* Handle,
+    const MSH3_CONNECTION_IF* Interface,
+    void* IfContext,
     const char* ServerName,
     uint16_t Port,
     bool Unsecure
@@ -175,10 +192,6 @@ MsH3ConnectionGetState(
     );
 
 #ifdef MSH3_SERVER_SUPPORT
-typedef struct MSH3_CONNECTION_IF {
-    void (MSH3_CALL *NewRequest)(MSH3_CONNECTION* Connection, void* IfContext, MSH3_REQUEST* Request);
-} MSH3_CONNECTION_IF;
-
 void
 MSH3_CALL
 MsH3ConnectionSetCallbackInterface(
@@ -199,7 +212,7 @@ typedef struct MSH3_REQUEST_IF {
     void (MSH3_CALL *HeaderReceived)(MSH3_REQUEST* Request, void* IfContext, const MSH3_HEADER* Header);
     void (MSH3_CALL *DataReceived)(MSH3_REQUEST* Request, void* IfContext, uint32_t Length, const uint8_t* Data);
     void (MSH3_CALL *Complete)(MSH3_REQUEST* Request, void* IfContext, bool Aborted, uint64_t AbortError);
-    void (MSH3_CALL *Shutdown)(MSH3_REQUEST* Request, void* IfContext);
+    void (MSH3_CALL *ShutdownComplete)(MSH3_REQUEST* Request, void* IfContext);
     void (MSH3_CALL *DataSent)(MSH3_REQUEST* Request, void* IfContext, void* SendContext);
 } MSH3_REQUEST_IF;
 

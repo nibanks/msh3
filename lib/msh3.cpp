@@ -73,13 +73,15 @@ MSH3_CONNECTION*
 MSH3_CALL
 MsH3ConnectionOpen(
     MSH3_API* Handle,
+    const MSH3_CONNECTION_IF* Interface,
+    void* IfContext,
     const char* ServerName,
     uint16_t Port,
     bool Unsecure
     )
 {
     auto Reg = (MsQuicRegistration*)Handle;
-    auto H3 = new(std::nothrow) MsH3Connection(*Reg, ServerName, Port, Unsecure);
+    auto H3 = new(std::nothrow) MsH3Connection(*Reg, Interface, IfContext, ServerName, Port, Unsecure);
     if (!H3 || QUIC_FAILED(H3->GetInitStatus())) {
         delete H3;
         return nullptr;
@@ -332,10 +334,13 @@ MsH3ListenerClose(
 
 MsH3Connection::MsH3Connection(
         const MsQuicRegistration& Registration,
+        const MSH3_CONNECTION_IF* Interface,
+        void* IfContext,
         const char* ServerName,
         uint16_t Port,
         bool Unsecure
-    ) : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this)
+    ) : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this),
+        Callbacks(*Interface), Context(IfContext)
 {
     if (!IsValid()) return;
     size_t ServerNameLen = strlen(ServerName);
@@ -416,6 +421,7 @@ MsH3Connection::MsQuicCallback(
     case QUIC_CONNECTION_EVENT_CONNECTED:
         HandshakeSuccess = true;
         SetHandshakeComplete();
+        Callbacks.Connected((MSH3_CONNECTION*)this, Context);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
         if (Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status != QUIC_STATUS_CONNECTION_IDLE) {
@@ -429,6 +435,7 @@ MsH3Connection::MsQuicCallback(
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         SetShutdownComplete();
+        Callbacks.ShutdownComplete((MSH3_CONNECTION*)this, Context);
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
@@ -812,7 +819,7 @@ MsH3BiDirStream::MsQuicCallback(
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
         if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0);
-        Callbacks.Shutdown((MSH3_REQUEST*)this, Context);
+        Callbacks.ShutdownComplete((MSH3_REQUEST*)this, Context);
         break;
     default:
         break;

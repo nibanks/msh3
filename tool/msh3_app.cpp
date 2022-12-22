@@ -23,6 +23,14 @@ struct Arguments {
     Arguments() { }
 } Args;
 
+void MSH3_CALL Connected(MSH3_CONNECTION* , void* ) {
+}
+
+void MSH3_CALL ConnShutdownComplete(MSH3_CONNECTION* , void* ) {
+}
+
+const MSH3_CONNECTION_IF ConnCallbacks = { Connected, ConnShutdownComplete };
+
 void MSH3_CALL HeaderReceived(MSH3_REQUEST* , void* , const MSH3_HEADER* Header) {
     if (Args.Print) {
         fwrite(Header->Name, 1, Header->NameLength, stdout);
@@ -43,11 +51,11 @@ void MSH3_CALL Complete(MSH3_REQUEST* , void* Context, bool Aborted, uint64_t Ab
     else         printf("Request %u complete\n", Index);
 }
 
-void MSH3_CALL Shutdown(MSH3_REQUEST* Request, void* ) {
+void MSH3_CALL RequestShutdownComplete(MSH3_REQUEST* Request, void* ) {
     MsH3RequestClose(Request);
 }
 
-const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete, Shutdown };
+const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete, RequestShutdownComplete };
 
 void ParseArgs(int argc, char **argv) {
     if (argc < 2 || !strcmp(argv[1], "-?") || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help")) {
@@ -121,7 +129,7 @@ int MSH3_CALL main(int argc, char **argv) {
 
     auto Api = MsH3ApiOpen();
     if (Api) {
-        auto Connection = MsH3ConnectionOpen(Api, Args.Host, Args.Port, Args.Unsecure);
+        auto Connection = MsH3ConnectionOpen(Api, &ConnCallbacks, nullptr, Args.Host, Args.Port, Args.Unsecure);
         if (Connection) {
             for (auto Path : Args.Paths) {
                 printf("HTTP/3 GET https://%s:%d%s\n\n", Args.Host, Args.Port, Path);
