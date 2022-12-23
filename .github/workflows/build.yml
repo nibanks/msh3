@@ -17,6 +17,7 @@ jobs:
         tls: [schannel, openssl]
         link: [static, shared]
         mode: [client-only, server]
+        config: [Debug, Release]
         exclude:
         - os: ubuntu
           tls: schannel
@@ -43,11 +44,11 @@ jobs:
       uses: ilammy/setup-nasm@321e6ed62a1fc77024a3bd853deb33645e8b22c4
     - name: Build
       shell: pwsh
-      run: ./.github/workflows/build.ps1 -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -Mode ${{ matrix.mode }} -BuildId  -Install ${{ github.run_id }} -Suffix "-official" -WithTests -WithTools -Debug
+      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -Mode ${{ matrix.mode }} -BuildId ${{ github.run_id }} -Suffix "-official" -WithTests -WithTools -Install -Debug
     - name: Upload
       uses: actions/upload-artifact@83fd05a356d7e2593de66fc9913b3002723633cb
       with:
-        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}
+        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}-${{ matrix.config }}
         path: |
           build/**/*.so
           build/**/*.dll
