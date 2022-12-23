@@ -32,10 +32,7 @@ param (
     [switch]$WithTools = $false,
 
     [Parameter(Mandatory = $false)]
-    [switch]$WithTests = $false,
-
-    [Parameter(Mandatory = $false)]
-    [switch]$Install = $false
+    [switch]$WithTests = $false
 )
 
 Set-StrictMode -Version 'Latest'
@@ -43,10 +40,15 @@ $PSDefaultParameterValues['*:ErrorAction'] = 'Stop'
 
 if ($Clean) {
     if (Test-Path "./build") { Remove-Item "./build" -Recurse -Force | Out-Null }
+    if (Test-Path "./artifacts") { Remove-Item "./artifacts" -Recurse -Force | Out-Null }
 }
 
 if (!(Test-Path "./build")) {
     New-Item -Path "./build" -ItemType Directory -Force | Out-Null
+}
+
+if (!(Test-Path "./artifacts")) {
+    New-Item -Path "./artifacts" -ItemType Directory -Force | Out-Null
 }
 
 $Shared = "off"
@@ -78,14 +80,15 @@ if ($IsWindows) {
     Execute "cmake" "-G ""Visual Studio 17 2022"" -A $_Arch -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools -DMSH3_VER_BUILD_ID=$BuildId -DMSH3_VER_SUFFIX=$Suffix .."
     Execute "cmake" "--build . --config $Config"
 
-    if ($Install) { Execute "cmake" "--install . --config $Config" }
-
 } else {
 
     $BuildType = $Config
     if ($BuildType -eq "Release") { $BuildType = "RelWithDebInfo" }
     Execute "cmake" "-G ""Unix Makefiles"" -DCMAKE_BUILD_TYPE=$BuildType -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools .."
     Execute "cmake" "--build ."
+}
 
-    if ($Install) { Execute "sudo" "cmake --install . --config $Config" }
+$Files = Get-ChildItem -Path "./build" -Recurse -Filter "*.so", "*.dll", "*.exe", "*.pdb", "msh3app*", "msh3test*"
+foreach ($File in $Files) {
+    Copy-Item $File.FullName (Join-Path "./artifacts" $File.Name)
 }

@@ -10,6 +10,9 @@ permissions: read-all
 
 jobs:
   build:
+    name: Build
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -21,9 +24,6 @@ jobs:
         exclude:
         - os: ubuntu
           tls: schannel
-    permissions:
-      contents: read
-    name: Build
     runs-on: ${{ matrix.os }}-latest
     steps:
     - name: Harden Runner
@@ -44,29 +44,15 @@ jobs:
       uses: ilammy/setup-nasm@321e6ed62a1fc77024a3bd853deb33645e8b22c4
     - name: Build
       shell: pwsh
-      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -Mode ${{ matrix.mode }} -BuildId ${{ github.run_id }} -Suffix "-official" -WithTests -WithTools -Install -Debug
+      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -Mode ${{ matrix.mode }} -BuildId ${{ github.run_id }} -Suffix "-official" -WithTests -WithTools -Debug
     - name: Upload
       uses: actions/upload-artifact@83fd05a356d7e2593de66fc9913b3002723633cb
       with:
         name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}-${{ matrix.config }}
-        path: |
-          build/**/*.so
-          build/**/*.dll
-          build/**/*.pdb
-          build/**/*.exe
-          build/**/msh3app
-          build/**/msh3test
-    - name: msh3app (Linux)
-      if: runner.os == 'Linux'
+        path: artifacts/*
+    - name: msh3app
       run: |
-        /usr/local/lib/msh3app outlook.office.com -v
-        /usr/local/lib/msh3app www.cloudflare.com -v
-        /usr/local/lib/msh3app www.google.com -v
-        /usr/local/lib/msh3app nghttp2:4433 -v
-    - name: msh3app (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        & 'C:/Program Files/msh3/lib/msh3app' outlook.office.com -v
-        & 'C:/Program Files/msh3/lib/msh3app' www.cloudflare.com -v
-        & 'C:/Program Files/msh3/lib/msh3app' www.google.com -v
-        & 'C:/Program Files/msh3/lib/msh3app' nghttp2:4433 -v
+        ./artifacts/msh3app outlook.office.com -v
+        ./artifacts/msh3app www.cloudflare.com -v
+        ./artifacts/msh3app www.google.com -v
+        ./artifacts/msh3app nghttp2:4433 -v
