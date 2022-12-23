@@ -75,7 +75,7 @@ if ($IsWindows) {
 
     $_Arch = $Arch
     if ($_Arch -eq "x86") { $_Arch = "Win32" }
-    Execute "cmake" "-G ""Visual Studio 17 2022"" -A $_Arch -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Test -DMSH3_TOOL=$Tool -DMSH3_VER_BUILD_ID=$BuildId -DMSH3_VER_SUFFIX=$Suffix .."
+    Execute "cmake" "-G ""Visual Studio 17 2022"" -A $_Arch -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools -DMSH3_VER_BUILD_ID=$BuildId -DMSH3_VER_SUFFIX=$Suffix .."
     Execute "cmake" "--build . --config $Config"
 
     if ($Install) { Execute "cmake" "--install . --config $Config" }
