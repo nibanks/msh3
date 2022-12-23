@@ -58,4 +58,4 @@ jobs:
         ./artifacts/msh3app nghttp2:4433 -v
     - name: msh3test
       if: matrix.mode == 'server'
-      run: ./artifacts/msh3app
+      run: ./artifacts/msh3test
