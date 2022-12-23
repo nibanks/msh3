@@ -88,7 +88,7 @@ if ($IsWindows) {
     Execute "cmake" "--build ."
 }
 
-$Files = Get-ChildItem -Path "./build" -Recurse -Filter "*.so", "*.dll", "*.exe", "*.pdb", "msh3app*", "msh3test*"
+$Files = Get-ChildItem -Path "./build/**/$Config" -Recurse -Include "*.so", "*.dll", "*.exe", "msh3app", "msh3test"
 foreach ($File in $Files) {
     Copy-Item $File.FullName (Join-Path "./artifacts" $File.Name)
 }
