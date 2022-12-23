@@ -15,8 +15,8 @@ jobs:
       matrix:
         os: [ubuntu, windows]
         tls: [schannel, openssl]
-        shared: [on, off]
-        server: [on, off]
+        link: [static, shared]
+        mode: [client-only, server]
         exclude:
         - os: ubuntu
           tls: schannel
@@ -41,18 +41,13 @@ jobs:
     - name: Install NASM
       if: runner.os == 'Windows'
       uses: ilammy/setup-nasm@321e6ed62a1fc77024a3bd853deb33645e8b22c4
-    - name: Generate (Linux)
-      if: runner.os == 'Linux'
-      run: mkdir build && cd build && cmake -G 'Unix Makefiles' -DQUIC_TLS=${{ matrix.tls }} -DQUIC_BUILD_SHARED=${{ matrix.shared }} -DMSH3_SERVER_SUPPORT=${{ matrix.server }} -DMSH3_TEST=on -DMSH3_TOOL=on -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_VER_SUFFIX=-official ..
-    - name: Generate (Windows)
-      if: runner.os == 'Windows'
-      run: mkdir build && cd build && cmake -G 'Visual Studio 17 2022' -A x64 -DQUIC_TLS=${{ matrix.tls }} -DQUIC_BUILD_SHARED=${{ matrix.shared }} -DMSH3_SERVER_SUPPORT=${{ matrix.server }} -DMSH3_TEST=on -DMSH3_TOOL=on -DMSH3_VER_BUILD_ID=${{ github.run_id }} -DMSH3_VER_SUFFIX=-official ..
     - name: Build
-      run: cd build && cmake --build .
+      shell: pwsh
+      run: ./.github/workflows/build.ps1 -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -Mode ${{ matrix.mode }} -BuildId  -Install ${{ github.run_id }} -Suffix "-official" -WithTests -WithTools -Debug
     - name: Upload
       uses: actions/upload-artifact@83fd05a356d7e2593de66fc9913b3002723633cb
       with:
-        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.shared }}-${{ matrix.server }}
+        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}
         path: |
           build/**/*.so
           build/**/*.dll
@@ -60,12 +55,6 @@ jobs:
           build/**/*.exe
           build/**/msh3app
           build/**/msh3test
-    - name: Install (Linux)
-      if: runner.os == 'Linux'
-      run: cd build && sudo cmake --install . --config Debug
-    - name: Install (Windows)
-      if: runner.os == 'Windows'
-      run: cd build && cmake --install . --config Debug
     - name: msh3app (Linux)
       if: runner.os == 'Linux'
       run: |
