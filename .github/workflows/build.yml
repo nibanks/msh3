@@ -50,24 +50,6 @@ jobs:
       with:
         name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}-${{ matrix.config }}
         path: artifacts/*
-  test:
-    name: Test
-    needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu, windows]
-        tls: [schannel, openssl]
-        link: [static, shared]
-        mode: [server]
-        config: [Debug, Release]
-        exclude:
-        - os: ubuntu
-          tls: schannel
-    - uses: actions/download-artifact@9782bd6a9848b53b110e712e20e42d89988822b7
-      with:
-        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}-${{ matrix.config }}
-        path: artifacts
     - name: msh3app
       run: |
         ./artifacts/msh3app outlook.office.com -v
@@ -75,4 +57,5 @@ jobs:
         ./artifacts/msh3app www.google.com -v
         ./artifacts/msh3app nghttp2:4433 -v
     - name: msh3test
+      if: matrix.mode == 'server'
       run: ./artifacts/msh3app
