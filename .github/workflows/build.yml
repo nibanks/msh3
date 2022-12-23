@@ -70,3 +70,11 @@ jobs:
         & 'C:/Program Files/msh3/lib/msh3app' www.cloudflare.com -v
         & 'C:/Program Files/msh3/lib/msh3app' www.google.com -v
         & 'C:/Program Files/msh3/lib/msh3app' nghttp2:4433 -v
+    - name: msh3test (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        /usr/local/lib/msh3test
+    - name: msh3test (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        & 'C:/Program Files/msh3/lib/msh3test'

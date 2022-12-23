@@ -84,7 +84,7 @@ if ($IsWindows) {
 
     $BuildType = $Config
     if ($BuildType -eq "Release") { $BuildType = "RelWithDebInfo" }
-    Execute "cmake" "-G ""Unix Makefiles"" -DCMAKE_BUILD_TYPE=$BuildType -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Test -DMSH3_TOOL=$Tool .."
+    Execute "cmake" "-G ""Unix Makefiles"" -DCMAKE_BUILD_TYPE=$BuildType -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools .."
     Execute "cmake" "--build ."
 
     if ($Install) { Execute "sudo" "cmake --install . --config $Config" }
