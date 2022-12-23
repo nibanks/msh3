@@ -4,7 +4,7 @@
 [![](https://img.shields.io/static/v1?label=RFC&message=9114&color=brightgreen)](https://tools.ietf.org/html/rfc9114)
 [![](https://img.shields.io/static/v1?label=RFC&message=9204&color=brightgreen)](https://tools.ietf.org/html/rfc9204)
 
-Minimal HTTP/3 client on top of [microsoft/msquic](https://github.com/microsoft/msquic) and [litespeedtech/ls-qpack](https://github.com/litespeedtech/ls-qpack). Currently supports:
+Minimal HTTP/3 library on top of [microsoft/msquic](https://github.com/microsoft/msquic) and [litespeedtech/ls-qpack](https://github.com/litespeedtech/ls-qpack). Currently supports:
 
 - Sending and receiving request headers and payload.
 - Static qpack encoding.
@@ -12,8 +12,10 @@ Minimal HTTP/3 client on top of [microsoft/msquic](https://github.com/microsoft/
 
 # API
 
+## Client
+
 ```c
-const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete, Shutdown };
+const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete, Shutdown, DataSend };
 
 const MSH3_HEADER Headers[] = {
     { ":method", 7, "GET", 3 },
@@ -28,13 +30,20 @@ MSH3_API* Api = MsH3ApiOpen();
 if (Api) {
     MSH3_CONNECTION* Connection = MsH3ConnectionOpen(Api, Host, Port, Unsecure);
     if (Connection) {
-        MSH3_REQUEST* Request = MsH3RequestOpen(Connection, &Callbacks, NULL, Headers, HeadersCount);
-        // ...
+        MSH3_REQUEST* Request = MsH3RequestOpen(Connection, &Callbacks, NULL, Headers, HeadersCount, MSH3_REQUEST_FLAG_FIN);
+        if (Request) {
+            // ...
+            MsH3RequestClose(Request);
+        }
         MsH3ConnectionClose(Connection);
     }
     MsH3ApiClose(Api);
 }
 ```
+
+## Server
+
+> **TODO**
 
 # Build
 

@@ -4,7 +4,9 @@
 project(msh3)
 cmake_minimum_required(VERSION 3.16)
 
+option(MSH3_SERVER_SUPPORT "Enable server support" OFF)
 option(MSH3_TOOL "Build tool" OFF)
+option(MSH3_TEST "Build tests" OFF)
 
 set(MSH3_VER_BUILD_ID "0" CACHE STRING "The version build ID")
 message(STATUS "Version Build ID: ${MSH3_VER_BUILD_ID}")
@@ -36,6 +38,11 @@ else()
     set(QUIC_COMMON_DEFINES _GNU_SOURCE)
 endif()
 
+if (MSH3_SERVER_SUPPORT)
+    message(STATUS "Configuring for server support")
+    list(APPEND MSH3_COMMON_DEFINES MSH3_SERVER_SUPPORT=1)
+endif()
+
 # Public include header.
 add_library(msh3_headers INTERFACE)
 target_compile_definitions(msh3_headers INTERFACE ${MSH3_COMMON_DEFINES})
@@ -63,4 +70,7 @@ target_compile_features(inc INTERFACE cxx_std_20)
 add_subdirectory(lib)
 if (MSH3_TOOL)
     add_subdirectory(tool)
+endif()
+if (MSH3_TEST)
+    add_subdirectory(test)
 endif()
