@@ -51,6 +51,7 @@ if (!(Test-Path "./artifacts")) {
     New-Item -Path "./artifacts" -ItemType Directory -Force | Out-Null
 }
 
+$Build = Resolve-Path ./build
 $Artifacts = Resolve-Path ./artifacts
 
 $Shared = "off"
