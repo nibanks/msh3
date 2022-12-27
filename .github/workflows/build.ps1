@@ -38,21 +38,20 @@ param (
 Set-StrictMode -Version 'Latest'
 $PSDefaultParameterValues['*:ErrorAction'] = 'Stop'
 
-$Build = Resolve-Path ./build
-$Artifacts = Resolve-Path ./artifacts
-
 if ($Clean) {
-    if (Test-Path $Build) { Remove-Item $Build -Recurse -Force | Out-Null }
-    if (Test-Path $Artifacts) { Remove-Item $Artifacts -Recurse -Force | Out-Null }
+    if (Test-Path "./build") { Remove-Item "./build" -Recurse -Force | Out-Null }
+    if (Test-Path "./artifacts") { Remove-Item "./artifacts" -Recurse -Force | Out-Null }
 }
 
-if (!(Test-Path $Build)) {
-    New-Item -Path $Build -ItemType Directory -Force | Out-Null
+if (!(Test-Path "./build")) {
+    New-Item -Path "./build" -ItemType Directory -Force | Out-Null
 }
 
-if (!(Test-Path $Artifacts)) {
-    New-Item -Path $Artifacts -ItemType Directory -Force | Out-Null
+if (!(Test-Path "./artifacts")) {
+    New-Item -Path "./artifacts" -ItemType Directory -Force | Out-Null
 }
+
+$Artifacts = Resolve-Path ./artifacts
 
 $Shared = "off"
 if ($Link -ne "static") { $Shared = "on" }
