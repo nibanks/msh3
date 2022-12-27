@@ -149,14 +149,14 @@ int MSH3_CALL main(int , char**) {
 
     MSH3_ADDR Address = {0};
 #if _WIN32
-    Address.Ipv4.sin_port = _byteswap_ushort(443);
+    Address.Ipv4.sin_port = _byteswap_ushort(4433);
 #else
-    Address.Ipv4.sin_port = __builtin_bswap16(443);
+    Address.Ipv4.sin_port = __builtin_bswap16(4433);
 #endif
     auto Listener = MsH3ListenerOpen(Api, &Address, &ListenerIf, Cert);
     VERIFY(Listener);
 
-    auto Connection = MsH3ConnectionOpen(Api, &ClientConnIf, nullptr, "localhost", 443, true);
+    auto Connection = MsH3ConnectionOpen(Api, &ClientConnIf, nullptr, "localhost", 4433, true);
     VERIFY(Connection);
 
     auto Request = MsH3RequestOpen(Connection, &ClientRequestIf, nullptr, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN);

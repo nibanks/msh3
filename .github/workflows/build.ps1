@@ -51,6 +51,9 @@ if (!(Test-Path "./artifacts")) {
     New-Item -Path "./artifacts" -ItemType Directory -Force | Out-Null
 }
 
+$Build = Resolve-Path ./build
+$Artifacts = Resolve-Path ./artifacts
+
 $Shared = "off"
 if ($Link -ne "static") { $Shared = "on" }
 
@@ -65,7 +68,7 @@ if ($WithTests) { $Tests = "on" }
 
 function Execute([String]$Name, [String]$Arguments) {
     Write-Debug "$Name $Arguments"
-    $process = Start-Process $Name $Arguments -PassThru -NoNewWindow -WorkingDirectory "./build"
+    $process = Start-Process $Name $Arguments -PassThru -NoNewWindow -WorkingDirectory $Build
     $handle = $process.Handle # Magic work around. Don't remove this line.
     $process.WaitForExit();
     if ($process.ExitCode -ne 0) {
@@ -77,13 +80,13 @@ if ($IsWindows) {
 
     $_Arch = $Arch
     if ($_Arch -eq "x86") { $_Arch = "Win32" }
-    Execute "cmake" "-G ""Visual Studio 17 2022"" -A $_Arch -DMSH3_OUTPUT_DIR=../../artifacts -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools -DMSH3_VER_BUILD_ID=$BuildId -DMSH3_VER_SUFFIX=$Suffix .."
+    Execute "cmake" "-G ""Visual Studio 17 2022"" -A $_Arch -DMSH3_OUTPUT_DIR=$Artifacts -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools -DMSH3_VER_BUILD_ID=$BuildId -DMSH3_VER_SUFFIX=$Suffix .."
     Execute "cmake" "--build . --config $Config"
 
 } else {
 
     $BuildType = $Config
     if ($BuildType -eq "Release") { $BuildType = "RelWithDebInfo" }
-    Execute "cmake" "-G ""Unix Makefiles"" -DCMAKE_BUILD_TYPE=$BuildType -DMSH3_OUTPUT_DIR=../../artifacts -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools .."
+    Execute "cmake" "-G ""Unix Makefiles"" -DCMAKE_BUILD_TYPE=$BuildType -DMSH3_OUTPUT_DIR=$Artifacts -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_SERVER_SUPPORT=$Server -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools .."
     Execute "cmake" "--build ."
 }

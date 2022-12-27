@@ -49,10 +49,18 @@ jobs:
       uses: actions/upload-artifact@83fd05a356d7e2593de66fc9913b3002723633cb
       with:
         name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}-${{ matrix.config }}
-        path: artifacts/*
+        path: |
+          artifacts/*.dll
+          artifacts/*.exe
+          artifacts/*.so
+          artifacts/msh3app
+          artifacts/msh3test
     - name: msh3app
       run: |
         ./artifacts/msh3app outlook.office.com -v
         ./artifacts/msh3app www.cloudflare.com -v
         ./artifacts/msh3app www.google.com -v
         ./artifacts/msh3app nghttp2:4433 -v
+    - name: msh3test
+      if: matrix.mode == 'server'
+      run: ./artifacts/msh3test

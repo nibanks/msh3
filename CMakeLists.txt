@@ -1,7 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+message(STATUS "msh3: Configuration start...")
 project(msh3)
+
 cmake_minimum_required(VERSION 3.16)
 
 option(MSH3_SERVER_SUPPORT "Enable server support" OFF)
@@ -9,10 +11,10 @@ option(MSH3_TOOL "Build tool" OFF)
 option(MSH3_TEST "Build tests" OFF)
 
 set(MSH3_VER_BUILD_ID "0" CACHE STRING "The version build ID")
-message(STATUS "Version Build ID: ${MSH3_VER_BUILD_ID}")
+message(STATUS "msh3: Version Build ID: ${MSH3_VER_BUILD_ID}")
 
 set(MSH3_VER_SUFFIX "-private" CACHE STRING "The version suffix")
-message(STATUS "Version Suffix: ${MSH3_VER_SUFFIX}")
+message(STATUS "msh3: Version Suffix: ${MSH3_VER_SUFFIX}")
 
 # use, i.e. don't skip the full RPATH for the build tree
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
@@ -34,16 +36,26 @@ if (WIN32)
     # TODO - Get these to work on Linux
     list(APPEND MSH3_COMMON_DEFINES VER_BUILD_ID=${MSH3_VER_BUILD_ID})
     list(APPEND MSH3_COMMON_DEFINES VER_SUFFIX=${MSH3_VER_SUFFIX})
+    if(HAS_SPECTRE)
+        list(APPEND QUIC_COMMON_FLAGS /Qspectre)
+    endif()
+    # Compile/link flags
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /GL /Zi")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GL /Zi")
+    set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /LTCG /IGNORE:4075 /DEBUG /OPT:REF /OPT:ICF")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /IGNORE:4075 /DEBUG /OPT:REF /OPT:ICF")
 else()
     set(QUIC_COMMON_DEFINES _GNU_SOURCE)
 endif()
 
 if (MSH3_SERVER_SUPPORT)
-    message(STATUS "Configuring for server support")
+    message(STATUS "msh3: Configuring for server support")
     list(APPEND MSH3_COMMON_DEFINES MSH3_SERVER_SUPPORT=1)
 endif()
 
 set(MSH3_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/bin CACHE STRING "Output directory for build artifacts")
+message(STATUS "msh3: Output set to ${MSH3_OUTPUT_DIR}")
+set(QUIC_OUTPUT_DIR ${MSH3_OUTPUT_DIR} CACHE STRING "Output directory for build artifacts")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${MSH3_OUTPUT_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${MSH3_OUTPUT_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE ${MSH3_OUTPUT_DIR})
