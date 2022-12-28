@@ -24,6 +24,8 @@ enum TestCleanUpMode {
     CleanUpAutoDelete,
 };
 
+const uint32_t TestTimeout = 250; // milliseconds
+
 template<typename T>
 struct TestWaitable {
     T Get() const { return State; }
@@ -39,7 +41,7 @@ struct TestWaitable {
         }
         return State;
     }
-    bool WaitFor(uint32_t milliseconds) {
+    bool WaitFor(uint32_t milliseconds = TestTimeout) {
         if (!State) {
             std::unique_lock Lock{Mutex};
             return Event.wait_for(Lock, milliseconds*1ms, [&]{return State;});

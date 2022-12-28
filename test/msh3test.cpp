@@ -38,12 +38,32 @@ DEF_TEST(Handshake) {
     TestCertificate Cert(Api); VERIFY(Cert.IsValid());
     TestListener Listener(Api); VERIFY(Listener.IsValid());
     TestConnection Connection(Api); VERIFY(Connection.IsValid());
-    VERIFY(Listener.NewConnection.WaitFor(250));
+    VERIFY(Listener.NewConnection.WaitFor());
     auto ServerConnection = Listener.NewConnection.Get();
     ServerConnection->SetCertificate(Cert);
-    VERIFY(ServerConnection->Connected.WaitFor(250));
-    VERIFY(Connection.Connected.WaitFor(250));
+    VERIFY(ServerConnection->Connected.WaitFor());
+    VERIFY(Connection.Connected.WaitFor());
     // TODO - Add connection shutdown API & wait
+    return true;
+}
+
+DEF_TEST(HandshakeFail) {
+    TestApi Api; VERIFY(Api.IsValid());
+    TestConnection Connection(Api); VERIFY(Connection.IsValid());
+    VERIFY(!Connection.Connected.WaitFor(1500));
+    return true;
+}
+
+DEF_TEST(HandshakeSetCertTimeout) {
+    TestApi Api; VERIFY(Api.IsValid());
+    TestCertificate Cert(Api); VERIFY(Cert.IsValid());
+    TestListener Listener(Api); VERIFY(Listener.IsValid());
+    TestConnection Connection(Api); VERIFY(Connection.IsValid());
+    VERIFY(Listener.NewConnection.WaitFor());
+    auto ServerConnection = Listener.NewConnection.Get();
+    //ServerConnection->SetCertificate(Cert);
+    VERIFY(!ServerConnection->Connected.WaitFor(1500));
+    VERIFY(!Connection.Connected.WaitFor());
     return true;
 }
 
@@ -52,22 +72,24 @@ DEF_TEST(SimpleRequest) {
     TestCertificate Cert(Api); VERIFY(Cert.IsValid());
     TestListener Listener(Api); VERIFY(Listener.IsValid());
     TestConnection Connection(Api); VERIFY(Connection.IsValid());
-    VERIFY(Listener.NewConnection.WaitFor(250));
+    VERIFY(Listener.NewConnection.WaitFor());
     auto ServerConnection = Listener.NewConnection.Get();
     ServerConnection->SetCertificate(Cert);
-    VERIFY(ServerConnection->Connected.WaitFor(250));
-    VERIFY(Connection.Connected.WaitFor(250));
+    VERIFY(ServerConnection->Connected.WaitFor());
+    VERIFY(Connection.Connected.WaitFor());
     TestRequest Request(Connection, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN); VERIFY(Request.IsValid());
-    VERIFY(ServerConnection->NewRequest.WaitFor(250));
+    VERIFY(ServerConnection->NewRequest.WaitFor());
     auto ServerRequest = ServerConnection->NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
-    VERIFY(Request.Complete.WaitFor(250));
-    VERIFY(ServerRequest->Complete.WaitFor(250));
+    VERIFY(Request.Complete.WaitFor());
+    VERIFY(ServerRequest->Complete.WaitFor());
     return true;
 }
 
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
+    ADD_TEST(HandshakeFail),
+    //ADD_TEST(HandshakeSetCertTimeout),
     ADD_TEST(SimpleRequest)
 };
 const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
