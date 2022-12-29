@@ -243,7 +243,7 @@ inline QUIC_STREAM_OPEN_FLAGS ToQuicOpenFlags(MSH3_REQUEST_FLAGS Flags) {
 }
 
 inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_FLAGS Flags) {
-    QUIC_SEND_FLAGS QuicFlags = QUIC_SEND_FLAG_NONE;
+    QUIC_SEND_FLAGS QuicFlags = QUIC_SEND_FLAG_START;
     if (Flags & MSH3_REQUEST_FLAG_ALLOW_0_RTT) {
         QuicFlags |= QUIC_SEND_FLAG_ALLOW_0_RTT;
     }
@@ -251,8 +251,6 @@ inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_FLAGS Flags) {
         QuicFlags |= QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_FIN;
     } else if (Flags & MSH3_REQUEST_FLAG_DELAY_SEND) {
         QuicFlags |= QUIC_SEND_FLAG_DELAY_SEND;
-    } else {
-        QuicFlags |= QUIC_SEND_FLAG_START;
     }
     return QuicFlags;
 }
@@ -502,6 +500,7 @@ struct MsH3BiDirStream : public MsQuicStream {
     uint32_t BufferedHeadersLength {0};
 
     bool Complete {false};
+    bool ShutdownComplete {false};
 
     MsH3BiDirStream(
         _In_ MsH3Connection& Connection,

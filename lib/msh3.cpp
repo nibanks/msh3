@@ -791,6 +791,14 @@ MsH3BiDirStream::MsQuicCallback(
     )
 {
     switch (Event->Type) {
+    case QUIC_STREAM_EVENT_START_COMPLETE:
+        if (QUIC_FAILED(Event->START_COMPLETE.Status)) {
+            if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0xffffffffUL);
+            Complete = true;
+            ShutdownComplete = true;
+            Callbacks.ShutdownComplete((MSH3_REQUEST*)this, Context);
+        }
+        break;
     case QUIC_STREAM_EVENT_RECEIVE:
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             Receive(Event->RECEIVE.Buffers + i);
@@ -812,8 +820,8 @@ MsH3BiDirStream::MsQuicCallback(
         Callbacks.Complete((MSH3_REQUEST*)this, Context, true, Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0);
-        Callbacks.ShutdownComplete((MSH3_REQUEST*)this, Context);
+        if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0xffffffffUL);
+        if (!ShutdownComplete) Callbacks.ShutdownComplete((MSH3_REQUEST*)this, Context);
         break;
     default:
         break;
