@@ -243,14 +243,16 @@ inline QUIC_STREAM_OPEN_FLAGS ToQuicOpenFlags(MSH3_REQUEST_FLAGS Flags) {
 }
 
 inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_FLAGS Flags) {
-    QUIC_SEND_FLAGS QuicFlags = QUIC_SEND_FLAG_START;
+    QUIC_SEND_FLAGS QuicFlags = QUIC_SEND_FLAG_NONE;
     if (Flags & MSH3_REQUEST_FLAG_ALLOW_0_RTT) {
         QuicFlags |= QUIC_SEND_FLAG_ALLOW_0_RTT;
     }
     if (Flags & MSH3_REQUEST_FLAG_FIN) {
         QuicFlags |= QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_FIN;
     } else if (Flags & MSH3_REQUEST_FLAG_DELAY_SEND) {
-        QuicFlags |= QUIC_SEND_FLAG_DELAY_SEND;
+        QuicFlags |= QUIC_SEND_FLAG_DELAY_SEND; // TODO - Add support for a _START_DELAYED flag in MsQuic?
+    } else {
+        QuicFlags |= QUIC_SEND_FLAG_START;
     }
     return QuicFlags;
 }
