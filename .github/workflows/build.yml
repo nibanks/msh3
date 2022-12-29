@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: main
 
+concurrency:
+  # Cancel any workflow currently in progress for the same PR.
+  # Allow running concurrently with any other commits.
+  group: build-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+  
 permissions: read-all
 
 jobs:
