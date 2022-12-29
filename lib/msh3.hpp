@@ -250,7 +250,7 @@ inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_FLAGS Flags) {
     if (Flags & MSH3_REQUEST_FLAG_FIN) {
         QuicFlags |= QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_FIN;
     } else if (Flags & MSH3_REQUEST_FLAG_DELAY_SEND) {
-        QuicFlags |= QUIC_SEND_FLAG_DELAY_SEND;
+        QuicFlags |= QUIC_SEND_FLAG_DELAY_SEND; // TODO - Add support for a _START_DELAYED flag in MsQuic?
     } else {
         QuicFlags |= QUIC_SEND_FLAG_START;
     }
@@ -502,6 +502,7 @@ struct MsH3BiDirStream : public MsQuicStream {
     uint32_t BufferedHeadersLength {0};
 
     bool Complete {false};
+    bool ShutdownComplete {false};
 
     MsH3BiDirStream(
         _In_ MsH3Connection& Connection,
