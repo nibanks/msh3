@@ -19,12 +19,12 @@ using namespace std;
 
 struct Arguments {
     const char* Host { nullptr };
-    uint16_t Port { 443 };
+    MSH3_ADDR Address { 0 };
     vector<const char*> Paths;
     bool Unsecure { false };
     bool Print { false };
     uint32_t Count { 1 };
-    Arguments() { }
+    Arguments() { MSH3_SET_PORT(&Address, 443); }
 } Args;
 
 std::mutex Mutex;
@@ -93,7 +93,7 @@ void ParseArgs(int argc, char **argv) {
     char *port = strrchr(argv[1], ':');
     if (port) {
         *port = 0; port++;
-        Args.Port = (uint16_t)atoi(port);
+        MSH3_SET_PORT(&Args.Address, (uint16_t)atoi(port));
     }
 
     // Parse options.
@@ -147,10 +147,10 @@ int MSH3_CALL main(int argc, char **argv) {
 
     auto Api = MsH3ApiOpen();
     if (Api) {
-        auto Connection = MsH3ConnectionOpen(Api, &ConnCallbacks, nullptr, Args.Host, Args.Port, Args.Unsecure);
+        auto Connection = MsH3ConnectionOpen(Api, &ConnCallbacks, nullptr, Args.Host, &Args.Address, Args.Unsecure);
         if (Connection) {
             for (auto Path : Args.Paths) {
-                printf("HTTP/3 GET https://%s:%d%s\n\n", Args.Host, Args.Port, Path);
+                printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
                 Headers[1].Value = Path;
                 Headers[1].ValueLength = strlen(Path);
                 for (uint32_t i = 0; i < Args.Count; ++i) {

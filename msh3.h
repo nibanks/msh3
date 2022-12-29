@@ -16,20 +16,16 @@
 #include <winsock2.h>
 #include <ws2def.h>
 #include <ws2ipdef.h>
+#define MSH3_CALL __cdecl
 #else
 #include <netinet/ip.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#define MSH3_CALL
 #endif
 
 #if defined(__cplusplus)
 extern "C" {
-#endif
-
-#ifdef _WIN32
-#define MSH3_CALL __cdecl
-#else
-#define MSH3_CALL
 #endif
 
 typedef struct MSH3_API MSH3_API;
@@ -88,6 +84,12 @@ typedef union MSH3_ADDR {
     struct sockaddr_in Ipv4;
     struct sockaddr_in6 Ipv6;
 } MSH3_ADDR;
+
+#if _WIN32
+#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = _byteswap_ushort(port)
+#else
+#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = __builtin_bswap16(port)
+#endif
 
 typedef struct MSH3_HEADER {
     const char* Name;
@@ -172,7 +174,7 @@ MsH3ConnectionOpen(
     const MSH3_CONNECTION_IF* Interface,
     void* IfContext,
     const char* ServerName,
-    uint16_t Port,
+    const MSH3_ADDR* ServerAddress,
     bool Unsecure
     );
 
