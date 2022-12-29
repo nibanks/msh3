@@ -57,10 +57,9 @@ jobs:
           artifacts/msh3test
     - name: msh3app
       run: |
-        ./artifacts/msh3app outlook.office.com -v
-        ./artifacts/msh3app www.cloudflare.com -v
-        ./artifacts/msh3app www.google.com -v
-        ./artifacts/msh3app nghttp2:4433 -v
+        ./artifacts/msh3app outlook.office.com
+        ./artifacts/msh3app www.cloudflare.com
+        ./artifacts/msh3app www.google.com
     - name: msh3test
       if: matrix.mode == 'server'
       run: ./artifacts/msh3test
