@@ -72,12 +72,12 @@ DEF_TEST(SimpleRequest) {
     TestCertificate Cert(Api); VERIFY(Cert.IsValid());
     TestListener Listener(Api); VERIFY(Listener.IsValid());
     TestConnection Connection(Api); VERIFY(Connection.IsValid());
+    TestRequest Request(Connection, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN); VERIFY(Request.IsValid());
     VERIFY(Listener.NewConnection.WaitFor());
     auto ServerConnection = Listener.NewConnection.Get();
     ServerConnection->SetCertificate(Cert);
     VERIFY(ServerConnection->Connected.WaitFor());
     VERIFY(Connection.Connected.WaitFor());
-    TestRequest Request(Connection, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN); VERIFY(Request.IsValid());
     VERIFY(ServerConnection->NewRequest.WaitFor());
     auto ServerRequest = ServerConnection->NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);

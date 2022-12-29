@@ -105,13 +105,10 @@ extern "C"
 MSH3_CONNECTION_STATE
 MSH3_CALL
 MsH3ConnectionGetState(
-    MSH3_CONNECTION* Handle,
-    bool WaitForHandshakeComplete
+    MSH3_CONNECTION* Handle
     )
 {
-    auto H3 = (MsH3Connection*)Handle;
-    if (WaitForHandshakeComplete) H3->WaitOnHandshakeComplete();
-    return H3->GetState();
+    return ((MsH3Connection*)Handle)->GetState();
 }
 
 extern "C"
@@ -160,9 +157,7 @@ MsH3RequestOpen(
     MSH3_REQUEST_FLAGS Flags
     )
 {
-    auto H3 = (MsH3Connection*)Handle;
-    if (!H3->WaitOnHandshakeComplete()) return nullptr;
-    return (MSH3_REQUEST*)H3->SendRequest(Interface, IfContext, Headers, HeadersCount, Flags);
+    return (MSH3_REQUEST*)((MsH3Connection*)Handle)->OpenRequest(Interface, IfContext, Headers, HeadersCount, Flags);
 }
 
 extern "C"
@@ -395,7 +390,7 @@ MsH3Connection::~MsH3Connection()
 }
 
 MsH3BiDirStream*
-MsH3Connection::SendRequest(
+MsH3Connection::OpenRequest(
     _In_ const MSH3_REQUEST_IF* Interface,
     _In_ void* IfContext,
     _In_reads_(HeadersCount)
@@ -420,18 +415,17 @@ MsH3Connection::MsQuicCallback(
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
         HandshakeSuccess = true;
-        SetHandshakeComplete();
         Callbacks.Connected((MSH3_CONNECTION*)this, Context);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
         if (Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status != QUIC_STATUS_CONNECTION_IDLE) {
-            printf("Connection shutdown by transport, 0x%lx\n", (unsigned long)Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+            //printf("Connection shutdown by transport, 0x%lx\n", (unsigned long)Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
         }
-        SetHandshakeComplete();
+        HandshakeComplete = true;
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
-        printf("Connection shutdown by peer, 0x%llx\n", (unsigned long long)Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
-        SetHandshakeComplete();
+        //printf("Connection shutdown by peer, 0x%llx\n", (unsigned long long)Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+        HandshakeComplete = true;
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         SetShutdownComplete();

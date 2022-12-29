@@ -185,8 +185,7 @@ MsH3ConnectionClose(
 MSH3_CONNECTION_STATE
 MSH3_CALL
 MsH3ConnectionGetState(
-    MSH3_CONNECTION* Handle,
-    bool WaitForHandshakeComplete
+    MSH3_CONNECTION* Handle
     );
 
 #ifdef MSH3_SERVER_SUPPORT
