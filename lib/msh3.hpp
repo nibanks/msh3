@@ -296,13 +296,10 @@ struct MsH3Connection : public MsQuicConnection {
     uint32_t PeerMaxTableSize {H3_RFC_DEFAULT_HEADER_TABLE_SIZE};
     uint64_t PeerQPackBlockedStreams {H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM};
 
-    std::mutex HandshakeCompleteMutex;
-    std::condition_variable HandshakeCompleteEvent;
-    bool HandshakeSuccess {false};
-
     std::mutex ShutdownCompleteMutex;
     std::condition_variable ShutdownCompleteEvent;
     bool ShutdownComplete {false};
+    bool HandshakeSuccess {false};
 
     char HostName[256];
 
@@ -336,7 +333,7 @@ struct MsH3Connection : public MsQuicConnection {
 #endif // MSH3_SERVER_SUPPORT
 
     MsH3BiDirStream*
-    SendRequest(
+    OpenRequest(
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
         _In_reads_(HeadersCount)
@@ -352,26 +349,12 @@ struct MsH3Connection : public MsQuicConnection {
         return MSH3_CONN_DISCONNECTED;
     }
 
-    bool WaitOnHandshakeComplete() {
-        if (!HandshakeComplete) {
-            std::unique_lock Lock{HandshakeCompleteMutex};
-            HandshakeCompleteEvent.wait(Lock, [&]{return HandshakeComplete;});
-        }
-        return HandshakeSuccess;
-    }
-
     void WaitOnShutdownComplete() {
         std::unique_lock Lock{ShutdownCompleteMutex};
         ShutdownCompleteEvent.wait(Lock, [&]{return ShutdownComplete;});
     }
 
 private:
-
-    void SetHandshakeComplete() {
-        std::lock_guard Lock{HandshakeCompleteMutex};
-        HandshakeComplete = true;
-        HandshakeCompleteEvent.notify_all();
-    }
 
     void SetShutdownComplete() {
         std::lock_guard Lock{ShutdownCompleteMutex};

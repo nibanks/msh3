@@ -82,9 +82,7 @@ struct TestConnection {
     TestConnection operator=(TestConnection& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CONNECTION* () const noexcept { return Handle; }
-    MSH3_CONNECTION_STATE GetState(bool WaitForHandshakeComplete = false) const {
-        return MsH3ConnectionGetState(Handle, WaitForHandshakeComplete);
-    }
+    MSH3_CONNECTION_STATE GetState() const { return MsH3ConnectionGetState(Handle); }
     void SetCertificate(MSH3_CERTIFICATE* Certificate) noexcept {
         MsH3ConnectionSetCertificate(Handle, Certificate);
     }

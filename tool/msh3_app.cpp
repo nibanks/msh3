@@ -10,6 +10,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
 
 using namespace std;
 
@@ -23,10 +27,24 @@ struct Arguments {
     Arguments() { }
 } Args;
 
+std::mutex Mutex;
+std::condition_variable Event;
+bool Shutdown;
+
 void MSH3_CALL Connected(MSH3_CONNECTION* , void* ) {
 }
 
 void MSH3_CALL ConnShutdownComplete(MSH3_CONNECTION* , void* ) {
+    std::lock_guard Lock{Mutex};
+    Shutdown = true;
+    Event.notify_all();
+}
+
+void WaitForShutdownComplete() {
+    if (!Shutdown) {
+        std::unique_lock Lock{Mutex};
+        Event.wait(Lock, [&]{return Shutdown;});
+    }
 }
 
 const MSH3_CONNECTION_IF ConnCallbacks = { Connected, ConnShutdownComplete };
@@ -143,6 +161,7 @@ int MSH3_CALL main(int argc, char **argv) {
                     }
                 }
             }
+            WaitForShutdownComplete();
             MsH3ConnectionClose(Connection);
         }
         MsH3ApiClose(Api);
