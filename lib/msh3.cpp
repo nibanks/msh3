@@ -76,12 +76,12 @@ MsH3ConnectionOpen(
     const MSH3_CONNECTION_IF* Interface,
     void* IfContext,
     const char* ServerName,
-    uint16_t Port,
+    const MSH3_ADDR* ServerAddress,
     bool Unsecure
     )
 {
     auto Reg = (MsQuicRegistration*)Handle;
-    auto H3 = new(std::nothrow) MsH3Connection(*Reg, Interface, IfContext, ServerName, Port, Unsecure);
+    auto H3 = new(std::nothrow) MsH3Connection(*Reg, Interface, IfContext, ServerName, ServerAddress, Unsecure);
     if (!H3 || QUIC_FAILED(H3->GetInitStatus())) {
         delete H3;
         return nullptr;
@@ -332,7 +332,7 @@ MsH3Connection::MsH3Connection(
         const MSH3_CONNECTION_IF* Interface,
         void* IfContext,
         const char* ServerName,
-        uint16_t Port,
+        const MSH3_ADDR* ServerAddress,
         bool Unsecure
     ) : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this),
         Callbacks(*Interface), Context(IfContext)
@@ -362,8 +362,9 @@ MsH3Connection::MsH3Connection(
             QUIC_CREDENTIAL_FLAG_CLIENT;
     MsQuicConfiguration Config(Registration, "h3", Settings, Flags);
     if (QUIC_FAILED(InitStatus = Config.GetInitStatus())) return;
-    //if (ServerIp && InitStatus = QUIC_FAILED(H3->SetRemoteAddr(ServerAddress))) return;
-    if (QUIC_FAILED(InitStatus = Start(Config, HostName, Port))) return;
+    auto QuicAddress = (const QUIC_ADDR*)ServerAddress;
+    if (!QuicAddrIsWildCard(QuicAddress) && QUIC_FAILED(InitStatus = SetRemoteAddr(*(QuicAddr*)ServerAddress))) return;
+    if (QUIC_FAILED(InitStatus = Start(Config, QuicAddrGetFamily(QuicAddress), HostName, QuicAddrGetPort(QuicAddress)))) return;
 }
 
 #ifdef MSH3_SERVER_SUPPORT

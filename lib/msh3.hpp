@@ -308,7 +308,7 @@ struct MsH3Connection : public MsQuicConnection {
         const MSH3_CONNECTION_IF* Interface,
         void* IfContext,
         const char* ServerName,
-        uint16_t Port,
+        const MSH3_ADDR* ServerAddress,
         bool Unsecure
         );
 

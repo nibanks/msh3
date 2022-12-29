@@ -61,6 +61,14 @@ struct TestApi {
     operator MSH3_API* () const noexcept { return Handle; }
 };
 
+struct TestAddr {
+    MSH3_ADDR Addr {0};
+    TestAddr(uint16_t Port = 4433) {
+        MSH3_SET_PORT(&Addr, Port);
+    }
+    operator const MSH3_ADDR* () const noexcept { return &Addr; }
+};
+
 struct TestConnection {
     MSH3_CONNECTION* Handle { nullptr };
     TestWaitable<bool> Connected;
@@ -69,10 +77,10 @@ struct TestConnection {
     TestConnection(
         TestApi& Api,
         const char* ServerName = "localhost",
-        uint16_t Port = 4433,
+        const TestAddr& ServerAddress = TestAddr(),
         bool Unsecure = true
         ) noexcept : CleanUp(CleanUpManual) {
-        Handle = MsH3ConnectionOpen(Api, &Interface, this, ServerName, Port, Unsecure);
+        Handle = MsH3ConnectionOpen(Api, &Interface, this, ServerName, ServerAddress, Unsecure);
     }
     TestConnection(MSH3_CONNECTION* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
         MsH3ConnectionSetCallbackInterface(Handle, &Interface, this);
@@ -208,18 +216,6 @@ struct TestCertificate {
     ~TestCertificate() noexcept { if (Handle) { MsH3CertificateClose(Handle); } }
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CERTIFICATE* () const noexcept { return Handle; }
-};
-
-struct TestAddr {
-    MSH3_ADDR Addr {0};
-    TestAddr(uint16_t Port = 4433) {
-#if _WIN32
-        Addr.Ipv4.sin_port = _byteswap_ushort(Port);
-#else
-        Addr.Ipv4.sin_port = __builtin_bswap16(Port);
-#endif
-    }
-    operator const MSH3_ADDR* () const noexcept { return &Addr; }
 };
 
 struct TestListener {
