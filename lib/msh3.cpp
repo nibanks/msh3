@@ -362,9 +362,9 @@ MsH3Connection::MsH3Connection(
             QUIC_CREDENTIAL_FLAG_CLIENT;
     MsQuicConfiguration Config(Registration, "h3", Settings, Flags);
     if (QUIC_FAILED(InitStatus = Config.GetInitStatus())) return;
-    if (!QuicAddrIsWildCard((QUIC_ADDR*)ServerAddress) &&
-        QUIC_FAILED(InitStatus = SetRemoteAddr(*(QuicAddr*)ServerAddress))) return;
-    if (QUIC_FAILED(InitStatus = Start(Config, HostName, QuicAddrGetPort((QUIC_ADDR*)ServerAddress)))) return;
+    auto QuicAddress = (const QUIC_ADDR*)ServerAddress;
+    if (!QuicAddrIsWildCard(QuicAddress) && QUIC_FAILED(InitStatus = SetRemoteAddr(*(QuicAddr*)ServerAddress))) return;
+    if (QUIC_FAILED(InitStatus = Start(Config, QuicAddrGetFamily(QuicAddress), HostName, QuicAddrGetPort(QuicAddress)))) return;
 }
 
 #ifdef MSH3_SERVER_SUPPORT
