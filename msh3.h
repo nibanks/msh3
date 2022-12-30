@@ -237,6 +237,13 @@ MsH3RequestCompleteReceive(
     uint32_t Length
     );
 
+void
+MSH3_CALL
+MsH3RequestSetReceiveEnabled(
+    MSH3_REQUEST* Handle,
+    bool Enabled
+    );
+
 bool
 MSH3_CALL
 MsH3RequestSend(

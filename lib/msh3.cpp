@@ -182,6 +182,17 @@ MsH3RequestCompleteReceive(
 }
 
 extern "C"
+void
+MSH3_CALL
+MsH3RequestSetReceiveEnabled(
+    MSH3_REQUEST* Handle,
+    bool Enabled
+    )
+{
+    return ((MsH3BiDirStream*)Handle)->SetReceiveEnabled(Enabled);
+}
+
+extern "C"
 bool
 MSH3_CALL
 MsH3RequestSend(
