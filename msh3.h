@@ -207,7 +207,7 @@ MsH3ConnectionSetCertificate(
 
 typedef struct MSH3_REQUEST_IF {
     void (MSH3_CALL *HeaderReceived)(MSH3_REQUEST* Request, void* IfContext, const MSH3_HEADER* Header);
-    void (MSH3_CALL *DataReceived)(MSH3_REQUEST* Request, void* IfContext, uint32_t Length, const uint8_t* Data);
+    bool (MSH3_CALL *DataReceived)(MSH3_REQUEST* Request, void* IfContext, uint32_t* Length, const uint8_t* Data);
     void (MSH3_CALL *Complete)(MSH3_REQUEST* Request, void* IfContext, bool Aborted, uint64_t AbortError);
     void (MSH3_CALL *ShutdownComplete)(MSH3_REQUEST* Request, void* IfContext);
     void (MSH3_CALL *DataSent)(MSH3_REQUEST* Request, void* IfContext, void* SendContext);
@@ -228,6 +228,13 @@ void
 MSH3_CALL
 MsH3RequestClose(
     MSH3_REQUEST* Handle
+    );
+
+void
+MSH3_CALL
+MsH3RequestCompleteReceive(
+    MSH3_REQUEST* Handle,
+    uint32_t Length
     );
 
 bool

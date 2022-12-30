@@ -58,8 +58,9 @@ void MSH3_CALL HeaderReceived(MSH3_REQUEST* , void* , const MSH3_HEADER* Header)
     }
 }
 
-void MSH3_CALL DataReceived(MSH3_REQUEST* , void* , uint32_t Length, const uint8_t* Data) {
-    if (Args.Print) fwrite(Data, 1, Length, stdout);
+bool MSH3_CALL DataReceived(MSH3_REQUEST* , void* , uint32_t* Length, const uint8_t* Data) {
+    if (Args.Print) fwrite(Data, 1, *Length, stdout);
+    return true;
 }
 
 void MSH3_CALL Complete(MSH3_REQUEST* , void* Context, bool Aborted, uint64_t AbortError) {

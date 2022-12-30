@@ -171,6 +171,17 @@ MsH3RequestClose(
 }
 
 extern "C"
+void
+MSH3_CALL
+MsH3RequestCompleteReceive(
+    MSH3_REQUEST* Handle,
+    uint32_t Length
+    )
+{
+    return ((MsH3BiDirStream*)Handle)->CompleteReceive(Length);
+}
+
+extern "C"
 bool
 MSH3_CALL
 MsH3RequestSend(
@@ -800,8 +811,14 @@ MsH3BiDirStream::MsQuicCallback(
         }
         break;
     case QUIC_STREAM_EVENT_RECEIVE:
+        CompletedRecvLength = 0;
+        PendingRecvLength = Event->RECEIVE.TotalBufferLength;
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
-            Receive(Event->RECEIVE.Buffers + i);
+            if (!Receive(Event->RECEIVE.Buffers + i)) return QUIC_STATUS_PENDING;
+        }
+        if (PendingRecvLength < Event->RECEIVE.TotalBufferLength) {
+            Event->RECEIVE.TotalBufferLength = CompletedRecvLength;
+            ReceiveDisabled = true;
         }
         break;
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
@@ -829,7 +846,7 @@ MsH3BiDirStream::MsQuicCallback(
     return QUIC_STATUS_SUCCESS;
 }
 
-void
+bool
 MsH3BiDirStream::Receive(
     _In_ const QUIC_BUFFER* Buffer
     )
@@ -868,7 +885,14 @@ MsH3BiDirStream::Receive(
         }
 
         if (CurFrameType == H3FrameData) {
-            Callbacks.DataReceived((MSH3_REQUEST*)this, Context, AvailFrameLength, Buffer->Buffer + Offset);
+            uint32_t AppReceiveLength = AvailFrameLength;
+            if (Callbacks.DataReceived((MSH3_REQUEST*)this, Context, &AppReceiveLength, Buffer->Buffer + Offset)) {
+                if (AppReceiveLength < AvailFrameLength) { // Partial receive case
+
+                }
+            } else { // Receive pending case
+                return false;
+            }
         } else if (CurFrameType == H3FrameHeaders) {
             const uint8_t* Frame = Buffer->Buffer + Offset;
             if (CurFrameLengthLeft == CurFrameLength) {
@@ -894,6 +918,18 @@ MsH3BiDirStream::Receive(
         Offset += AvailFrameLength;
 
     } while (Offset < Buffer->Length);
+
+    CompletedRecvLength += Offset;
+
+    return true;
+}
+
+void
+MsH3BiDirStream::CompleteReceive(
+    _In_ uint32_t Length
+    )
+{
+    UNREFERENCED_PARAMETER(Length); // TODO
 }
 
 struct lsxpack_header*

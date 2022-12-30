@@ -11,6 +11,7 @@ EXPORTS
     MsH3ConnectionSetCertificate
     MsH3RequestOpen
     MsH3RequestClose
+    MsH3RequestCompleteReceive
     MsH3RequestSend
     MsH3RequestShutdown
     MsH3RequestSetCallbackInterface

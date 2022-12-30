@@ -497,12 +497,15 @@ struct MsH3BiDirStream : public MsQuicStream {
     QUIC_VAR_INT CurFrameType {0};
     QUIC_VAR_INT CurFrameLength {0};
     QUIC_VAR_INT CurFrameLengthLeft {0};
+    uint64_t PendingRecvLength {0};
+    uint64_t CompletedRecvLength {0};
 
     uint8_t BufferedHeaders[2*sizeof(uint64_t)];
     uint32_t BufferedHeadersLength {0};
 
     bool Complete {false};
     bool ShutdownComplete {false};
+    bool ReceiveDisabled {false};
 
     MsH3BiDirStream(
         _In_ MsH3Connection& Connection,
@@ -520,6 +523,11 @@ struct MsH3BiDirStream : public MsQuicStream {
         _In_ HQUIC StreamHandle
         );
 #endif
+
+    void
+    CompleteReceive(
+        _In_ uint32_t Length
+        );
 
     bool
     SendAppData(
@@ -551,7 +559,7 @@ struct MsH3BiDirStream : public MsQuicStream {
 
 private:
 
-    void
+    bool
     Receive(
         _In_ const QUIC_BUFFER* Buffer
         );
