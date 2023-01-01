@@ -178,7 +178,7 @@ MsH3RequestCompleteReceive(
     uint32_t Length
     )
 {
-    return ((MsH3BiDirStream*)Handle)->CompleteReceive(Length);
+    ((MsH3BiDirStream*)Handle)->CompleteReceive(Length);
 }
 
 extern "C"
@@ -189,7 +189,7 @@ MsH3RequestSetReceiveEnabled(
     bool Enabled
     )
 {
-    return ((MsH3BiDirStream*)Handle)->SetReceiveEnabled(Enabled);
+    ((MsH3BiDirStream*)Handle)->SetReceiveEnabled(Enabled);
 }
 
 extern "C"
@@ -481,12 +481,12 @@ MsH3Connection::ReceiveSettingsFrame(
         const uint8_t * const Buffer
     )
 {
-    uint32_t Offset = 0;
+    uint32_t CurRecvOffset = 0;
 
     do {
         QUIC_VAR_INT SettingType, SettingValue;
-        if (!MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingType) ||
-            !MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingValue)) {
+        if (!MsH3VarIntDecode(BufferLength, Buffer, &CurRecvOffset, &SettingType) ||
+            !MsH3VarIntDecode(BufferLength, Buffer, &CurRecvOffset, &SettingValue)) {
             printf("Not enough settings.\n");
             return false;
         }
@@ -502,7 +502,7 @@ MsH3Connection::ReceiveSettingsFrame(
             break;
         }
 
-    } while (Offset < BufferLength);
+    } while (CurRecvOffset < BufferLength);
 
     tsu_buf_sz = sizeof(tsu_buf);
     if (lsqpack_enc_init(&Encoder, nullptr, 0, 0, 0, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
@@ -564,28 +564,28 @@ MsH3UniDirStream::ControlReceive(
     _In_ const QUIC_BUFFER* RecvBuffer
     )
 {
-    uint32_t Offset = 0;
+    uint32_t CurRecvOffset = 0;
 
     do {
         QUIC_VAR_INT FrameType, FrameLength;
-        if (!MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameType) ||
-            !MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameLength)) {
+        if (!MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &CurRecvOffset, &FrameType) ||
+            !MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &CurRecvOffset, &FrameLength)) {
             printf("Not enough control data yet for frame headers.\n");
             return; // TODO - Implement local buffering
         }
 
-        if (FrameType != H3FrameData && Offset + (uint32_t)FrameLength > RecvBuffer->Length) {
+        if (FrameType != H3FrameData && CurRecvOffset + (uint32_t)FrameLength > RecvBuffer->Length) {
             printf("Not enough control data yet for frame payload.\n");
             return; // TODO - Implement local buffering
         }
 
         if (FrameType == H3FrameSettings) {
-            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, RecvBuffer->Buffer + Offset)) return;
+            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, RecvBuffer->Buffer + CurRecvOffset)) return;
         }
 
-        Offset += (uint32_t)FrameLength;
+        CurRecvOffset += (uint32_t)FrameLength;
 
-    } while (Offset < RecvBuffer->Length);
+    } while (CurRecvOffset < RecvBuffer->Length);
 }
 
 bool
@@ -822,16 +822,7 @@ MsH3BiDirStream::MsQuicCallback(
         }
         break;
     case QUIC_STREAM_EVENT_RECEIVE:
-        CompletedRecvLength = 0;
-        PendingRecvLength = Event->RECEIVE.TotalBufferLength;
-        for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
-            if (!Receive(Event->RECEIVE.Buffers + i)) return QUIC_STATUS_PENDING;
-        }
-        if (PendingRecvLength < Event->RECEIVE.TotalBufferLength) {
-            Event->RECEIVE.TotalBufferLength = CompletedRecvLength;
-            ReceiveDisabled = true;
-        }
-        break;
+        return Receive(Event);
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
         if (Event->SEND_COMPLETE.ClientContext) {
             auto AppSend = (MsH3AppSend*)Event->SEND_COMPLETE.ClientContext;
@@ -857,82 +848,88 @@ MsH3BiDirStream::MsQuicCallback(
     return QUIC_STATUS_SUCCESS;
 }
 
-bool
+QUIC_STATUS
 MsH3BiDirStream::Receive(
-    _In_ const QUIC_BUFFER* Buffer
+    _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
-    uint32_t Offset = 0;
+    CurRecvCompleteLength = 0;
 
-    do {
-        if (CurFrameLengthLeft == 0) {
-            if (BufferedHeadersLength == 0) {
-                if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &CurFrameType) ||
-                    !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &Offset, &CurFrameLength)) {
-                    BufferedHeadersLength = Buffer->Length - Offset;
-                    memcpy(BufferedHeaders, Buffer->Buffer + Offset, BufferedHeadersLength);
-                    return;
+    for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
+        CurRecvOffset = 0;
+        const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
+        do {
+            if (CurFrameLengthLeft == 0) {
+                if (BufferedHeadersLength == 0) {
+                    if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &CurRecvOffset, &CurFrameType) ||
+                        !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &CurRecvOffset, &CurFrameLength)) {
+                        BufferedHeadersLength = Buffer->Length - CurRecvOffset;
+                        memcpy(BufferedHeaders, Buffer->Buffer + CurRecvOffset, BufferedHeadersLength);
+                        break;
+                    }
+                } else {
+                    uint32_t ToCopy = sizeof(BufferedHeaders) - BufferedHeadersLength;
+                    if (ToCopy > Buffer->Length) ToCopy = Buffer->Length;
+                    memcpy(BufferedHeaders + BufferedHeadersLength, Buffer->Buffer, ToCopy);
+                    if (!MsH3VarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &CurRecvOffset, &CurFrameType) ||
+                        !MsH3VarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &CurRecvOffset, &CurFrameLength)) {
+                        BufferedHeadersLength += ToCopy;
+                        break;
+                    }
+                    CurRecvOffset -= BufferedHeadersLength;
+                    BufferedHeadersLength = 0;
                 }
+                CurFrameLengthLeft = CurFrameLength;
+            }
+
+            uint32_t AvailFrameLength;
+            if (CurRecvOffset + CurFrameLengthLeft > (uint64_t)Buffer->Length) {
+                AvailFrameLength = Buffer->Length - CurRecvOffset; // Rest of the buffer
             } else {
-                uint32_t ToCopy = sizeof(BufferedHeaders) - BufferedHeadersLength;
-                if (ToCopy > Buffer->Length) ToCopy = Buffer->Length;
-                memcpy(BufferedHeaders + BufferedHeadersLength, Buffer->Buffer, ToCopy);
-                if (!MsH3VarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &Offset, &CurFrameType) ||
-                    !MsH3VarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &Offset, &CurFrameLength)) {
-                    BufferedHeadersLength += ToCopy;
-                    return;
-                }
-                Offset -= BufferedHeadersLength;
-                BufferedHeadersLength = 0;
+                AvailFrameLength = (uint32_t)CurFrameLengthLeft;
             }
-            CurFrameLengthLeft = CurFrameLength;
-        }
 
-        uint32_t AvailFrameLength;
-        if (Offset + CurFrameLengthLeft > (uint64_t)Buffer->Length) {
-            AvailFrameLength = Buffer->Length - Offset; // Rest of the buffer
-        } else {
-            AvailFrameLength = (uint32_t)CurFrameLengthLeft;
-        }
-
-        if (CurFrameType == H3FrameData) {
-            uint32_t AppReceiveLength = AvailFrameLength;
-            if (Callbacks.DataReceived((MSH3_REQUEST*)this, Context, &AppReceiveLength, Buffer->Buffer + Offset)) {
-                if (AppReceiveLength < AvailFrameLength) { // Partial receive case
-
+            if (CurFrameType == H3FrameData) {
+                uint32_t AppReceiveLength = AvailFrameLength;
+                if (Callbacks.DataReceived((MSH3_REQUEST*)this, Context, &AppReceiveLength, Buffer->Buffer + CurRecvOffset)) {
+                    if (AppReceiveLength < AvailFrameLength) { // Partial receive case
+                        CurFrameLengthLeft -= AppReceiveLength;
+                        Event->RECEIVE.TotalBufferLength = CurRecvCompleteLength + CurRecvOffset + AppReceiveLength;
+                        return QUIC_STATUS_SUCCESS;
+                    }
+                } else { // Receive pending case
+                    return QUIC_STATUS_PENDING;
                 }
-            } else { // Receive pending case
-                return false;
-            }
-        } else if (CurFrameType == H3FrameHeaders) {
-            const uint8_t* Frame = Buffer->Buffer + Offset;
-            if (CurFrameLengthLeft == CurFrameLength) {
-                auto rhs =
-                    lsqpack_dec_header_in(
-                        &H3.Decoder, this, ID(), (size_t)CurFrameLength, &Frame,
-                        AvailFrameLength, nullptr, nullptr);
-                if (rhs != LQRHS_DONE && rhs != LQRHS_NEED) {
-                    printf("lsqpack_dec_header_in failure res=%u\n", rhs);
-                }
-            } else { // Continued from a previous partial read
-                auto rhs =
-                    lsqpack_dec_header_read(
-                        &H3.Decoder, this, &Frame, AvailFrameLength, nullptr,
-                        nullptr);
-                if (rhs != LQRHS_DONE && rhs != LQRHS_NEED) {
-                    printf("lsqpack_dec_header_read failure res=%u\n", rhs);
+            } else if (CurFrameType == H3FrameHeaders) {
+                const uint8_t* Frame = Buffer->Buffer + CurRecvOffset;
+                if (CurFrameLengthLeft == CurFrameLength) {
+                    auto rhs =
+                        lsqpack_dec_header_in(
+                            &H3.Decoder, this, ID(), (size_t)CurFrameLength, &Frame,
+                            AvailFrameLength, nullptr, nullptr);
+                    if (rhs != LQRHS_DONE && rhs != LQRHS_NEED) {
+                        printf("lsqpack_dec_header_in failure res=%u\n", rhs);
+                    }
+                } else { // Continued from a previous partial read
+                    auto rhs =
+                        lsqpack_dec_header_read(
+                            &H3.Decoder, this, &Frame, AvailFrameLength, nullptr,
+                            nullptr);
+                    if (rhs != LQRHS_DONE && rhs != LQRHS_NEED) {
+                        printf("lsqpack_dec_header_read failure res=%u\n", rhs);
+                    }
                 }
             }
-        }
 
-        CurFrameLengthLeft -= AvailFrameLength;
-        Offset += AvailFrameLength;
+            CurFrameLengthLeft -= AvailFrameLength;
+            CurRecvOffset += AvailFrameLength;
 
-    } while (Offset < Buffer->Length);
+        } while (CurRecvOffset < Buffer->Length);
 
-    CompletedRecvLength += Offset;
+        CurRecvCompleteLength += Buffer->Length;
+    }
 
-    return true;
+    return QUIC_STATUS_SUCCESS;
 }
 
 void
@@ -940,7 +937,16 @@ MsH3BiDirStream::CompleteReceive(
     _In_ uint32_t Length
     )
 {
-    UNREFERENCED_PARAMETER(Length); // TODO
+    CurFrameLengthLeft -= Length;
+    (void)ReceiveComplete(CurRecvCompleteLength + CurRecvOffset + Length);
+}
+
+void
+MsH3BiDirStream::SetReceiveEnabled(
+    _In_ bool Enabled
+    )
+{
+    (void)ReceiveSetEnabled(Enabled);
 }
 
 struct lsxpack_header*

@@ -111,18 +111,27 @@ private: // Static stuff
     }
 };
 
+typedef void TestHeaderRecvCallback(struct TestRequest* Request, const MSH3_HEADER* Header);
+typedef bool TestDataRecvCallback(struct TestRequest* Request, uint32_t* Length, const uint8_t* Data);
+
 struct TestRequest {
     MSH3_REQUEST* Handle { nullptr };
     TestWaitable<bool> Complete;
     TestWaitable<bool> ShutdownComplete;
     bool Aborted {false};
     uint64_t AbortError {0};
+    void* AppContext {nullptr};
+    TestHeaderRecvCallback* HeaderRecv {nullptr};
+    TestDataRecvCallback* DataRecv {nullptr};
     TestRequest(
         TestConnection& Connection,
         const MSH3_HEADER* Headers,
         size_t HeadersCount,
-        MSH3_REQUEST_FLAGS Flags = MSH3_REQUEST_FLAG_NONE
-        ) noexcept : CleanUp(CleanUpManual) {
+        MSH3_REQUEST_FLAGS Flags = MSH3_REQUEST_FLAG_NONE,
+        void* AppContext = nullptr,
+        TestHeaderRecvCallback* HeaderRecv = nullptr,
+        TestDataRecvCallback* DataRecv = nullptr
+        ) noexcept : CleanUp(CleanUpManual), AppContext(AppContext), HeaderRecv(HeaderRecv), DataRecv(DataRecv) {
         Handle = MsH3RequestOpen(Connection, &Interface, this, Headers, HeadersCount, Flags);
     }
     TestRequest(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
@@ -133,13 +142,19 @@ struct TestRequest {
     TestRequest operator=(TestRequest& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_REQUEST* () const noexcept { return Handle; }
+    void CompleteReceive(uint32_t Length) noexcept {
+        MsH3RequestCompleteReceive(Handle, Length);
+    };
+    void SetReceiveEnabled(bool Enabled) noexcept {
+        MsH3RequestSetReceiveEnabled(Handle, Enabled);
+    };
     bool Send(
         MSH3_REQUEST_FLAGS Flags,
         const void* Data,
         uint32_t DataLength,
-        void* AppContext = nullptr
+        void* SendContext = nullptr
         ) noexcept {
-        return MsH3RequestSend(Handle, Flags, Data, DataLength, AppContext);
+        return MsH3RequestSend(Handle, Flags, Data, DataLength, SendContext);
     }
     void Shutdown(
         MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
@@ -159,9 +174,6 @@ private:
     const MSH3_REQUEST_IF Interface { s_OnHeaderReceived, s_OnDataReceived, s_OnComplete, s_OnShutdownComplete, s_OnDataSent };
     void OnHeaderReceived(const MSH3_HEADER* /*Header*/) noexcept {
     }
-    bool OnDataReceived(uint32_t* /*Length*/, const uint8_t* /*Data*/) noexcept {
-        return true;
-    }
     void OnComplete(bool _Aborted, uint64_t _AbortError) noexcept {
         Aborted = _Aborted;
         AbortError = _AbortError;
@@ -180,7 +192,11 @@ private: // Static stuff
         ((TestRequest*)IfContext)->OnHeaderReceived(Header);
     }
     static bool MSH3_CALL s_OnDataReceived(MSH3_REQUEST* /*Request*/, void* IfContext, uint32_t* Length, const uint8_t* Data) noexcept {
-        return ((TestRequest*)IfContext)->OnDataReceived(Length, Data);
+        if (((TestRequest*)IfContext)->DataRecv) {
+            return ((TestRequest*)IfContext)->DataRecv((TestRequest*)IfContext, Length, Data);
+        } else {
+            return true;
+        }
     }
     static void MSH3_CALL s_OnComplete(MSH3_REQUEST* /*Request*/, void* IfContext, bool Aborted, uint64_t AbortError) noexcept {
         ((TestRequest*)IfContext)->OnComplete(Aborted, AbortError);
