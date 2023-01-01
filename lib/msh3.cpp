@@ -853,21 +853,18 @@ MsH3BiDirStream::Receive(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
-    CurRecvCompleteLength = 0;
-
     for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
-        CurRecvOffset = 0;
         const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
         do {
-            if (CurFrameLengthLeft == 0) {
-                if (BufferedHeadersLength == 0) {
+            if (CurFrameLengthLeft == 0) { // Not in the middle of reading frame payload
+                if (BufferedHeadersLength == 0) { // No partial frame header bufferred
                     if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &CurRecvOffset, &CurFrameType) ||
                         !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &CurRecvOffset, &CurFrameLength)) {
                         BufferedHeadersLength = Buffer->Length - CurRecvOffset;
                         memcpy(BufferedHeaders, Buffer->Buffer + CurRecvOffset, BufferedHeadersLength);
                         break;
                     }
-                } else {
+                } else { // Partial frame header bufferred already
                     uint32_t ToCopy = sizeof(BufferedHeaders) - BufferedHeadersLength;
                     if (ToCopy > Buffer->Length) ToCopy = Buffer->Length;
                     memcpy(BufferedHeaders + BufferedHeadersLength, Buffer->Buffer, ToCopy);
@@ -891,13 +888,20 @@ MsH3BiDirStream::Receive(
 
             if (CurFrameType == H3FrameData) {
                 uint32_t AppReceiveLength = AvailFrameLength;
+                ReceivePending = true;
                 if (Callbacks.DataReceived((MSH3_REQUEST*)this, Context, &AppReceiveLength, Buffer->Buffer + CurRecvOffset)) {
+                    ReceivePending = false; // Not pending receive
                     if (AppReceiveLength < AvailFrameLength) { // Partial receive case
                         CurFrameLengthLeft -= AppReceiveLength;
                         Event->RECEIVE.TotalBufferLength = CurRecvCompleteLength + CurRecvOffset + AppReceiveLength;
+                        CurRecvCompleteLength = 0;
+                        CurRecvOffset = 0;
                         return QUIC_STATUS_SUCCESS;
                     }
-                } else { // Receive pending case
+                } else { // Receive pending (but may have been completed via API call already)
+                    if (!ReceivePending) {
+                        // TODO - Support continuing this receive since it was completed via the API call
+                    }
                     return QUIC_STATUS_PENDING;
                 }
             } else if (CurFrameType == H3FrameHeaders) {
@@ -927,7 +931,10 @@ MsH3BiDirStream::Receive(
         } while (CurRecvOffset < Buffer->Length);
 
         CurRecvCompleteLength += Buffer->Length;
+        CurRecvOffset = 0;
     }
+
+    CurRecvCompleteLength = 0;
 
     return QUIC_STATUS_SUCCESS;
 }
@@ -937,8 +944,14 @@ MsH3BiDirStream::CompleteReceive(
     _In_ uint32_t Length
     )
 {
-    CurFrameLengthLeft -= Length;
-    (void)ReceiveComplete(CurRecvCompleteLength + CurRecvOffset + Length);
+    if (ReceivePending) {
+        ReceivePending = false;
+        CurFrameLengthLeft -= Length;
+        auto CompleteLength = CurRecvCompleteLength + CurRecvOffset + Length;
+        CurRecvCompleteLength = 0;
+        CurRecvOffset = 0;
+        (void)ReceiveComplete(CompleteLength);
+    }
 }
 
 void

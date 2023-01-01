@@ -505,6 +505,7 @@ struct MsH3BiDirStream : public MsQuicStream {
 
     bool Complete {false};
     bool ShutdownComplete {false};
+    bool ReceivePending {false};
 
     MsH3BiDirStream(
         _In_ MsH3Connection& Connection,
