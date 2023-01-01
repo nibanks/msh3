@@ -131,7 +131,7 @@ struct TestRequest {
         void* AppContext = nullptr,
         TestHeaderRecvCallback* HeaderRecv = nullptr,
         TestDataRecvCallback* DataRecv = nullptr
-        ) noexcept : CleanUp(CleanUpManual), AppContext(AppContext), HeaderRecv(HeaderRecv), DataRecv(DataRecv) {
+        ) noexcept : AppContext(AppContext), HeaderRecv(HeaderRecv), DataRecv(DataRecv), CleanUp(CleanUpManual) {
         Handle = MsH3RequestOpen(Connection, &Interface, this, Headers, HeadersCount, Flags);
     }
     TestRequest(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
