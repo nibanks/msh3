@@ -481,12 +481,12 @@ MsH3Connection::ReceiveSettingsFrame(
         const uint8_t * const Buffer
     )
 {
-    uint32_t CurRecvOffset = 0;
+    uint32_t Offset = 0;
 
     do {
         QUIC_VAR_INT SettingType, SettingValue;
-        if (!MsH3VarIntDecode(BufferLength, Buffer, &CurRecvOffset, &SettingType) ||
-            !MsH3VarIntDecode(BufferLength, Buffer, &CurRecvOffset, &SettingValue)) {
+        if (!MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingType) ||
+            !MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingValue)) {
             printf("Not enough settings.\n");
             return false;
         }
@@ -502,7 +502,7 @@ MsH3Connection::ReceiveSettingsFrame(
             break;
         }
 
-    } while (CurRecvOffset < BufferLength);
+    } while (Offset < BufferLength);
 
     tsu_buf_sz = sizeof(tsu_buf);
     if (lsqpack_enc_init(&Encoder, nullptr, 0, 0, 0, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
@@ -564,28 +564,28 @@ MsH3UniDirStream::ControlReceive(
     _In_ const QUIC_BUFFER* RecvBuffer
     )
 {
-    uint32_t CurRecvOffset = 0;
+    uint32_t Offset = 0;
 
     do {
         QUIC_VAR_INT FrameType, FrameLength;
-        if (!MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &CurRecvOffset, &FrameType) ||
-            !MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &CurRecvOffset, &FrameLength)) {
+        if (!MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameType) ||
+            !MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameLength)) {
             printf("Not enough control data yet for frame headers.\n");
             return; // TODO - Implement local buffering
         }
 
-        if (FrameType != H3FrameData && CurRecvOffset + (uint32_t)FrameLength > RecvBuffer->Length) {
+        if (FrameType != H3FrameData && Offset + (uint32_t)FrameLength > RecvBuffer->Length) {
             printf("Not enough control data yet for frame payload.\n");
             return; // TODO - Implement local buffering
         }
 
         if (FrameType == H3FrameSettings) {
-            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, RecvBuffer->Buffer + CurRecvOffset)) return;
+            if (!H3.ReceiveSettingsFrame((uint32_t)FrameLength, RecvBuffer->Buffer + Offset)) return;
         }
 
-        CurRecvOffset += (uint32_t)FrameLength;
+        Offset += (uint32_t)FrameLength;
 
-    } while (CurRecvOffset < RecvBuffer->Length);
+    } while (Offset < RecvBuffer->Length);
 }
 
 bool

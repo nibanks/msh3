@@ -12,6 +12,7 @@ EXPORTS
     MsH3RequestOpen
     MsH3RequestClose
     MsH3RequestCompleteReceive
+    MsH3RequestSetReceiveEnabled
     MsH3RequestSend
     MsH3RequestShutdown
     MsH3RequestSetCallbackInterface

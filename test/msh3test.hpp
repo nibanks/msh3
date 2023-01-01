@@ -172,8 +172,6 @@ struct TestRequest {
 private:
     const TestCleanUpMode CleanUp;
     const MSH3_REQUEST_IF Interface { s_OnHeaderReceived, s_OnDataReceived, s_OnComplete, s_OnShutdownComplete, s_OnDataSent };
-    void OnHeaderReceived(const MSH3_HEADER* /*Header*/) noexcept {
-    }
     void OnComplete(bool _Aborted, uint64_t _AbortError) noexcept {
         Aborted = _Aborted;
         AbortError = _AbortError;
@@ -189,7 +187,9 @@ private:
     }
 private: // Static stuff
     static void MSH3_CALL s_OnHeaderReceived(MSH3_REQUEST* /*Request*/, void* IfContext, const MSH3_HEADER* Header) noexcept {
-        ((TestRequest*)IfContext)->OnHeaderReceived(Header);
+        if (((TestRequest*)IfContext)->HeaderRecv) {
+            ((TestRequest*)IfContext)->HeaderRecv((TestRequest*)IfContext, Header);
+        }
     }
     static bool MSH3_CALL s_OnDataReceived(MSH3_REQUEST* /*Request*/, void* IfContext, uint32_t* Length, const uint8_t* Data) noexcept {
         if (((TestRequest*)IfContext)->DataRecv) {
