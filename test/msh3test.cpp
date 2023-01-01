@@ -86,11 +86,68 @@ DEF_TEST(SimpleRequest) {
     return true;
 }
 
+bool ReceiveData(bool Async, bool Inline = true) {
+    struct Context {
+        bool Async; bool Inline;
+        TestWaitable<uint32_t> Data;
+        Context(bool Async, bool Inline) : Async(Async), Inline(Inline) {}
+        static bool RecvData(TestRequest* Request, uint32_t* Length, const uint8_t* /* Data */) {
+            auto ctx = (Context*)Request->AppContext;
+            ctx->Data.Set(*Length);
+            if (ctx->Async) {
+                if (ctx->Inline) {
+                    Request->CompleteReceive(*Length);
+                }
+                return false;
+            }
+            return true;
+        }
+    };
+    TestApi Api; VERIFY(Api.IsValid());
+    TestCertificate Cert(Api); VERIFY(Cert.IsValid());
+    TestListener Listener(Api); VERIFY(Listener.IsValid());
+    TestConnection Connection(Api); VERIFY(Connection.IsValid());
+    Context Context(Async, Inline);
+    TestRequest Request(Connection, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN, &Context, nullptr, Context::RecvData);
+    VERIFY(Request.IsValid());
+    VERIFY(Listener.NewConnection.WaitFor());
+    auto ServerConnection = Listener.NewConnection.Get();
+    ServerConnection->SetCertificate(Cert);
+    VERIFY(ServerConnection->Connected.WaitFor());
+    VERIFY(Connection.Connected.WaitFor());
+    VERIFY(ServerConnection->NewRequest.WaitFor());
+    auto ServerRequest = ServerConnection->NewRequest.Get();
+    VERIFY(ServerRequest->Send(MSH3_REQUEST_FLAG_FIN, ResponseData, sizeof(ResponseData)));
+    VERIFY(Context.Data.WaitFor());
+    VERIFY(Context.Data.Get() == sizeof(ResponseData));
+    if (Async && !Inline) {
+        Request.CompleteReceive(Context.Data.Get());
+    }
+    VERIFY(Request.Complete.WaitFor());
+    VERIFY(ServerRequest->Complete.WaitFor());
+    return true;
+}
+
+DEF_TEST(ReceiveDataInline) {
+    return ReceiveData(false);
+}
+
+DEF_TEST(ReceiveDataAsync) {
+    return ReceiveData(true, false);
+}
+
+DEF_TEST(ReceiveDataAsyncInline) {
+    return ReceiveData(true, true);
+}
+
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
     ADD_TEST(HandshakeFail),
     //ADD_TEST(HandshakeSetCertTimeout),
-    ADD_TEST(SimpleRequest)
+    ADD_TEST(SimpleRequest),
+    ADD_TEST(ReceiveDataInline),
+    ADD_TEST(ReceiveDataAsync),
+    ADD_TEST(ReceiveDataAsyncInline),
 };
 const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
 
