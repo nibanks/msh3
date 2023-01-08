@@ -377,7 +377,6 @@ MsH3Connection::MsH3Connection(
     MsQuicSettings Settings;
     Settings.SetSendBufferingEnabled(false);
     Settings.SetPeerUnidiStreamCount(3);
-    Settings.SetIdleTimeoutMs(1000);
     auto Flags =
         Unsecure ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
