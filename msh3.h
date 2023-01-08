@@ -179,6 +179,13 @@ MsH3ConnectionClose(
     MSH3_CONNECTION* Handle
     );
 
+void
+MSH3_CALL
+MsH3ConnectionShutdown(
+    MSH3_CONNECTION* Handle,
+    uint64_t ErrorCode
+    );
+
 #ifdef MSH3_SERVER_SUPPORT
 void
 MSH3_CALL

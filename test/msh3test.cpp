@@ -43,7 +43,8 @@ DEF_TEST(Handshake) {
     ServerConnection->SetCertificate(Cert);
     VERIFY(ServerConnection->Connected.WaitFor());
     VERIFY(Connection.Connected.WaitFor());
-    // TODO - Add connection shutdown API & wait
+    Connection.Shutdown();
+    VERIFY(Connection.ShutdownComplete.WaitFor());
     return true;
 }
 
@@ -64,6 +65,7 @@ DEF_TEST(HandshakeSetCertTimeout) {
     //ServerConnection->SetCertificate(Cert);
     VERIFY(!ServerConnection->Connected.WaitFor(1500));
     VERIFY(!Connection.Connected.WaitFor());
+    Connection.Shutdown();
     return true;
 }
 
@@ -83,6 +85,7 @@ DEF_TEST(SimpleRequest) {
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
     VERIFY(Request.Complete.WaitFor());
     VERIFY(ServerRequest->Complete.WaitFor());
+    Connection.Shutdown();
     return true;
 }
 
@@ -125,6 +128,7 @@ bool ReceiveData(bool Async, bool Inline = true) {
     }
     VERIFY(Request.Complete.WaitFor());
     VERIFY(ServerRequest->Complete.WaitFor());
+    Connection.Shutdown();
     return true;
 }
 
@@ -143,7 +147,7 @@ DEF_TEST(ReceiveDataAsyncInline) {
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
     ADD_TEST(HandshakeFail),
-    //ADD_TEST(HandshakeSetCertTimeout),
+    ADD_TEST(HandshakeSetCertTimeout),
     ADD_TEST(SimpleRequest),
     ADD_TEST(ReceiveDataInline),
     ADD_TEST(ReceiveDataAsync),

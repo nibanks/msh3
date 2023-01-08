@@ -6,6 +6,7 @@ EXPORTS
     MsH3ApiClose
     MsH3ConnectionOpen
     MsH3ConnectionClose
+    MsH3ConnectionShutdown
     MsH3ConnectionSetCallbackInterface
     MsH3ConnectionSetCertificate
     MsH3RequestOpen

@@ -104,6 +104,17 @@ MsH3ConnectionClose(
 extern "C"
 void
 MSH3_CALL
+MsH3ConnectionShutdown(
+    MSH3_CONNECTION* Handle,
+    uint64_t ErrorCode
+    )
+{
+    ((MsH3Connection*)Handle)->Shutdown(ErrorCode);
+}
+
+extern "C"
+void
+MSH3_CALL
 MsH3ConnectionSetCallbackInterface(
     MSH3_CONNECTION* Handle,
     const MSH3_CONNECTION_IF* Interface,

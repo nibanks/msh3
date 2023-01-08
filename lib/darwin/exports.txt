@@ -3,6 +3,7 @@ _MsH3ApiOpen
 _MsH3ApiClose
 _MsH3ConnectionOpen
 _MsH3ConnectionClose
+_MsH3ConnectionShutdown
 _MsH3ConnectionGetState
 _MsH3ConnectionSetCallbackInterface
 _MsH3ConnectionSetCertificate

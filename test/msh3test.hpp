@@ -90,6 +90,9 @@ struct TestConnection {
     TestConnection operator=(TestConnection& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CONNECTION* () const noexcept { return Handle; }
+    void Shutdown(uint64_t ErrorCode = 0) noexcept {
+        MsH3ConnectionShutdown(Handle, ErrorCode);
+    }
     void SetCertificate(MSH3_CERTIFICATE* Certificate) noexcept {
         MsH3ConnectionSetCertificate(Handle, Certificate);
     }
