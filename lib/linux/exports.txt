@@ -1,5 +1,5 @@
 msquic
 {
-  global: MsH3ApiOpen; MsH3ApiClose; MsH3ConnectionOpen; MsH3ConnectionClose; MsH3ConnectionGetState; MsH3RequestOpen; MsH3RequestClose;
+  global: MsH3Version; MsH3ApiOpen; MsH3ApiClose; MsH3ConnectionOpen; MsH3ConnectionClose; MsH3ConnectionShutdown; MsH3ConnectionSetCallbackInterface; MsH3ConnectionSetCertificate; MsH3RequestOpen; MsH3RequestClose; MsH3RequestCompleteReceive; MsH3RequestSetReceiveEnabled; MsH3RequestSend; MsH3RequestShutdown; MsH3RequestSetCallbackInterface; MsH3RequestSendHeaders; MsH3CertificateOpen; MsH3CertificateClose; MsH3ListenerOpen; MsH3ListenerClose;
   local: *;
 };

@@ -102,13 +102,14 @@ MsH3ConnectionClose(
 }
 
 extern "C"
-MSH3_CONNECTION_STATE
+void
 MSH3_CALL
-MsH3ConnectionGetState(
-    MSH3_CONNECTION* Handle
+MsH3ConnectionShutdown(
+    MSH3_CONNECTION* Handle,
+    uint64_t ErrorCode
     )
 {
-    return ((MsH3Connection*)Handle)->GetState();
+    ((MsH3Connection*)Handle)->Shutdown(ErrorCode);
 }
 
 extern "C"
@@ -440,14 +441,10 @@ MsH3Connection::MsQuicCallback(
         Callbacks.Connected((MSH3_CONNECTION*)this, Context);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
-        if (Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status != QUIC_STATUS_CONNECTION_IDLE) {
-            //printf("Connection shutdown by transport, 0x%lx\n", (unsigned long)Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
-        }
-        HandshakeComplete = true;
+        Callbacks.ShutdownByTransport((MSH3_CONNECTION*)this, Context, Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
-        //printf("Connection shutdown by peer, 0x%llx\n", (unsigned long long)Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
-        HandshakeComplete = true;
+        Callbacks.ShutdownByPeer((MSH3_CONNECTION*)this, Context, Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         SetShutdownComplete();
