@@ -52,7 +52,7 @@ jobs:
       shell: pwsh
       run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -Mode ${{ matrix.mode }} -BuildId ${{ github.run_id }} -Suffix "-official" -WithTests -WithTools -Debug
     - name: Upload
-      uses: actions/upload-artifact@83fd05a356d7e2593de66fc9913b3002723633cb
+      uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
       with:
         name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}-${{ matrix.config }}
         path: |
