@@ -11,7 +11,7 @@ concurrency:
   # Allow running concurrently with any other commits.
   group: build-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
-  
+
 permissions: read-all
 
 jobs:
@@ -31,6 +31,7 @@ jobs:
         - os: ubuntu
           tls: schannel
     runs-on: ${{ matrix.os }}-latest
+    timeout-minutes: 15
     steps:
     - name: Harden Runner
       uses: step-security/harden-runner@ebacdc22ef6c2cfb85ee5ded8f2e640f4c776dd5

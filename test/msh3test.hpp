@@ -90,15 +90,18 @@ struct TestConnection {
     TestConnection operator=(TestConnection& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CONNECTION* () const noexcept { return Handle; }
-    MSH3_CONNECTION_STATE GetState() const { return MsH3ConnectionGetState(Handle); }
     void SetCertificate(MSH3_CERTIFICATE* Certificate) noexcept {
         MsH3ConnectionSetCertificate(Handle, Certificate);
     }
 private:
     const TestCleanUpMode CleanUp;
-    const MSH3_CONNECTION_IF Interface { s_OnConnected, s_OnShutdownComplete, s_OnNewRequest };
+    const MSH3_CONNECTION_IF Interface { s_OnConnected, s_OnShutdownByPeer, s_OnShutdownByTransport, s_OnShutdownComplete, s_OnNewRequest };
     void OnConnected() noexcept {
         Connected.Set(true);
+    }
+    void OnShutdownByPeer(uint64_t /*ErrorCode*/) noexcept {
+    }
+    void OnShutdownByTransport(MSH3_STATUS /*Status*/) noexcept {
     }
     void OnShutdownComplete() noexcept {
         ShutdownComplete.Set(true);
@@ -110,6 +113,12 @@ private:
 private: // Static stuff
     static void MSH3_CALL s_OnConnected(MSH3_CONNECTION* /*Connection*/, void* IfContext) noexcept {
         ((TestConnection*)IfContext)->OnConnected();
+    }
+    static void MSH3_CALL s_OnShutdownByPeer(MSH3_CONNECTION* /*Connection*/, void* IfContext, uint64_t ErrorCode) noexcept {
+        ((TestConnection*)IfContext)->OnShutdownByPeer(ErrorCode);
+    }
+    static void MSH3_CALL s_OnShutdownByTransport(MSH3_CONNECTION* /*Connection*/, void* IfContext, MSH3_STATUS Status) noexcept {
+        ((TestConnection*)IfContext)->OnShutdownByTransport(Status);
     }
     static void MSH3_CALL s_OnShutdownComplete(MSH3_CONNECTION* /*Connection*/, void* IfContext) noexcept {
         ((TestConnection*)IfContext)->OnShutdownComplete();

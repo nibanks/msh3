@@ -17,11 +17,13 @@
 #include <ws2def.h>
 #include <ws2ipdef.h>
 #define MSH3_CALL __cdecl
+#define MSH3_STATUS HRESULT
 #else
 #include <netinet/ip.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #define MSH3_CALL
+#define MSH3_STATUS unsigned int
 #endif
 
 #if defined(__cplusplus)
@@ -36,13 +38,6 @@ typedef struct MSH3_CERTIFICATE_CONFIG MSH3_CERTIFICATE_CONFIG;
 typedef struct MSH3_CERTIFICATE MSH3_CERTIFICATE;
 typedef struct MSH3_LISTENER_IF MSH3_LISTENER_IF;
 typedef struct MSH3_LISTENER MSH3_LISTENER;
-
-typedef enum MSH3_CONNECTION_STATE {
-    MSH3_CONN_CONNECTING,
-    MSH3_CONN_HANDSHAKE_FAILED,
-    MSH3_CONN_CONNECTED,
-    MSH3_CONN_DISCONNECTED,
-} MSH3_CONNECTION_STATE;
 
 typedef enum MSH3_REQUEST_FLAGS {
     MSH3_REQUEST_FLAG_NONE              = 0x0000,
@@ -161,8 +156,8 @@ MsH3ApiClose(
 
 typedef struct MSH3_CONNECTION_IF {
     void (MSH3_CALL *Connected)(MSH3_CONNECTION* Connection, void* IfContext);
-    //void (MSH3_CALL *ShutdownByPeer)(MSH3_CONNECTION* Connection, void* IfContext, uint64_t ErrorCode);
-    //void (MSH3_CALL *ShutdownByTransport)(MSH3_CONNECTION* Connection, void* IfContext);
+    void (MSH3_CALL *ShutdownByPeer)(MSH3_CONNECTION* Connection, void* IfContext, uint64_t ErrorCode);
+    void (MSH3_CALL *ShutdownByTransport)(MSH3_CONNECTION* Connection, void* IfContext, MSH3_STATUS Status);
     void (MSH3_CALL *ShutdownComplete)(MSH3_CONNECTION* Connection, void* IfContext);
     void (MSH3_CALL *NewRequest)(MSH3_CONNECTION* Connection, void* IfContext, MSH3_REQUEST* Request);
 } MSH3_CONNECTION_IF;
@@ -181,12 +176,6 @@ MsH3ConnectionOpen(
 void
 MSH3_CALL
 MsH3ConnectionClose(
-    MSH3_CONNECTION* Handle
-    );
-
-MSH3_CONNECTION_STATE
-MSH3_CALL
-MsH3ConnectionGetState(
     MSH3_CONNECTION* Handle
     );
 

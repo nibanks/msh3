@@ -34,6 +34,12 @@ bool Shutdown;
 void MSH3_CALL Connected(MSH3_CONNECTION* , void* ) {
 }
 
+void MSH3_CALL ShutdownByPeer(MSH3_CONNECTION* , void* , uint64_t ) {
+}
+
+void MSH3_CALL ShutdownByTransport(MSH3_CONNECTION* , void* , MSH3_STATUS ) {
+}
+
 void MSH3_CALL ConnShutdownComplete(MSH3_CONNECTION* , void* ) {
     std::lock_guard Lock{Mutex};
     Shutdown = true;
@@ -47,7 +53,7 @@ void WaitForShutdownComplete() {
     }
 }
 
-const MSH3_CONNECTION_IF ConnCallbacks = { Connected, ConnShutdownComplete };
+const MSH3_CONNECTION_IF ConnCallbacks = { Connected, ShutdownByPeer, ShutdownByTransport, ConnShutdownComplete };
 
 void MSH3_CALL HeaderReceived(MSH3_REQUEST* , void* , const MSH3_HEADER* Header) {
     if (Args.Print) {

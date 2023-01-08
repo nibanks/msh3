@@ -342,13 +342,6 @@ struct MsH3Connection : public MsQuicConnection {
         _In_ MSH3_REQUEST_FLAGS Flags
         );
 
-    MSH3_CONNECTION_STATE GetState() const {
-        if (!HandshakeComplete) return MSH3_CONN_CONNECTING;
-        if (!HandshakeSuccess)  return MSH3_CONN_HANDSHAKE_FAILED;
-        if (!ShutdownComplete)  return MSH3_CONN_CONNECTED;
-        return MSH3_CONN_DISCONNECTED;
-    }
-
     void WaitOnShutdownComplete() {
         std::unique_lock Lock{ShutdownCompleteMutex};
         ShutdownCompleteEvent.wait(Lock, [&]{return ShutdownComplete;});
