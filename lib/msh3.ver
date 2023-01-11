@@ -4,7 +4,7 @@
 //
 
 #define VER_MAJOR 0
-#define VER_MINOR 6
+#define VER_MINOR 7
 #define VER_PATCH 0
 
 #ifndef VER_BUILD_ID
