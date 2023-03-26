@@ -168,8 +168,8 @@ struct MsH3Request {
         MsH3RequestHeaderRecvCallback* HeaderRecv = nullptr,
         MsH3RequestDataRecvCallback* DataRecv = nullptr,
         MsH3RequestComplete* Complete = nullptr,
-        MsH3CleanUpMode CleanUpManual = CleanUpManual
-        ) noexcept : AppContext(AppContext), HeaderRecvFn(HeaderRecv), DataRecvFn(DataRecv), CompleteFn(Complete), CleanUp(CleanUpManual) {
+        MsH3CleanUpMode CleanUpMode = CleanUpManual
+        ) noexcept : AppContext(AppContext), HeaderRecvFn(HeaderRecv), DataRecvFn(DataRecv), CompleteFn(Complete), CleanUp(CleanUpMode) {
         Handle = MsH3RequestOpen(Connection, &Interface, this, Headers, HeadersCount, Flags);
     }
 #ifdef MSH3_SERVER_SUPPORT
@@ -255,7 +255,11 @@ private: // Static stuff
 };
 
 void MsH3Connection::OnNewRequest(MSH3_REQUEST* Request) noexcept {
+#if MSH3_SERVER_SUPPORT
     NewRequest.Set(new(std::nothrow) MsH3Request(Request));
+#else
+    UNREFERENCED_PARAMETER(Request);
+#endif
 }
 
 #if MSH3_SERVER_SUPPORT
