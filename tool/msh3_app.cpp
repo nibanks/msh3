@@ -5,57 +5,21 @@
 
 --*/
 
-#include "msh3.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "msh3.hpp"
 #include <vector>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
 
 using namespace std;
 
 struct Arguments {
     const char* Host { nullptr };
-    MSH3_ADDR Address { 0 };
+    MsH3Addr Address {443};
     vector<const char*> Paths;
     bool Unsecure { false };
     bool Print { false };
     uint32_t Count { 1 };
-    Arguments() { MSH3_SET_PORT(&Address, 443); }
 } Args;
 
-std::mutex Mutex;
-std::condition_variable Event;
-bool Shutdown;
-
-void MSH3_CALL Connected(MSH3_CONNECTION* , void* ) {
-}
-
-void MSH3_CALL ShutdownByPeer(MSH3_CONNECTION* , void* , uint64_t ) {
-}
-
-void MSH3_CALL ShutdownByTransport(MSH3_CONNECTION* , void* , MSH3_STATUS ) {
-}
-
-void MSH3_CALL ConnShutdownComplete(MSH3_CONNECTION* , void* ) {
-    std::lock_guard Lock{Mutex};
-    Shutdown = true;
-    Event.notify_all();
-}
-
-void WaitForShutdownComplete() {
-    if (!Shutdown) {
-        std::unique_lock Lock{Mutex};
-        Event.wait(Lock, [&]{return Shutdown;});
-    }
-}
-
-const MSH3_CONNECTION_IF ConnCallbacks = { Connected, ShutdownByPeer, ShutdownByTransport, ConnShutdownComplete };
-
-void MSH3_CALL HeaderReceived(MSH3_REQUEST* , void* , const MSH3_HEADER* Header) {
+void MSH3_CALL HeaderReceived(struct MsH3Request* , const MSH3_HEADER* Header) {
     if (Args.Print) {
         fwrite(Header->Name, 1, Header->NameLength, stdout);
         printf(":");
@@ -64,23 +28,17 @@ void MSH3_CALL HeaderReceived(MSH3_REQUEST* , void* , const MSH3_HEADER* Header)
     }
 }
 
-bool MSH3_CALL DataReceived(MSH3_REQUEST* , void* , uint32_t* Length, const uint8_t* Data) {
+bool MSH3_CALL DataReceived(struct MsH3Request* , uint32_t* Length, const uint8_t* Data) {
     if (Args.Print) fwrite(Data, 1, *Length, stdout);
     return true;
 }
 
-void MSH3_CALL Complete(MSH3_REQUEST* , void* Context, bool Aborted, uint64_t AbortError) {
-    const uint32_t Index = (uint32_t)(size_t)Context;
+void MSH3_CALL Complete(struct MsH3Request* Request, bool Aborted, uint64_t AbortError) {
+    const uint32_t Index = (uint32_t)(size_t)Request->AppContext;
     if (Args.Print) printf("\n");
     if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
     else         printf("Request %u complete\n", Index);
 }
-
-void MSH3_CALL RequestShutdownComplete(MSH3_REQUEST* Request, void* ) {
-    MsH3RequestClose(Request);
-}
-
-const MSH3_REQUEST_IF Callbacks = { HeaderReceived, DataReceived, Complete, RequestShutdownComplete };
 
 void ParseArgs(int argc, char **argv) {
     if (argc < 2 || !strcmp(argv[1], "-?") || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help")) {
@@ -100,7 +58,7 @@ void ParseArgs(int argc, char **argv) {
     char *port = strrchr(argv[1], ':');
     if (port) {
         *port = 0; port++;
-        MSH3_SET_PORT(&Args.Address, (uint16_t)atoi(port));
+        Args.Address.SetPort((uint16_t)atoi(port));
     }
 
     // Parse options.
@@ -128,8 +86,7 @@ void ParseArgs(int argc, char **argv) {
             Args.Print = true;
 
         } else if (!strcmp(argv[i], "--version") || !strcmp(argv[i], "-V")) {
-            uint32_t Version[4];
-            MsH3Version(Version);
+            uint32_t Version[4]; MsH3Version(Version);
             printf("Using msh3 v%u.%u.%u.%u\n", Version[0], Version[1], Version[2], Version[3]);
         }
     }
@@ -152,26 +109,24 @@ int MSH3_CALL main(int argc, char **argv) {
     };
     const size_t HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
 
-    auto Api = MsH3ApiOpen();
-    if (Api) {
-        auto Connection = MsH3ConnectionOpen(Api, &ConnCallbacks, nullptr, Args.Host, &Args.Address, Args.Unsecure);
-        if (Connection) {
+    MsH3Api Api;
+    if (Api.IsValid()) {
+        MsH3Connection Connection(Api, Args.Host, Args.Address, Args.Unsecure);
+        if (Connection.IsValid()) {
             for (auto Path : Args.Paths) {
                 printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
                 Headers[1].Value = Path;
                 Headers[1].ValueLength = strlen(Path);
                 for (uint32_t i = 0; i < Args.Count; ++i) {
-                    auto Request = MsH3RequestOpen(Connection, &Callbacks, (void*)(size_t)(i+1), Headers, HeadersCount, MSH3_REQUEST_FLAG_FIN);
-                    if (!Request) {
+                    auto Request = new (std::nothrow) MsH3Request(Connection, Headers, HeadersCount, MSH3_REQUEST_FLAG_FIN, (void*)(size_t)(i+1), HeaderReceived, DataReceived, Complete, CleanUpAutoDelete);
+                    if (!Request || !Request->IsValid()) {
                         printf("Request %u failed to start\n", i+1);
                         break;
                     }
                 }
             }
-            WaitForShutdownComplete();
-            MsH3ConnectionClose(Connection);
+            Connection.ShutdownComplete.Wait();
         }
-        MsH3ApiClose(Api);
     }
 
     return 0;

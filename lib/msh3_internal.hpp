@@ -132,7 +132,7 @@ const H3Settings SettingsH3[] = {
 inline
 _Success_(return != FALSE)
 BOOLEAN
-MsH3VarIntDecode(
+MsH3pVarIntDecode(
     _In_ uint32_t BufferLength,
     _In_reads_bytes_(BufferLength)
         const uint8_t * const Buffer,
@@ -272,10 +272,10 @@ inline QUIC_STREAM_SHUTDOWN_FLAGS ToQuicShutdownFlags(MSH3_REQUEST_SHUTDOWN_FLAG
     return QuicFlags;
 }
 
-struct MsH3UniDirStream;
-struct MsH3BiDirStream;
+struct MsH3pUniDirStream;
+struct MsH3pBiDirStream;
 
-struct MsH3Connection : public MsQuicConnection {
+struct MsH3pConnection : public MsQuicConnection {
 
     MSH3_CONNECTION_IF Callbacks {nullptr};
     void* Context {nullptr};
@@ -285,13 +285,13 @@ struct MsH3Connection : public MsQuicConnection {
     uint8_t tsu_buf[LSQPACK_LONGEST_SDTC];
     size_t tsu_buf_sz;
 
-    MsH3UniDirStream* LocalControl {nullptr};
-    MsH3UniDirStream* LocalEncoder {nullptr};
-    MsH3UniDirStream* LocalDecoder {nullptr};
+    MsH3pUniDirStream* LocalControl {nullptr};
+    MsH3pUniDirStream* LocalEncoder {nullptr};
+    MsH3pUniDirStream* LocalDecoder {nullptr};
 
-    MsH3UniDirStream* PeerControl {nullptr};
-    MsH3UniDirStream* PeerEncoder {nullptr};
-    MsH3UniDirStream* PeerDecoder {nullptr};
+    MsH3pUniDirStream* PeerControl {nullptr};
+    MsH3pUniDirStream* PeerEncoder {nullptr};
+    MsH3pUniDirStream* PeerDecoder {nullptr};
 
     uint32_t PeerMaxTableSize {H3_RFC_DEFAULT_HEADER_TABLE_SIZE};
     uint64_t PeerQPackBlockedStreams {H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM};
@@ -303,7 +303,7 @@ struct MsH3Connection : public MsQuicConnection {
 
     char HostName[256];
 
-    MsH3Connection(
+    MsH3pConnection(
         const MsQuicRegistration& Registration,
         const MSH3_CONNECTION_IF* Interface,
         void* IfContext,
@@ -313,12 +313,12 @@ struct MsH3Connection : public MsQuicConnection {
         );
 
 #ifdef MSH3_SERVER_SUPPORT
-    MsH3Connection(
+    MsH3pConnection(
         HQUIC ServerHandle
         );
 #endif
 
-    ~MsH3Connection();
+    ~MsH3pConnection();
 
 #ifdef MSH3_SERVER_SUPPORT
     void
@@ -332,7 +332,7 @@ struct MsH3Connection : public MsQuicConnection {
     }
 #endif // MSH3_SERVER_SUPPORT
 
-    MsH3BiDirStream*
+    MsH3pBiDirStream*
     OpenRequest(
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
@@ -355,8 +355,8 @@ private:
         ShutdownCompleteEvent.notify_all();
     }
 
-    friend struct MsH3UniDirStream;
-    friend struct MsH3BiDirStream;
+    friend struct MsH3pUniDirStream;
+    friend struct MsH3pBiDirStream;
 
     static QUIC_STATUS
     s_MsQuicCallback(
@@ -365,7 +365,7 @@ private:
         _Inout_ QUIC_CONNECTION_EVENT* Event
         )
     {
-        return ((MsH3Connection*)Context)->MsQuicCallback(Event);
+        return ((MsH3pConnection*)Context)->MsQuicCallback(Event);
     }
 
     QUIC_STATUS
@@ -381,20 +381,20 @@ private:
         );
 };
 
-struct MsH3UniDirStream : public MsQuicStream {
+struct MsH3pUniDirStream : public MsQuicStream {
 
-    MsH3Connection& H3;
+    MsH3pConnection& H3;
     H3StreamType Type;
 
     uint8_t RawBuffer[256];
     QUIC_BUFFER Buffer {0, RawBuffer}; // Working space
 
-    MsH3UniDirStream(MsH3Connection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
-    MsH3UniDirStream(MsH3Connection& Connection, const HQUIC StreamHandle);
+    MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
+    MsH3pUniDirStream(MsH3pConnection& Connection, const HQUIC StreamHandle);
 
     bool
     EncodeHeaders(
-        _In_ struct MsH3BiDirStream* Request,
+        _In_ struct MsH3pBiDirStream* Request,
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
         _In_ size_t HeadersCount
@@ -409,7 +409,7 @@ private:
         _Inout_ QUIC_STREAM_EVENT* Event
         )
     {
-        auto This = (MsH3UniDirStream*)Context;
+        auto This = (MsH3pUniDirStream*)Context;
         switch (This->Type) {
         case H3StreamTypeControl:
             return This->ControlStreamCallback(Event);
@@ -448,14 +448,14 @@ private:
         );
 };
 
-struct MsH3AppSend {
+struct MsH3pAppSend {
     void* AppContext;
     uint8_t FrameHeaderBuffer[16];
     QUIC_BUFFER Buffers[2] = {
         0, FrameHeaderBuffer,
         0, NULL
     };
-    MsH3AppSend(_In_opt_ void* AppContext) : AppContext(AppContext) { }
+    MsH3pAppSend(_In_opt_ void* AppContext) : AppContext(AppContext) { }
     bool SetData(
         _In_reads_bytes_opt_(DataLength) const void* Data,
         _In_ uint32_t DataLength
@@ -467,9 +467,9 @@ struct MsH3AppSend {
     }
 };
 
-struct MsH3BiDirStream : public MsQuicStream {
+struct MsH3pBiDirStream : public MsQuicStream {
 
-    MsH3Connection& H3;
+    MsH3pConnection& H3;
 
     MSH3_REQUEST_IF Callbacks;
     void* Context;
@@ -500,8 +500,8 @@ struct MsH3BiDirStream : public MsQuicStream {
     bool ShutdownComplete {false};
     bool ReceivePending {false};
 
-    MsH3BiDirStream(
-        _In_ MsH3Connection& Connection,
+    MsH3pBiDirStream(
+        _In_ MsH3pConnection& Connection,
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
         _In_reads_(HeadersCount)
@@ -511,8 +511,8 @@ struct MsH3BiDirStream : public MsQuicStream {
         );
 
 #ifdef MSH3_SERVER_SUPPORT
-    MsH3BiDirStream(
-        _In_ MsH3Connection& Connection,
+    MsH3pBiDirStream(
+        _In_ MsH3pConnection& Connection,
         _In_ HQUIC StreamHandle
         );
 #endif
@@ -569,7 +569,7 @@ private:
         _Inout_ QUIC_STREAM_EVENT* Event
         )
     {
-        return ((MsH3BiDirStream*)Context)->MsQuicCallback(Event);
+        return ((MsH3pBiDirStream*)Context)->MsQuicCallback(Event);
     }
 
     QUIC_STATUS
@@ -592,7 +592,7 @@ private:
         size_t Space
         )
     {
-        return ((MsH3BiDirStream*)Context)->DecodePrepare(Header, Space);
+        return ((MsH3pBiDirStream*)Context)->DecodePrepare(Header, Space);
     }
 
     struct lsxpack_header*
@@ -607,7 +607,7 @@ private:
         struct lsxpack_header* Header
         )
     {
-        ((MsH3BiDirStream*)Context)->DecodeProcess(Header);
+        ((MsH3pBiDirStream*)Context)->DecodeProcess(Header);
         return 0;
     }
 
@@ -619,25 +619,25 @@ private:
 
 #ifdef MSH3_SERVER_SUPPORT
 
-struct MsH3Certificate : public MsQuicConfiguration {
+struct MsH3pCertificate : public MsQuicConfiguration {
     QUIC_CREDENTIAL_CONFIG* SelfSign {nullptr};
-    MsH3Certificate(
+    MsH3pCertificate(
         const MsQuicRegistration& Registration,
         const MSH3_CERTIFICATE_CONFIG* Config
         );
-    MsH3Certificate(
+    MsH3pCertificate(
         const MsQuicRegistration& Registration,
         QUIC_CREDENTIAL_CONFIG* SelfSign
         );
-    ~MsH3Certificate();
+    ~MsH3pCertificate();
 };
 
-struct MsH3Listener : public MsQuicListener {
+struct MsH3pListener : public MsQuicListener {
 
     MSH3_LISTENER_IF Callbacks;
     void* Context;
 
-    MsH3Listener(
+    MsH3pListener(
         const MsQuicRegistration& Registration,
         const MSH3_ADDR* Address,
         const MSH3_LISTENER_IF* Interface,
@@ -657,7 +657,7 @@ private:
         _Inout_ QUIC_LISTENER_EVENT* Event
         )
     {
-        return ((MsH3Listener*)Context)->MsQuicCallback(Event);
+        return ((MsH3pListener*)Context)->MsQuicCallback(Event);
     }
 
     QUIC_STATUS
