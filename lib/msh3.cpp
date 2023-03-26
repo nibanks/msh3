@@ -24,7 +24,7 @@ MsH3Version(
     Version[0] = VER_MAJOR;
     Version[1] = VER_MINOR;
     Version[2] = VER_PATCH;
-    Version[3] = (uint32_t)VER_BUILD_ID;
+    Version[3] = VER_BUILD_ID;
 }
 
 extern "C"
