@@ -258,7 +258,7 @@ void MsH3Connection::OnNewRequest(MSH3_REQUEST* Request) noexcept {
 #if MSH3_SERVER_SUPPORT
     NewRequest.Set(new(std::nothrow) MsH3Request(Request));
 #else
-    Request;
+    (void)Request;
 #endif
 }
 
