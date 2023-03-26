@@ -7,6 +7,7 @@
 
 #include "msh3.hpp"
 #include <vector>
+#include <cstring>
 
 using namespace std;
 

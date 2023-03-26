@@ -92,9 +92,11 @@ struct MsH3Connection {
         ) noexcept : CleanUp(CleanUpManual) {
         Handle = MsH3ConnectionOpen(Api, &Interface, this, ServerName, ServerAddress, Unsecure);
     }
+#ifdef MSH3_SERVER_SUPPORT
     MsH3Connection(MSH3_CONNECTION* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
         MsH3ConnectionSetCallbackInterface(Handle, &Interface, this);
     }
+#endif
     ~MsH3Connection() noexcept { if (Handle) { MsH3ConnectionClose(Handle); } }
     MsH3Connection(MsH3Connection& other) = delete;
     MsH3Connection operator=(MsH3Connection& Other) = delete;
@@ -103,9 +105,11 @@ struct MsH3Connection {
     void Shutdown(uint64_t ErrorCode = 0) noexcept {
         MsH3ConnectionShutdown(Handle, ErrorCode);
     }
+#ifdef MSH3_SERVER_SUPPORT
     void SetCertificate(MSH3_CERTIFICATE* Certificate) noexcept {
         MsH3ConnectionSetCertificate(Handle, Certificate);
     }
+#endif
 private:
     const MsH3CleanUpMode CleanUp;
     const MSH3_CONNECTION_IF Interface { s_OnConnected, s_OnShutdownByPeer, s_OnShutdownByTransport, s_OnShutdownComplete, s_OnNewRequest };
@@ -168,9 +172,11 @@ struct MsH3Request {
         ) noexcept : AppContext(AppContext), HeaderRecvFn(HeaderRecv), DataRecvFn(DataRecv), CompleteFn(Complete), CleanUp(CleanUpManual) {
         Handle = MsH3RequestOpen(Connection, &Interface, this, Headers, HeadersCount, Flags);
     }
+#ifdef MSH3_SERVER_SUPPORT
     MsH3Request(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
         MsH3RequestSetCallbackInterface(Handle, &Interface, this);
     }
+#endif
     ~MsH3Request() noexcept { if (Handle) { MsH3RequestClose(Handle); } }
     MsH3Request(MsH3Request& other) = delete;
     MsH3Request operator=(MsH3Request& Other) = delete;
@@ -196,6 +202,7 @@ struct MsH3Request {
         ) noexcept {
         return MsH3RequestShutdown(Handle, Flags, _AbortError);
     }
+#ifdef MSH3_SERVER_SUPPORT
     bool SendHeaders(
         const MSH3_HEADER* Headers,
         size_t HeadersCount,
@@ -203,6 +210,7 @@ struct MsH3Request {
         ) noexcept {
         return MsH3RequestSendHeaders(Handle, Headers, HeadersCount, Flags);
     }
+#endif
 private:
     const MsH3CleanUpMode CleanUp;
     const MSH3_REQUEST_IF Interface { s_OnHeaderReceived, s_OnDataReceived, s_OnComplete, s_OnShutdownComplete, s_OnDataSent };
@@ -250,6 +258,8 @@ void MsH3Connection::OnNewRequest(MSH3_REQUEST* Request) noexcept {
     NewRequest.Set(new(std::nothrow) MsH3Request(Request));
 }
 
+#if MSH3_SERVER_SUPPORT
+
 struct MsH3Certificate {
     MSH3_CERTIFICATE* Handle { nullptr };
 #if MSH3_TEST_MODE
@@ -265,8 +275,6 @@ struct MsH3Certificate {
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CERTIFICATE* () const noexcept { return Handle; }
 };
-
-#if MSH3_SERVER_SUPPORT
 
 struct MsH3Listener {
     MSH3_LISTENER* Handle { nullptr };
