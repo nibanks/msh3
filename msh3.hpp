@@ -5,9 +5,6 @@
 
 --*/
 
-#define MSH3_SERVER_SUPPORT 1
-#define MSH3_TEST_MODE 1
-
 #include "msh3.h"
 #include <thread>
 #include <mutex>
@@ -17,17 +14,21 @@
 using namespace std;
 using namespace std::chrono_literals;
 
-struct TestRequest;
+#if MSH3_TEST_MODE
+#define TEST_DEF(x) = x
+#else
+#define TEST_DEF(x)
+#endif
 
-enum TestCleanUpMode {
+struct MsH3Request;
+
+enum MsH3CleanUpMode {
     CleanUpManual,
     CleanUpAutoDelete,
 };
 
-const uint32_t TestTimeout = 250; // milliseconds
-
 template<typename T>
-struct TestWaitable {
+struct MsH3Waitable {
     T Get() const { return State; }
     void Set(T state) {
         std::lock_guard Lock{Mutex};
@@ -41,7 +42,7 @@ struct TestWaitable {
         }
         return State;
     }
-    bool WaitFor(uint32_t milliseconds = TestTimeout) {
+    bool WaitFor(uint32_t milliseconds TEST_DEF(250)) {
         if (!State) {
             std::unique_lock Lock{Mutex};
             return Event.wait_for(Lock, milliseconds*1ms, [&]{return State;});
@@ -54,50 +55,63 @@ private:
     T State { (T)0 };
 };
 
-struct TestApi {
+struct MsH3Api {
     MSH3_API* Handle { MsH3ApiOpen() };
-    ~TestApi() noexcept { if (Handle) { MsH3ApiClose(Handle); } }
+    ~MsH3Api() noexcept { if (Handle) { MsH3ApiClose(Handle); } }
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_API* () const noexcept { return Handle; }
 };
 
-struct TestAddr {
+struct MsH3Addr {
     MSH3_ADDR Addr {0};
-    TestAddr(uint16_t Port = 4433) {
-        MSH3_SET_PORT(&Addr, Port);
+#if MSH3_TEST_MODE
+    MsH3Addr(uint16_t Port = 4433) {
+#else
+    MsH3Addr(uint16_t Port = 0) {
+#endif
+        SetPort(Port);
     }
     operator const MSH3_ADDR* () const noexcept { return &Addr; }
+    void SetPort(uint16_t Port) noexcept { MSH3_SET_PORT(&Addr, Port); }
 };
 
-struct TestConnection {
+struct MsH3Connection {
     MSH3_CONNECTION* Handle { nullptr };
-    TestWaitable<bool> Connected;
-    TestWaitable<bool> ShutdownComplete;
-    TestWaitable<TestRequest*> NewRequest;
-    TestConnection(
-        TestApi& Api,
-        const char* ServerName = "localhost",
-        const TestAddr& ServerAddress = TestAddr(),
+    MsH3Waitable<bool> Connected;
+    MsH3Waitable<bool> ShutdownComplete;
+    MsH3Waitable<MsH3Request*> NewRequest;
+    MsH3Connection(
+        MsH3Api& Api,
+        const char* ServerName TEST_DEF("localhost"),
+        const MsH3Addr& ServerAddress = MsH3Addr(),
+#if MSH3_TEST_MODE
         bool Unsecure = true
+#else
+        bool Unsecure = false
+#endif
         ) noexcept : CleanUp(CleanUpManual) {
         Handle = MsH3ConnectionOpen(Api, &Interface, this, ServerName, ServerAddress, Unsecure);
     }
-    TestConnection(MSH3_CONNECTION* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
+#ifdef MSH3_SERVER_SUPPORT
+    MsH3Connection(MSH3_CONNECTION* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
         MsH3ConnectionSetCallbackInterface(Handle, &Interface, this);
     }
-    ~TestConnection() noexcept { if (Handle) { MsH3ConnectionClose(Handle); } }
-    TestConnection(TestConnection& other) = delete;
-    TestConnection operator=(TestConnection& Other) = delete;
+#endif
+    ~MsH3Connection() noexcept { if (Handle) { MsH3ConnectionClose(Handle); } }
+    MsH3Connection(MsH3Connection& other) = delete;
+    MsH3Connection operator=(MsH3Connection& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CONNECTION* () const noexcept { return Handle; }
     void Shutdown(uint64_t ErrorCode = 0) noexcept {
         MsH3ConnectionShutdown(Handle, ErrorCode);
     }
+#ifdef MSH3_SERVER_SUPPORT
     void SetCertificate(MSH3_CERTIFICATE* Certificate) noexcept {
         MsH3ConnectionSetCertificate(Handle, Certificate);
     }
+#endif
 private:
-    const TestCleanUpMode CleanUp;
+    const MsH3CleanUpMode CleanUp;
     const MSH3_CONNECTION_IF Interface { s_OnConnected, s_OnShutdownByPeer, s_OnShutdownByTransport, s_OnShutdownComplete, s_OnNewRequest };
     void OnConnected() noexcept {
         Connected.Set(true);
@@ -115,51 +129,57 @@ private:
     void OnNewRequest(MSH3_REQUEST* Request) noexcept;
 private: // Static stuff
     static void MSH3_CALL s_OnConnected(MSH3_CONNECTION* /*Connection*/, void* IfContext) noexcept {
-        ((TestConnection*)IfContext)->OnConnected();
+        ((MsH3Connection*)IfContext)->OnConnected();
     }
     static void MSH3_CALL s_OnShutdownByPeer(MSH3_CONNECTION* /*Connection*/, void* IfContext, uint64_t ErrorCode) noexcept {
-        ((TestConnection*)IfContext)->OnShutdownByPeer(ErrorCode);
+        ((MsH3Connection*)IfContext)->OnShutdownByPeer(ErrorCode);
     }
     static void MSH3_CALL s_OnShutdownByTransport(MSH3_CONNECTION* /*Connection*/, void* IfContext, MSH3_STATUS Status) noexcept {
-        ((TestConnection*)IfContext)->OnShutdownByTransport(Status);
+        ((MsH3Connection*)IfContext)->OnShutdownByTransport(Status);
     }
     static void MSH3_CALL s_OnShutdownComplete(MSH3_CONNECTION* /*Connection*/, void* IfContext) noexcept {
-        ((TestConnection*)IfContext)->OnShutdownComplete();
+        ((MsH3Connection*)IfContext)->OnShutdownComplete();
     }
     static void MSH3_CALL s_OnNewRequest(MSH3_CONNECTION* /*Connection*/, void* IfContext, MSH3_REQUEST* Request) noexcept {
-        ((TestConnection*)IfContext)->OnNewRequest(Request);
+        ((MsH3Connection*)IfContext)->OnNewRequest(Request);
     }
 };
 
-typedef void TestHeaderRecvCallback(struct TestRequest* Request, const MSH3_HEADER* Header);
-typedef bool TestDataRecvCallback(struct TestRequest* Request, uint32_t* Length, const uint8_t* Data);
+typedef void MSH3_CALL MsH3RequestHeaderRecvCallback(struct MsH3Request* Request, const MSH3_HEADER* Header);
+typedef bool MSH3_CALL MsH3RequestDataRecvCallback(struct MsH3Request* Request, uint32_t* Length, const uint8_t* Data);
+typedef void MSH3_CALL MsH3RequestComplete(struct MsH3Request* Request, bool Aborted, uint64_t AbortError);
 
-struct TestRequest {
+struct MsH3Request {
     MSH3_REQUEST* Handle { nullptr };
-    TestWaitable<bool> Complete;
-    TestWaitable<bool> ShutdownComplete;
+    MsH3Waitable<bool> Complete;
+    MsH3Waitable<bool> ShutdownComplete;
     bool Aborted {false};
     uint64_t AbortError {0};
     void* AppContext {nullptr};
-    TestHeaderRecvCallback* HeaderRecv {nullptr};
-    TestDataRecvCallback* DataRecv {nullptr};
-    TestRequest(
-        TestConnection& Connection,
+    MsH3RequestHeaderRecvCallback* HeaderRecvFn {nullptr};
+    MsH3RequestDataRecvCallback* DataRecvFn {nullptr};
+    MsH3RequestComplete* CompleteFn {nullptr};
+    MsH3Request(
+        MsH3Connection& Connection,
         const MSH3_HEADER* Headers,
         size_t HeadersCount,
         MSH3_REQUEST_FLAGS Flags = MSH3_REQUEST_FLAG_NONE,
         void* AppContext = nullptr,
-        TestHeaderRecvCallback* HeaderRecv = nullptr,
-        TestDataRecvCallback* DataRecv = nullptr
-        ) noexcept : AppContext(AppContext), HeaderRecv(HeaderRecv), DataRecv(DataRecv), CleanUp(CleanUpManual) {
+        MsH3RequestHeaderRecvCallback* HeaderRecv = nullptr,
+        MsH3RequestDataRecvCallback* DataRecv = nullptr,
+        MsH3RequestComplete* Complete = nullptr,
+        MsH3CleanUpMode CleanUpMode = CleanUpManual
+        ) noexcept : AppContext(AppContext), HeaderRecvFn(HeaderRecv), DataRecvFn(DataRecv), CompleteFn(Complete), CleanUp(CleanUpMode) {
         Handle = MsH3RequestOpen(Connection, &Interface, this, Headers, HeadersCount, Flags);
     }
-    TestRequest(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
+#ifdef MSH3_SERVER_SUPPORT
+    MsH3Request(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
         MsH3RequestSetCallbackInterface(Handle, &Interface, this);
     }
-    ~TestRequest() noexcept { if (Handle) { MsH3RequestClose(Handle); } }
-    TestRequest(TestRequest& other) = delete;
-    TestRequest operator=(TestRequest& Other) = delete;
+#endif
+    ~MsH3Request() noexcept { if (Handle) { MsH3RequestClose(Handle); } }
+    MsH3Request(MsH3Request& other) = delete;
+    MsH3Request operator=(MsH3Request& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_REQUEST* () const noexcept { return Handle; }
     void CompleteReceive(uint32_t Length) noexcept {
@@ -182,6 +202,7 @@ struct TestRequest {
         ) noexcept {
         return MsH3RequestShutdown(Handle, Flags, _AbortError);
     }
+#ifdef MSH3_SERVER_SUPPORT
     bool SendHeaders(
         const MSH3_HEADER* Headers,
         size_t HeadersCount,
@@ -189,8 +210,9 @@ struct TestRequest {
         ) noexcept {
         return MsH3RequestSendHeaders(Handle, Headers, HeadersCount, Flags);
     }
+#endif
 private:
-    const TestCleanUpMode CleanUp;
+    const MsH3CleanUpMode CleanUp;
     const MSH3_REQUEST_IF Interface { s_OnHeaderReceived, s_OnDataReceived, s_OnComplete, s_OnShutdownComplete, s_OnDataSent };
     void OnComplete(bool _Aborted, uint64_t _AbortError) noexcept {
         Aborted = _Aborted;
@@ -207,64 +229,77 @@ private:
     }
 private: // Static stuff
     static void MSH3_CALL s_OnHeaderReceived(MSH3_REQUEST* /*Request*/, void* IfContext, const MSH3_HEADER* Header) noexcept {
-        if (((TestRequest*)IfContext)->HeaderRecv) {
-            ((TestRequest*)IfContext)->HeaderRecv((TestRequest*)IfContext, Header);
+        if (((MsH3Request*)IfContext)->HeaderRecvFn) {
+            ((MsH3Request*)IfContext)->HeaderRecvFn((MsH3Request*)IfContext, Header);
         }
     }
     static bool MSH3_CALL s_OnDataReceived(MSH3_REQUEST* /*Request*/, void* IfContext, uint32_t* Length, const uint8_t* Data) noexcept {
-        if (((TestRequest*)IfContext)->DataRecv) {
-            return ((TestRequest*)IfContext)->DataRecv((TestRequest*)IfContext, Length, Data);
+        if (((MsH3Request*)IfContext)->DataRecvFn) {
+            return ((MsH3Request*)IfContext)->DataRecvFn((MsH3Request*)IfContext, Length, Data);
         } else {
             return true;
         }
     }
     static void MSH3_CALL s_OnComplete(MSH3_REQUEST* /*Request*/, void* IfContext, bool Aborted, uint64_t AbortError) noexcept {
-        ((TestRequest*)IfContext)->OnComplete(Aborted, AbortError);
+        if (((MsH3Request*)IfContext)->CompleteFn) {
+            ((MsH3Request*)IfContext)->CompleteFn((MsH3Request*)IfContext, Aborted, AbortError);
+        }
+        ((MsH3Request*)IfContext)->OnComplete(Aborted, AbortError);
     }
     static void MSH3_CALL s_OnShutdownComplete(MSH3_REQUEST* /*Request*/, void* IfContext) noexcept {
-        ((TestRequest*)IfContext)->OnShutdownComplete();
+        ((MsH3Request*)IfContext)->OnShutdownComplete();
     }
     static void MSH3_CALL s_OnDataSent(MSH3_REQUEST* /*Request*/, void* IfContext, void* SendContext) noexcept {
-        ((TestRequest*)IfContext)->OnDataSent(SendContext);
+        ((MsH3Request*)IfContext)->OnDataSent(SendContext);
     }
 };
 
-void TestConnection::OnNewRequest(MSH3_REQUEST* Request) noexcept {
-    NewRequest.Set(new(std::nothrow) TestRequest(Request));
+void MsH3Connection::OnNewRequest(MSH3_REQUEST* Request) noexcept {
+#if MSH3_SERVER_SUPPORT
+    NewRequest.Set(new(std::nothrow) MsH3Request(Request));
+#else
+    (void)Request;
+#endif
 }
 
-struct TestCertificate {
+#if MSH3_SERVER_SUPPORT
+
+struct MsH3Certificate {
     MSH3_CERTIFICATE* Handle { nullptr };
-    TestCertificate(TestApi& Api) { // Self-signed certificate
+#if MSH3_TEST_MODE
+    MsH3Certificate(MsH3Api& Api) { // Self-signed certificate
         const MSH3_CERTIFICATE_CONFIG Config = { MSH3_CERTIFICATE_TYPE_SELF_SIGNED };
         Handle = MsH3CertificateOpen(Api, &Config);
     }
-    TestCertificate(TestApi& Api, const MSH3_CERTIFICATE_CONFIG& Config) {
+#endif
+    MsH3Certificate(MsH3Api& Api, const MSH3_CERTIFICATE_CONFIG& Config) {
         Handle = MsH3CertificateOpen(Api, &Config);
     }
-    ~TestCertificate() noexcept { if (Handle) { MsH3CertificateClose(Handle); } }
+    ~MsH3Certificate() noexcept { if (Handle) { MsH3CertificateClose(Handle); } }
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CERTIFICATE* () const noexcept { return Handle; }
 };
 
-struct TestListener {
+struct MsH3Listener {
     MSH3_LISTENER* Handle { nullptr };
     const MSH3_LISTENER_IF Interface { s_OnNewConnection };
-    TestWaitable<TestConnection*> NewConnection;
-    TestListener(TestApi& Api, const MSH3_ADDR* Address = TestAddr()) noexcept {
+    MsH3Waitable<MsH3Connection*> NewConnection;
+    MsH3Listener(MsH3Api& Api, const MsH3Addr& Address TEST_DEF(MsH3Addr())) noexcept {
         Handle = MsH3ListenerOpen(Api, Address, &Interface, this);
     }
-    ~TestListener() noexcept { if (Handle) { MsH3ListenerClose(Handle); } }
-    TestListener(TestListener& other) = delete;
-    TestListener operator=(TestListener& Other) = delete;
+    ~MsH3Listener() noexcept { if (Handle) { MsH3ListenerClose(Handle); } }
+    MsH3Listener(MsH3Listener& other) = delete;
+    MsH3Listener operator=(MsH3Listener& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_LISTENER* () const noexcept { return Handle; }
 private:
     void OnNewConnection(MSH3_CONNECTION* Connection, const char* /*ServerName*/, uint16_t /*ServerNameLength*/) noexcept {
-        NewConnection.Set(new(std::nothrow) TestConnection(Connection));
+        NewConnection.Set(new(std::nothrow) MsH3Connection(Connection));
     }
 private: // Static stuff
     static void MSH3_CALL s_OnNewConnection(MSH3_LISTENER* /*Listener*/, void* IfContext, MSH3_CONNECTION* Connection, const char* ServerName, uint16_t ServerNameLength) noexcept {
-        ((TestListener*)IfContext)->OnNewConnection(Connection, ServerName, ServerNameLength);
+        ((MsH3Listener*)IfContext)->OnNewConnection(Connection, ServerName, ServerNameLength);
     }
 };
+
+#endif // MSH3_SERVER_SUPPORT

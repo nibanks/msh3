@@ -5,10 +5,10 @@
 
 --*/
 
-#include "msh3.hpp"
+#include "msh3_internal.hpp"
 
 const MsQuicApi* MsQuic;
-static std::atomic_int MsH3RefCount{0};
+static std::atomic_int MsH3pRefCount{0};
 
 //
 // Public API
@@ -34,7 +34,7 @@ MsH3ApiOpen(
     void
     )
 {
-    if (MsH3RefCount.fetch_add(1) == 0) {
+    if (MsH3pRefCount.fetch_add(1) == 0) {
         MsQuic = new(std::nothrow) MsQuicApi();
         if (!MsQuic || QUIC_FAILED(MsQuic->GetInitStatus())) {
             printf("MsQuicApi failed\n");
@@ -62,7 +62,7 @@ MsH3ApiClose(
     )
 {
     delete (MsQuicRegistration*)Handle;
-    if (MsH3RefCount.fetch_sub(1) == 1) {
+    if (MsH3pRefCount.fetch_sub(1) == 1) {
         delete MsQuic;
         MsQuic = nullptr;
     }
@@ -81,7 +81,7 @@ MsH3ConnectionOpen(
     )
 {
     auto Reg = (MsQuicRegistration*)Handle;
-    auto H3 = new(std::nothrow) MsH3Connection(*Reg, Interface, IfContext, ServerName, ServerAddress, Unsecure);
+    auto H3 = new(std::nothrow) MsH3pConnection(*Reg, Interface, IfContext, ServerName, ServerAddress, Unsecure);
     if (!H3 || QUIC_FAILED(H3->GetInitStatus())) {
         delete H3;
         return nullptr;
@@ -96,7 +96,7 @@ MsH3ConnectionClose(
     MSH3_CONNECTION* Handle
     )
 {
-    auto H3 = (MsH3Connection*)Handle;
+    auto H3 = (MsH3pConnection*)Handle;
     H3->WaitOnShutdownComplete();
     delete H3;
 }
@@ -109,7 +109,7 @@ MsH3ConnectionShutdown(
     uint64_t ErrorCode
     )
 {
-    ((MsH3Connection*)Handle)->Shutdown(ErrorCode);
+    ((MsH3pConnection*)Handle)->Shutdown(ErrorCode);
 }
 
 extern "C"
@@ -122,7 +122,7 @@ MsH3ConnectionSetCallbackInterface(
     )
 {
 #ifdef MSH3_SERVER_SUPPORT
-    ((MsH3Connection*)Handle)->SetCallbackInterface(Interface, IfContext);
+    ((MsH3pConnection*)Handle)->SetCallbackInterface(Interface, IfContext);
 #else
     UNREFERENCED_PARAMETER(Handle);
     UNREFERENCED_PARAMETER(Interface);
@@ -139,7 +139,7 @@ MsH3ConnectionSetCertificate(
     )
 {
 #ifdef MSH3_SERVER_SUPPORT
-    ((MsH3Connection*)Handle)->SetConfiguration(*(MsH3Certificate*)Certificate);
+    ((MsH3pConnection*)Handle)->SetConfiguration(*(MsH3pCertificate*)Certificate);
 #else
     UNREFERENCED_PARAMETER(Handle);
     UNREFERENCED_PARAMETER(Certificate);
@@ -158,7 +158,7 @@ MsH3RequestOpen(
     MSH3_REQUEST_FLAGS Flags
     )
 {
-    return (MSH3_REQUEST*)((MsH3Connection*)Handle)->OpenRequest(Interface, IfContext, Headers, HeadersCount, Flags);
+    return (MSH3_REQUEST*)((MsH3pConnection*)Handle)->OpenRequest(Interface, IfContext, Headers, HeadersCount, Flags);
 }
 
 extern "C"
@@ -168,7 +168,7 @@ MsH3RequestClose(
     MSH3_REQUEST* Handle
     )
 {
-    delete (MsH3BiDirStream*)Handle;
+    delete (MsH3pBiDirStream*)Handle;
 }
 
 extern "C"
@@ -179,7 +179,7 @@ MsH3RequestCompleteReceive(
     uint32_t Length
     )
 {
-    ((MsH3BiDirStream*)Handle)->CompleteReceive(Length);
+    ((MsH3pBiDirStream*)Handle)->CompleteReceive(Length);
 }
 
 extern "C"
@@ -190,7 +190,7 @@ MsH3RequestSetReceiveEnabled(
     bool Enabled
     )
 {
-    ((MsH3BiDirStream*)Handle)->SetReceiveEnabled(Enabled);
+    ((MsH3pBiDirStream*)Handle)->SetReceiveEnabled(Enabled);
 }
 
 extern "C"
@@ -204,7 +204,7 @@ MsH3RequestSend(
     void* AppContext
     )
 {
-    return ((MsH3BiDirStream*)Handle)->SendAppData(Flags, Data, DataLength, AppContext);
+    return ((MsH3pBiDirStream*)Handle)->SendAppData(Flags, Data, DataLength, AppContext);
 }
 
 extern "C"
@@ -216,7 +216,7 @@ MsH3RequestShutdown(
     uint64_t AbortError
     )
 {
-    (void)((MsH3BiDirStream*)Handle)->Shutdown(AbortError, ToQuicShutdownFlags(Flags));
+    (void)((MsH3pBiDirStream*)Handle)->Shutdown(AbortError, ToQuicShutdownFlags(Flags));
 }
 
 extern "C"
@@ -229,7 +229,7 @@ MsH3RequestSetCallbackInterface(
     )
 {
 #ifdef MSH3_SERVER_SUPPORT
-    ((MsH3BiDirStream*)Handle)->SetCallbackInterface(Interface, IfContext);
+    ((MsH3pBiDirStream*)Handle)->SetCallbackInterface(Interface, IfContext);
 #else
     UNREFERENCED_PARAMETER(Handle);
     UNREFERENCED_PARAMETER(Interface);
@@ -248,7 +248,7 @@ MsH3RequestSendHeaders(
     )
 {
 #ifdef MSH3_SERVER_SUPPORT
-    return ((MsH3BiDirStream*)Handle)->SendHeaders(Headers, HeadersCount, Flags);
+    return ((MsH3pBiDirStream*)Handle)->SendHeaders(Headers, HeadersCount, Flags);
 #else
     UNREFERENCED_PARAMETER(Handle);
     UNREFERENCED_PARAMETER(Headers);
@@ -271,14 +271,14 @@ MsH3CertificateOpen(
     if (Config->Type == MSH3_CERTIFICATE_TYPE_SELF_SIGNED) {
         auto SelfSign = CxPlatGetSelfSignedCert(CXPLAT_SELF_SIGN_CERT_USER, FALSE);
         if (!SelfSign) return nullptr;
-        auto Cert = new(std::nothrow) MsH3Certificate(*Reg, SelfSign);
+        auto Cert = new(std::nothrow) MsH3pCertificate(*Reg, SelfSign);
         if (!Cert || QUIC_FAILED(Cert->GetInitStatus())) {
             delete Cert;
             return nullptr;
         }
         return (MSH3_CERTIFICATE*)Cert;
     }
-    auto Cert = new(std::nothrow) MsH3Certificate(*Reg, Config);
+    auto Cert = new(std::nothrow) MsH3pCertificate(*Reg, Config);
     if (!Cert || QUIC_FAILED(Cert->GetInitStatus())) {
         delete Cert;
         return nullptr;
@@ -299,7 +299,7 @@ MsH3CertificateClose(
     )
 {
 #ifdef MSH3_SERVER_SUPPORT
-    delete (MsH3Certificate*)Handle;
+    delete (MsH3pCertificate*)Handle;
 #else
     UNREFERENCED_PARAMETER(Handle);
 #endif
@@ -317,7 +317,7 @@ MsH3ListenerOpen(
 {
 #ifdef MSH3_SERVER_SUPPORT
     auto Reg = (MsQuicRegistration*)Handle;
-    auto Listener = new(std::nothrow) MsH3Listener(*Reg,Address, Interface, IfContext);
+    auto Listener = new(std::nothrow) MsH3pListener(*Reg,Address, Interface, IfContext);
     if (!Listener || QUIC_FAILED(Listener->GetInitStatus())) {
         delete Listener;
         return nullptr;
@@ -340,17 +340,17 @@ MsH3ListenerClose(
     )
 {
 #ifdef MSH3_SERVER_SUPPORT
-    delete (MsH3Listener*)Handle;
+    delete (MsH3pListener*)Handle;
 #else
     UNREFERENCED_PARAMETER(Handle);
 #endif
 }
 
 //
-// MsH3Connection
+// MsH3pConnection
 //
 
-MsH3Connection::MsH3Connection(
+MsH3pConnection::MsH3pConnection(
         const MsQuicRegistration& Registration,
         const MSH3_CONNECTION_IF* Interface,
         void* IfContext,
@@ -368,11 +368,11 @@ MsH3Connection::MsH3Connection(
     }
     memcpy(HostName, ServerName, ServerNameLen+1);
     lsqpack_enc_preinit(&Encoder, nullptr);
-    LocalControl = new(std::nothrow) MsH3UniDirStream(*this, H3StreamTypeControl);
+    LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeControl);
     if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
-    LocalEncoder = new(std::nothrow) MsH3UniDirStream(*this, H3StreamTypeEncoder);
+    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
     if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
-    LocalDecoder = new(std::nothrow) MsH3UniDirStream(*this, H3StreamTypeDecoder);
+    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder);
     if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
 
     MsQuicSettings Settings;
@@ -390,21 +390,21 @@ MsH3Connection::MsH3Connection(
 }
 
 #ifdef MSH3_SERVER_SUPPORT
-MsH3Connection::MsH3Connection(
+MsH3pConnection::MsH3pConnection(
     HQUIC ServerHandle
     ) : MsQuicConnection(ServerHandle, CleanUpManual, s_MsQuicCallback, this)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
-    LocalControl = new(std::nothrow) MsH3UniDirStream(*this, H3StreamTypeControl);
+    LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeControl);
     if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
-    LocalEncoder = new(std::nothrow) MsH3UniDirStream(*this, H3StreamTypeEncoder);
+    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
     if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
-    LocalDecoder = new(std::nothrow) MsH3UniDirStream(*this, H3StreamTypeDecoder);
+    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder);
     if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
 }
 #endif // MSH3_SERVER_SUPPORT
 
-MsH3Connection::~MsH3Connection()
+MsH3pConnection::~MsH3pConnection()
 {
     lsqpack_enc_cleanup(&Encoder);
     delete LocalDecoder;
@@ -412,8 +412,8 @@ MsH3Connection::~MsH3Connection()
     delete LocalControl;
 }
 
-MsH3BiDirStream*
-MsH3Connection::OpenRequest(
+MsH3pBiDirStream*
+MsH3pConnection::OpenRequest(
     _In_ const MSH3_REQUEST_IF* Interface,
     _In_ void* IfContext,
     _In_reads_(HeadersCount)
@@ -422,7 +422,7 @@ MsH3Connection::OpenRequest(
     _In_ MSH3_REQUEST_FLAGS Flags
     )
 {
-    auto Request = new(std::nothrow) MsH3BiDirStream(*this, Interface, IfContext, Headers, HeadersCount, Flags);
+    auto Request = new(std::nothrow) MsH3pBiDirStream(*this, Interface, IfContext, Headers, HeadersCount, Flags);
     if (!Request || !Request->IsValid()) {
         delete Request;
         return nullptr;
@@ -431,7 +431,7 @@ MsH3Connection::OpenRequest(
 }
 
 QUIC_STATUS
-MsH3Connection::MsQuicCallback(
+MsH3pConnection::MsQuicCallback(
     _Inout_ QUIC_CONNECTION_EVENT* Event
     )
 {
@@ -452,12 +452,12 @@ MsH3Connection::MsQuicCallback(
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
-            if (new(std::nothrow) MsH3UniDirStream(*this, Event->PEER_STREAM_STARTED.Stream) == nullptr) {
+            if (new(std::nothrow) MsH3pUniDirStream(*this, Event->PEER_STREAM_STARTED.Stream) == nullptr) {
                 MsQuic->StreamClose(Event->PEER_STREAM_STARTED.Stream);
             }
         } else { // Server scenario
 #ifdef MSH3_SERVER_SUPPORT
-            auto Request = new(std::nothrow) MsH3BiDirStream(*this, Event->PEER_STREAM_STARTED.Stream);
+            auto Request = new(std::nothrow) MsH3pBiDirStream(*this, Event->PEER_STREAM_STARTED.Stream);
             if (!Request) return QUIC_STATUS_OUT_OF_MEMORY;
             Callbacks.NewRequest((MSH3_CONNECTION*)this, Context, (MSH3_REQUEST*)Request);
 #else
@@ -472,7 +472,7 @@ MsH3Connection::MsQuicCallback(
 }
 
 bool
-MsH3Connection::ReceiveSettingsFrame(
+MsH3pConnection::ReceiveSettingsFrame(
     _In_ uint32_t BufferLength,
     _In_reads_bytes_(BufferLength)
         const uint8_t * const Buffer
@@ -482,8 +482,8 @@ MsH3Connection::ReceiveSettingsFrame(
 
     do {
         QUIC_VAR_INT SettingType, SettingValue;
-        if (!MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingType) ||
-            !MsH3VarIntDecode(BufferLength, Buffer, &Offset, &SettingValue)) {
+        if (!MsH3pVarIntDecode(BufferLength, Buffer, &Offset, &SettingType) ||
+            !MsH3pVarIntDecode(BufferLength, Buffer, &Offset, &SettingValue)) {
             printf("Not enough settings.\n");
             return false;
         }
@@ -506,16 +506,16 @@ MsH3Connection::ReceiveSettingsFrame(
         printf("lsqpack_enc_init failed\n");
         return false;
     }
-    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3BiDirStream::hset_if, (lsqpack_dec_opts)0);
+    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
 
     return true;
 }
 
 //
-// MsH3UniDirStream
+// MsH3pUniDirStream
 //
 
-MsH3UniDirStream::MsH3UniDirStream(MsH3Connection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags)
+MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags)
     : MsQuicStream(Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
 {
     if (!IsValid()) return;
@@ -529,12 +529,12 @@ MsH3UniDirStream::MsH3UniDirStream(MsH3Connection& Connection, H3StreamType Type
     InitStatus = Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START);
 }
 
-MsH3UniDirStream::MsH3UniDirStream(MsH3Connection& Connection, const HQUIC StreamHandle)
+MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, const HQUIC StreamHandle)
     : MsQuicStream(StreamHandle, CleanUpAutoDelete, s_MsQuicCallback, this), H3(Connection), Type(H3StreamTypeUnknown)
 { }
 
 QUIC_STATUS
-MsH3UniDirStream::ControlStreamCallback(
+MsH3pUniDirStream::ControlStreamCallback(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
@@ -557,7 +557,7 @@ MsH3UniDirStream::ControlStreamCallback(
 }
 
 void
-MsH3UniDirStream::ControlReceive(
+MsH3pUniDirStream::ControlReceive(
     _In_ const QUIC_BUFFER* RecvBuffer
     )
 {
@@ -565,8 +565,8 @@ MsH3UniDirStream::ControlReceive(
 
     do {
         QUIC_VAR_INT FrameType, FrameLength;
-        if (!MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameType) ||
-            !MsH3VarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameLength)) {
+        if (!MsH3pVarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameType) ||
+            !MsH3pVarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameLength)) {
             printf("Not enough control data yet for frame headers.\n");
             return; // TODO - Implement local buffering
         }
@@ -586,8 +586,8 @@ MsH3UniDirStream::ControlReceive(
 }
 
 bool
-MsH3UniDirStream::EncodeHeaders(
-    _In_ MsH3BiDirStream* Request,
+MsH3pUniDirStream::EncodeHeaders(
+    _In_ MsH3pBiDirStream* Request,
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
     _In_ size_t HeadersCount
@@ -635,7 +635,7 @@ MsH3UniDirStream::EncodeHeaders(
 }
 
 QUIC_STATUS
-MsH3UniDirStream::EncoderStreamCallback(
+MsH3pUniDirStream::EncoderStreamCallback(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
@@ -656,7 +656,7 @@ MsH3UniDirStream::EncoderStreamCallback(
 }
 
 QUIC_STATUS
-MsH3UniDirStream::DecoderStreamCallback(
+MsH3pUniDirStream::DecoderStreamCallback(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
@@ -677,7 +677,7 @@ MsH3UniDirStream::DecoderStreamCallback(
 }
 
 QUIC_STATUS
-MsH3UniDirStream::UnknownStreamCallback(
+MsH3pUniDirStream::UnknownStreamCallback(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
@@ -722,18 +722,18 @@ MsH3UniDirStream::UnknownStreamCallback(
 }
 
 //
-// MsH3BiDirStream
+// MsH3pBiDirStream
 //
 
 struct lsqpack_dec_hset_if
-MsH3BiDirStream::hset_if = {
+MsH3pBiDirStream::hset_if = {
     .dhi_unblocked      = s_DecodeUnblocked,
     .dhi_prepare_decode = s_DecodePrepare,
     .dhi_process_header = s_DecodeProcess,
 };
 
-MsH3BiDirStream::MsH3BiDirStream(
-    _In_ MsH3Connection& Connection,
+MsH3pBiDirStream::MsH3pBiDirStream(
+    _In_ MsH3pConnection& Connection,
     _In_ const MSH3_REQUEST_IF* Interface,
     _In_ void* IfContext,
     _In_reads_(HeadersCount)
@@ -755,15 +755,15 @@ MsH3BiDirStream::MsH3BiDirStream(
 }
 
 #ifdef MSH3_SERVER_SUPPORT
-MsH3BiDirStream::MsH3BiDirStream(
-    _In_ MsH3Connection& Connection,
+MsH3pBiDirStream::MsH3pBiDirStream(
+    _In_ MsH3pConnection& Connection,
     _In_ HQUIC StreamHandle
     ) : MsQuicStream(StreamHandle, CleanUpManual, s_MsQuicCallback, this), H3(Connection)
 {
 }
 
 bool
-MsH3BiDirStream::SendHeaders(
+MsH3pBiDirStream::SendHeaders(
     _In_reads_(HeadersCount)
         const MSH3_HEADER* Headers,
     _In_ size_t HeadersCount,
@@ -788,14 +788,14 @@ MsH3BiDirStream::SendHeaders(
 #endif
 
 bool
-MsH3BiDirStream::SendAppData(
+MsH3pBiDirStream::SendAppData(
     _In_ MSH3_REQUEST_FLAGS Flags,
     _In_reads_bytes_(DataLength) const void* Data,
     _In_ uint32_t DataLength,
     _In_opt_ void* AppContext
     )
 {
-    auto AppSend = new(std::nothrow) MsH3AppSend(AppContext); // TODO - Pool alloc
+    auto AppSend = new(std::nothrow) MsH3pAppSend(AppContext); // TODO - Pool alloc
     if (!AppSend || !AppSend->SetData(Data, DataLength) ||
         QUIC_FAILED(Send(AppSend->Buffers, 2, ToQuicSendFlags(Flags), AppSend))) {
         delete AppSend;
@@ -805,7 +805,7 @@ MsH3BiDirStream::SendAppData(
 }
 
 QUIC_STATUS
-MsH3BiDirStream::MsQuicCallback(
+MsH3pBiDirStream::MsQuicCallback(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
@@ -822,7 +822,7 @@ MsH3BiDirStream::MsQuicCallback(
         return Receive(Event);
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
         if (Event->SEND_COMPLETE.ClientContext) {
-            auto AppSend = (MsH3AppSend*)Event->SEND_COMPLETE.ClientContext;
+            auto AppSend = (MsH3pAppSend*)Event->SEND_COMPLETE.ClientContext;
             Callbacks.DataSent((MSH3_REQUEST*)this, Context, AppSend->AppContext);
             delete AppSend;
         }
@@ -846,7 +846,7 @@ MsH3BiDirStream::MsQuicCallback(
 }
 
 QUIC_STATUS
-MsH3BiDirStream::Receive(
+MsH3pBiDirStream::Receive(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
@@ -855,8 +855,8 @@ MsH3BiDirStream::Receive(
         do {
             if (CurFrameLengthLeft == 0) { // Not in the middle of reading frame payload
                 if (BufferedHeadersLength == 0) { // No partial frame header bufferred
-                    if (!MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &CurRecvOffset, &CurFrameType) ||
-                        !MsH3VarIntDecode(Buffer->Length, Buffer->Buffer, &CurRecvOffset, &CurFrameLength)) {
+                    if (!MsH3pVarIntDecode(Buffer->Length, Buffer->Buffer, &CurRecvOffset, &CurFrameType) ||
+                        !MsH3pVarIntDecode(Buffer->Length, Buffer->Buffer, &CurRecvOffset, &CurFrameLength)) {
                         BufferedHeadersLength = Buffer->Length - CurRecvOffset;
                         memcpy(BufferedHeaders, Buffer->Buffer + CurRecvOffset, BufferedHeadersLength);
                         break;
@@ -865,8 +865,8 @@ MsH3BiDirStream::Receive(
                     uint32_t ToCopy = sizeof(BufferedHeaders) - BufferedHeadersLength;
                     if (ToCopy > Buffer->Length) ToCopy = Buffer->Length;
                     memcpy(BufferedHeaders + BufferedHeadersLength, Buffer->Buffer, ToCopy);
-                    if (!MsH3VarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &CurRecvOffset, &CurFrameType) ||
-                        !MsH3VarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &CurRecvOffset, &CurFrameLength)) {
+                    if (!MsH3pVarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &CurRecvOffset, &CurFrameType) ||
+                        !MsH3pVarIntDecode(BufferedHeadersLength+ToCopy, BufferedHeaders, &CurRecvOffset, &CurFrameLength)) {
                         BufferedHeadersLength += ToCopy;
                         break;
                     }
@@ -937,7 +937,7 @@ MsH3BiDirStream::Receive(
 }
 
 void
-MsH3BiDirStream::CompleteReceive(
+MsH3pBiDirStream::CompleteReceive(
     _In_ uint32_t Length
     )
 {
@@ -952,7 +952,7 @@ MsH3BiDirStream::CompleteReceive(
 }
 
 void
-MsH3BiDirStream::SetReceiveEnabled(
+MsH3pBiDirStream::SetReceiveEnabled(
     _In_ bool Enabled
     )
 {
@@ -960,7 +960,7 @@ MsH3BiDirStream::SetReceiveEnabled(
 }
 
 struct lsxpack_header*
-MsH3BiDirStream::DecodePrepare(
+MsH3pBiDirStream::DecodePrepare(
     struct lsxpack_header* Header,
     size_t Space
     )
@@ -980,7 +980,7 @@ MsH3BiDirStream::DecodePrepare(
 }
 
 void
-MsH3BiDirStream::DecodeProcess(
+MsH3pBiDirStream::DecodeProcess(
     struct lsxpack_header* Header
     )
 {
@@ -995,7 +995,7 @@ MsH3BiDirStream::DecodeProcess(
 #ifdef MSH3_SERVER_SUPPORT
 
 //
-// MsH3Certificate
+// MsH3pCertificate
 //
 
 QUIC_CREDENTIAL_CONFIG ToQuicConfig(const MSH3_CERTIFICATE_CONFIG* Config) {
@@ -1011,7 +1011,7 @@ QUIC_CREDENTIAL_CONFIG ToQuicConfig(const MSH3_CERTIFICATE_CONFIG* Config) {
     return QuicConfig;
 }
 
-MsH3Certificate::MsH3Certificate(
+MsH3pCertificate::MsH3pCertificate(
     const MsQuicRegistration& Registration,
     const MSH3_CERTIFICATE_CONFIG* Config
     ) : MsQuicConfiguration(
@@ -1026,7 +1026,7 @@ MsH3Certificate::MsH3Certificate(
 {
 }
 
-MsH3Certificate::MsH3Certificate(
+MsH3pCertificate::MsH3pCertificate(
         const MsQuicRegistration& Registration,
         QUIC_CREDENTIAL_CONFIG* SelfSign
     ) : MsQuicConfiguration(
@@ -1042,16 +1042,16 @@ MsH3Certificate::MsH3Certificate(
 {
 }
 
-MsH3Certificate::~MsH3Certificate()
+MsH3pCertificate::~MsH3pCertificate()
 {
     if (SelfSign) CxPlatFreeSelfSignedCert(SelfSign);
 }
 
 //
-// MsH3Listener
+// MsH3pListener
 //
 
-MsH3Listener::MsH3Listener(
+MsH3pListener::MsH3pListener(
     const MsQuicRegistration& Registration,
     const MSH3_ADDR* Address,
     const MSH3_LISTENER_IF* Interface,
@@ -1064,13 +1064,13 @@ MsH3Listener::MsH3Listener(
 }
 
 QUIC_STATUS
-MsH3Listener::MsQuicCallback(
+MsH3pListener::MsQuicCallback(
     _Inout_ QUIC_LISTENER_EVENT* Event
     )
 {
     switch (Event->Type) {
     case QUIC_LISTENER_EVENT_NEW_CONNECTION: {
-        auto Connection = new(std::nothrow) MsH3Connection(Event->NEW_CONNECTION.Connection);
+        auto Connection = new(std::nothrow) MsH3pConnection(Event->NEW_CONNECTION.Connection);
         if (!Connection) return QUIC_STATUS_OUT_OF_MEMORY;
         Callbacks.NewConnection((MSH3_LISTENER*)this, Context, (MSH3_CONNECTION*)Connection, Event->NEW_CONNECTION.Info->ServerName, Event->NEW_CONNECTION.Info->ServerNameLength);
         break;
