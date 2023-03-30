@@ -24,6 +24,7 @@
 #include <arpa/inet.h>
 #define MSH3_CALL
 #define MSH3_STATUS unsigned int
+#ifndef DEFINE_ENUM_FLAG_OPERATORS
 #ifdef __cplusplus
 extern "C++" {
 template <size_t S> struct _ENUM_FLAG_INTEGER_FOR_SIZE;
@@ -49,6 +50,7 @@ inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) throw() { return (ENUMTYP
 #else
 #define DEFINE_ENUM_FLAG_OPERATORS(ENUMTYPE) // NOP, C allows these operators.
 #endif
+#endif // DEFINE_ENUM_FLAG_OPERATORS
 #endif
 
 #if defined(__cplusplus)

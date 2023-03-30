@@ -379,6 +379,9 @@ MsH3pConnection::MsH3pConnection(
     MsQuicSettings Settings;
     Settings.SetSendBufferingEnabled(false);
     Settings.SetPeerUnidiStreamCount(3);
+    if (Flags & MSH3_CONNECTION_FLAG_DATAGRAM) {
+        Settings.SetDatagramReceiveEnabled(true);
+    }
     auto QuicFlags =
         Flags & MSH3_CONNECTION_FLAG_UNSECURE ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
