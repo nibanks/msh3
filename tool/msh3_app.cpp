@@ -8,6 +8,7 @@
 #include "msh3.hpp"
 #include <vector>
 #include <cstring>
+#include <atomic>
 
 using namespace std;
 
@@ -18,6 +19,8 @@ struct Arguments {
     bool Unsecure { false };
     bool Print { false };
     uint32_t Count { 1 };
+    std::atomic_int CompletionCount { 0 };
+    MsH3Connection* Connection { nullptr };
 } Args;
 
 void MSH3_CALL HeaderReceived(struct MsH3Request* , const MSH3_HEADER* Header) {
@@ -39,6 +42,9 @@ void MSH3_CALL Complete(struct MsH3Request* Request, bool Aborted, uint64_t Abor
     if (Args.Print) printf("\n");
     if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
     else         printf("Request %u complete\n", Index);
+    if (++Args.CompletionCount == (int)Args.Count) {
+        Args.Connection->Shutdown();
+    }
 }
 
 void ParseArgs(int argc, char **argv) {
@@ -114,6 +120,7 @@ int MSH3_CALL main(int argc, char **argv) {
     if (Api.IsValid()) {
         MsH3Connection Connection(Api, Args.Host, Args.Address, Args.Unsecure);
         if (Connection.IsValid()) {
+            Args.Connection = &Connection;
             for (auto Path : Args.Paths) {
                 printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
                 Headers[1].Value = Path;
