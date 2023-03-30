@@ -64,16 +64,20 @@ struct MsH3Api {
 
 struct MsH3Addr {
     MSH3_ADDR Addr {0};
-#if MSH3_TEST_MODE
-    MsH3Addr(uint16_t Port = 4433) {
-#else
-    MsH3Addr(uint16_t Port = 0) {
-#endif
+    MsH3Addr(uint16_t Port TEST_DEF(4433)) {
         SetPort(Port);
     }
     operator const MSH3_ADDR* () const noexcept { return &Addr; }
     void SetPort(uint16_t Port) noexcept { MSH3_SET_PORT(&Addr, Port); }
 };
+
+#ifndef MSH3_DEFAULT_CONNECTION_FLAGS
+#if MSH3_TEST_MODE
+#define MSH3_DEFAULT_CONNECTION_FLAGS MSH3_CONNECTION_FLAG_UNSECURE
+#else
+#define MSH3_DEFAULT_CONNECTION_FLAGS MSH3_CONNECTION_FLAG_NONE
+#endif
+#endif // MSH3_DEFAULT_CONNECTION_FLAGS
 
 struct MsH3Connection {
     MSH3_CONNECTION* Handle { nullptr };
@@ -83,14 +87,10 @@ struct MsH3Connection {
     MsH3Connection(
         MsH3Api& Api,
         const char* ServerName TEST_DEF("localhost"),
-        const MsH3Addr& ServerAddress = MsH3Addr(),
-#if MSH3_TEST_MODE
-        bool Unsecure = true
-#else
-        bool Unsecure = false
-#endif
+        const MsH3Addr& ServerAddress TEST_DEF(MsH3Addr()),
+        MSH3_CONNECTION_FLAGS Flags = MSH3_DEFAULT_CONNECTION_FLAGS
         ) noexcept : CleanUp(CleanUpManual) {
-        Handle = MsH3ConnectionOpen(Api, &Interface, this, ServerName, ServerAddress, Unsecure);
+        Handle = MsH3ConnectionOpen(Api, &Interface, this, ServerName, ServerAddress, Flags);
     }
 #ifdef MSH3_SERVER_SUPPORT
     MsH3Connection(MSH3_CONNECTION* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
@@ -284,8 +284,8 @@ struct MsH3Listener {
     MSH3_LISTENER* Handle { nullptr };
     const MSH3_LISTENER_IF Interface { s_OnNewConnection };
     MsH3Waitable<MsH3Connection*> NewConnection;
-    MsH3Listener(MsH3Api& Api, const MsH3Addr& Address TEST_DEF(MsH3Addr())) noexcept {
-        Handle = MsH3ListenerOpen(Api, Address, &Interface, this);
+    MsH3Listener(MsH3Api& Api, const MsH3Addr& Address TEST_DEF(MsH3Addr()), MSH3_CONNECTION_FLAGS ConnectionFlags = MSH3_CONNECTION_FLAG_NONE) noexcept {
+        Handle = MsH3ListenerOpen(Api, Address, &Interface, this, ConnectionFlags);
     }
     ~MsH3Listener() noexcept { if (Handle) { MsH3ListenerClose(Handle); } }
     MsH3Listener(MsH3Listener& other) = delete;

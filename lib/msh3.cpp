@@ -77,11 +77,11 @@ MsH3ConnectionOpen(
     void* IfContext,
     const char* ServerName,
     const MSH3_ADDR* ServerAddress,
-    bool Unsecure
+    MSH3_CONNECTION_FLAGS Flags
     )
 {
     auto Reg = (MsQuicRegistration*)Handle;
-    auto H3 = new(std::nothrow) MsH3pConnection(*Reg, Interface, IfContext, ServerName, ServerAddress, Unsecure);
+    auto H3 = new(std::nothrow) MsH3pConnection(*Reg, Interface, IfContext, ServerName, ServerAddress, Flags);
     if (!H3 || QUIC_FAILED(H3->GetInitStatus())) {
         delete H3;
         return nullptr;
@@ -312,12 +312,13 @@ MsH3ListenerOpen(
     MSH3_API* Handle,
     const MSH3_ADDR* Address,
     const MSH3_LISTENER_IF* Interface,
-    void* IfContext
+    void* IfContext,
+    MSH3_CONNECTION_FLAGS ConnectionFlags
     )
 {
 #ifdef MSH3_SERVER_SUPPORT
     auto Reg = (MsQuicRegistration*)Handle;
-    auto Listener = new(std::nothrow) MsH3pListener(*Reg,Address, Interface, IfContext);
+    auto Listener = new(std::nothrow) MsH3pListener(*Reg,Address, Interface, IfContext, ConnectionFlags);
     if (!Listener || QUIC_FAILED(Listener->GetInitStatus())) {
         delete Listener;
         return nullptr;
@@ -356,7 +357,7 @@ MsH3pConnection::MsH3pConnection(
         void* IfContext,
         const char* ServerName,
         const MSH3_ADDR* ServerAddress,
-        bool Unsecure
+        MSH3_CONNECTION_FLAGS Flags
     ) : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this),
         Callbacks(*Interface), Context(IfContext)
 {
@@ -368,21 +369,21 @@ MsH3pConnection::MsH3pConnection(
     }
     memcpy(HostName, ServerName, ServerNameLen+1);
     lsqpack_enc_preinit(&Encoder, nullptr);
-    LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeControl);
+    LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeControl, Flags);
     if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
-    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
+    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder, Flags);
     if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
-    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder);
+    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder, Flags);
     if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
 
     MsQuicSettings Settings;
     Settings.SetSendBufferingEnabled(false);
     Settings.SetPeerUnidiStreamCount(3);
-    auto Flags =
-        Unsecure ?
+    auto QuicFlags =
+        Flags & MSH3_CONNECTION_FLAG_UNSECURE ?
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION :
             QUIC_CREDENTIAL_FLAG_CLIENT;
-    MsQuicConfiguration Config(Registration, "h3", Settings, Flags);
+    MsQuicConfiguration Config(Registration, "h3", Settings, QuicFlags);
     if (QUIC_FAILED(InitStatus = Config.GetInitStatus())) return;
     auto QuicAddress = (const QUIC_ADDR*)ServerAddress;
     if (!QuicAddrIsWildCard(QuicAddress) && QUIC_FAILED(InitStatus = SetRemoteAddr(*(QuicAddr*)ServerAddress))) return;
@@ -391,15 +392,16 @@ MsH3pConnection::MsH3pConnection(
 
 #ifdef MSH3_SERVER_SUPPORT
 MsH3pConnection::MsH3pConnection(
-    HQUIC ServerHandle
+    HQUIC ServerHandle,
+    MSH3_CONNECTION_FLAGS Flags
     ) : MsQuicConnection(ServerHandle, CleanUpManual, s_MsQuicCallback, this)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
-    LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeControl);
+    LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeControl, Flags);
     if (QUIC_FAILED(InitStatus = LocalControl->GetInitStatus())) return;
-    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
+    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder, Flags);
     if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
-    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder);
+    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder, Flags);
     if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
 }
 #endif // MSH3_SERVER_SUPPORT
@@ -495,6 +497,11 @@ MsH3pConnection::ReceiveSettingsFrame(
         case H3SettingQPackBlockedStreamsSize:
             PeerQPackBlockedStreams = SettingValue;
             break;
+        case H3SettingDatagrams:
+            if (SettingValue) {
+                // TODO
+            }
+            break;
         default:
             break;
         }
@@ -515,14 +522,17 @@ MsH3pConnection::ReceiveSettingsFrame(
 // MsH3pUniDirStream
 //
 
-MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags)
-    : MsQuicStream(Connection, Flags, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
+MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, MSH3_CONNECTION_FLAGS ConnectionFlags, QUIC_STREAM_OPEN_FLAGS StreamFlags)
+    : MsQuicStream(Connection, StreamFlags, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
 {
     if (!IsValid()) return;
     Buffer.Buffer[0] = (uint8_t)Type;
     Buffer.Length = 1;
+    const uint32_t SettingsLength =
+        (ConnectionFlags & MSH3_CONNECTION_FLAG_DATAGRAM) ?
+        ARRAYSIZE(SettingsH3) : ARRAYSIZE(SettingsH3) - 1;
     if (Type == H3StreamTypeControl &&
-        !H3WriteSettingsFrame(SettingsH3, ARRAYSIZE(SettingsH3), &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
+        !H3WriteSettingsFrame(SettingsH3, SettingsLength, &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
         InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
         return;
     }
@@ -1055,8 +1065,9 @@ MsH3pListener::MsH3pListener(
     const MsQuicRegistration& Registration,
     const MSH3_ADDR* Address,
     const MSH3_LISTENER_IF* Interface,
-    void* IfContext
-    ) : MsQuicListener(Registration, s_MsQuicCallback, this), Callbacks(*Interface), Context(IfContext)
+    void* IfContext,
+    MSH3_CONNECTION_FLAGS ConnectionFlags
+    ) : MsQuicListener(Registration, s_MsQuicCallback, this), Callbacks(*Interface), Context(IfContext), ConnectionFlags(ConnectionFlags)
 {
     if (QUIC_SUCCEEDED(InitStatus)) {
         InitStatus = Start("h3", (QUIC_ADDR*)Address);
@@ -1070,7 +1081,7 @@ MsH3pListener::MsQuicCallback(
 {
     switch (Event->Type) {
     case QUIC_LISTENER_EVENT_NEW_CONNECTION: {
-        auto Connection = new(std::nothrow) MsH3pConnection(Event->NEW_CONNECTION.Connection);
+        auto Connection = new(std::nothrow) MsH3pConnection(Event->NEW_CONNECTION.Connection, ConnectionFlags);
         if (!Connection) return QUIC_STATUS_OUT_OF_MEMORY;
         Callbacks.NewConnection((MSH3_LISTENER*)this, Context, (MSH3_CONNECTION*)Connection, Event->NEW_CONNECTION.Info->ServerName, Event->NEW_CONNECTION.Info->ServerNameLength);
         break;

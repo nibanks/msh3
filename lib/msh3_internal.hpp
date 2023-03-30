@@ -70,6 +70,8 @@ enum H3SettingsType {
     H3SettingMaxHeaderListSize = 6,
     H3SettingQPackBlockedStreamsSize = 7,
     H3SettingNumPlaceholders = 9,
+    // https://datatracker.ietf.org/doc/html/rfc9297#section-2.1.1
+    H3SettingDatagrams = 0x33,
 };
 
 // Contiguous buffer for (non-null-terminated) header name and value strings.
@@ -126,6 +128,7 @@ enum H3FrameType {
 const H3Settings SettingsH3[] = {
     //{ H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
     { H3SettingQPackBlockedStreamsSize, H3_DEFAULT_QPACK_BLOCKED_STREAMS },
+    { H3SettingDatagrams, 1 }, // N.B. - The MsH3pUniDirStream constructor assumes this is always last.
 };
 
 // Copied from QuicVanIntDecode and changed to uint32_t offset/length
@@ -309,12 +312,13 @@ struct MsH3pConnection : public MsQuicConnection {
         void* IfContext,
         const char* ServerName,
         const MSH3_ADDR* ServerAddress,
-        bool Unsecure
+        MSH3_CONNECTION_FLAGS Flags
         );
 
 #ifdef MSH3_SERVER_SUPPORT
     MsH3pConnection(
-        HQUIC ServerHandle
+        HQUIC ServerHandle,
+        MSH3_CONNECTION_FLAGS Flags
         );
 #endif
 
@@ -389,7 +393,7 @@ struct MsH3pUniDirStream : public MsQuicStream {
     uint8_t RawBuffer[256];
     QUIC_BUFFER Buffer {0, RawBuffer}; // Working space
 
-    MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
+    MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, MSH3_CONNECTION_FLAGS ConnectionFlags, QUIC_STREAM_OPEN_FLAGS StreamFlags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
     MsH3pUniDirStream(MsH3pConnection& Connection, const HQUIC StreamHandle);
 
     bool
@@ -636,12 +640,14 @@ struct MsH3pListener : public MsQuicListener {
 
     MSH3_LISTENER_IF Callbacks;
     void* Context;
+    MSH3_CONNECTION_FLAGS ConnectionFlags;
 
     MsH3pListener(
         const MsQuicRegistration& Registration,
         const MSH3_ADDR* Address,
         const MSH3_LISTENER_IF* Interface,
-        void* IfContext
+        void* IfContext,
+        MSH3_CONNECTION_FLAGS ConnectionFlags
         );
 
 private:

@@ -24,6 +24,31 @@
 #include <arpa/inet.h>
 #define MSH3_CALL
 #define MSH3_STATUS unsigned int
+#ifdef __cplusplus
+extern "C++" {
+template <size_t S> struct _ENUM_FLAG_INTEGER_FOR_SIZE;
+template <> struct _ENUM_FLAG_INTEGER_FOR_SIZE<1> { typedef uint8_t type; };
+template <> struct _ENUM_FLAG_INTEGER_FOR_SIZE<2> { typedef uint16_t type; };
+template <> struct _ENUM_FLAG_INTEGER_FOR_SIZE<4> { typedef uint32_t type; };
+template <> struct _ENUM_FLAG_INTEGER_FOR_SIZE<8> { typedef uint64_t type; };
+// used as an approximation of std::underlying_type<T>
+template <class T> struct _ENUM_FLAG_SIZED_INTEGER {
+    typedef typename _ENUM_FLAG_INTEGER_FOR_SIZE<sizeof(T)>::type type;
+};
+}
+#define DEFINE_ENUM_FLAG_OPERATORS(ENUMTYPE) \
+extern "C++" { \
+inline ENUMTYPE operator | (ENUMTYPE a, ENUMTYPE b) throw() { return ENUMTYPE(((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)a) | ((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)b)); } \
+inline ENUMTYPE &operator |= (ENUMTYPE &a, ENUMTYPE b) throw() { return (ENUMTYPE &)(((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type &)a) |= ((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)b)); } \
+inline ENUMTYPE operator & (ENUMTYPE a, ENUMTYPE b) throw() { return ENUMTYPE(((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)a) & ((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)b)); } \
+inline ENUMTYPE &operator &= (ENUMTYPE &a, ENUMTYPE b) throw() { return (ENUMTYPE &)(((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type &)a) &= ((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)b)); } \
+inline ENUMTYPE operator ~ (ENUMTYPE a) throw() { return ENUMTYPE(~((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)a)); } \
+inline ENUMTYPE operator ^ (ENUMTYPE a, ENUMTYPE b) throw() { return ENUMTYPE(((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)a) ^ ((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)b)); } \
+inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) throw() { return (ENUMTYPE &)(((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type &)a) ^= ((_ENUM_FLAG_SIZED_INTEGER<ENUMTYPE>::type)b)); } \
+}
+#else
+#define DEFINE_ENUM_FLAG_OPERATORS(ENUMTYPE) // NOP, C allows these operators.
+#endif
 #endif
 
 #if defined(__cplusplus)
@@ -39,12 +64,22 @@ typedef struct MSH3_CERTIFICATE MSH3_CERTIFICATE;
 typedef struct MSH3_LISTENER_IF MSH3_LISTENER_IF;
 typedef struct MSH3_LISTENER MSH3_LISTENER;
 
+typedef enum MSH3_CONNECTION_FLAGS {
+    MSH3_CONNECTION_FLAG_NONE           = 0x0000,
+    MSH3_CONNECTION_FLAG_UNSECURE       = 0x0001,   // Disables server certificate validation.
+    MSH3_CONNECTION_FLAG_DATAGRAM       = 0x0002,   // Indicates support for the HTTP/3 datagrams extension.
+} MSH3_CONNECTION_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_CONNECTION_FLAGS)
+
 typedef enum MSH3_REQUEST_FLAGS {
     MSH3_REQUEST_FLAG_NONE              = 0x0000,
     MSH3_REQUEST_FLAG_ALLOW_0_RTT       = 0x0001,   // Allows the use of encrypting with 0-RTT key.
-    MSH3_REQUEST_FLAG_FIN               = 0x0004,   // Indicates the request should be gracefully shutdown too.
-    MSH3_REQUEST_FLAG_DELAY_SEND        = 0x0008,   // Indicates the send should be delayed because more will be queued soon.
+    MSH3_REQUEST_FLAG_FIN               = 0x0002,   // Indicates the request should be gracefully shutdown too.
+    MSH3_REQUEST_FLAG_DELAY_SEND        = 0x0004,   // Indicates the send should be delayed because more will be queued soon.
 } MSH3_REQUEST_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_FLAGS)
 
 typedef enum MSH3_REQUEST_SHUTDOWN_FLAGS {
     MSH3_REQUEST_SHUTDOWN_FLAG_NONE          = 0x0000,
@@ -53,6 +88,8 @@ typedef enum MSH3_REQUEST_SHUTDOWN_FLAGS {
     MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_RECEIVE = 0x0004,   // Abruptly closes the receive path.
     MSH3_REQUEST_SHUTDOWN_FLAG_ABORT         = 0x0006,   // Abruptly closes both send and receive paths.
 } MSH3_REQUEST_SHUTDOWN_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_SHUTDOWN_FLAGS)
 
 #ifdef MSH3_SERVER_SUPPORT
 typedef enum MSH3_CERTIFICATE_TYPE {
@@ -170,7 +207,7 @@ MsH3ConnectionOpen(
     void* IfContext,
     const char* ServerName,
     const MSH3_ADDR* ServerAddress,
-    bool Unsecure
+    MSH3_CONNECTION_FLAGS Flags
     );
 
 void
@@ -301,7 +338,8 @@ MsH3ListenerOpen(
     MSH3_API* Handle,
     const MSH3_ADDR* Address,
     const MSH3_LISTENER_IF* Interface,
-    void* IfContext
+    void* IfContext,
+    MSH3_CONNECTION_FLAGS ConnectionFlags
     );
 
 void

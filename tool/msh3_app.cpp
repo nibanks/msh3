@@ -13,9 +13,9 @@ using namespace std;
 
 struct Arguments {
     const char* Host { nullptr };
-    MsH3Addr Address {443};
+    MsH3Addr Address { 443 };
     vector<const char*> Paths;
-    bool Unsecure { false };
+    MSH3_CONNECTION_FLAGS Flags { MSH3_CONNECTION_FLAG_NONE };
     bool Print { false };
     uint32_t Count { 1 };
 } Args;
@@ -81,7 +81,7 @@ void ParseArgs(int argc, char **argv) {
             } while (true);
 
         } else if (!strcmp(argv[i], "--unsecure") || !strcmp(argv[i], "-u")) {
-            Args.Unsecure = true;
+            Args.Flags |= MSH3_CONNECTION_FLAG_UNSECURE;
 
         } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
             Args.Print = true;
@@ -112,7 +112,7 @@ int MSH3_CALL main(int argc, char **argv) {
 
     MsH3Api Api;
     if (Api.IsValid()) {
-        MsH3Connection Connection(Api, Args.Host, Args.Address, Args.Unsecure);
+        MsH3Connection Connection(Api, Args.Host, Args.Address, Args.Flags);
         if (Connection.IsValid()) {
             for (auto Path : Args.Paths) {
                 printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
