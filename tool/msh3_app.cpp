@@ -15,7 +15,7 @@ struct Arguments {
     const char* Host { nullptr };
     MsH3Addr Address { 443 };
     vector<const char*> Paths;
-    MSH3_CONNECTION_FLAGS Flags { MSH3_CONNECTION_FLAG_NONE };
+    MSH3_CREDENTIAL_FLAGS Flags { MSH3_CREDENTIAL_FLAG_CLIENT };
     bool Print { false };
     uint32_t Count { 1 };
 } Args;
@@ -81,7 +81,7 @@ void ParseArgs(int argc, char **argv) {
             } while (true);
 
         } else if (!strcmp(argv[i], "--unsecure") || !strcmp(argv[i], "-u")) {
-            Args.Flags |= MSH3_CONNECTION_FLAG_UNSECURE;
+            Args.Flags |= MSH3_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
 
         } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
             Args.Print = true;
@@ -112,22 +112,23 @@ int MSH3_CALL main(int argc, char **argv) {
 
     MsH3Api Api;
     if (Api.IsValid()) {
-        MsH3Connection Connection(Api, Args.Host, Args.Address, Args.Flags);
-        if (Connection.IsValid()) {
-            for (auto Path : Args.Paths) {
-                printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
-                Headers[1].Value = Path;
-                Headers[1].ValueLength = strlen(Path);
-                for (uint32_t i = 0; i < Args.Count; ++i) {
-                    auto Request = new (std::nothrow) MsH3Request(Connection, Headers, HeadersCount, MSH3_REQUEST_FLAG_FIN, (void*)(size_t)(i+1), HeaderReceived, DataReceived, Complete, CleanUpAutoDelete);
-                    if (!Request || !Request->IsValid()) {
-                        printf("Request %u failed to start\n", i+1);
-                        break;
-                    }
+        MsH3Configuration Configuration(Api); if (!Configuration.IsValid()) exit(-1);
+        if (MSH3_FAILED(Configuration.LoadConfiguration({MSH3_CREDENTIAL_TYPE_NONE, Args.Flags, 0}))) exit(-1);
+        MsH3Connection Connection(Api); if (!Connection.IsValid()) exit(-1);
+        if (MSH3_FAILED(Connection.Start(Configuration, Args.Host, Args.Address))) exit(-1);
+        for (auto Path : Args.Paths) {
+            printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
+            Headers[1].Value = Path;
+            Headers[1].ValueLength = strlen(Path);
+            for (uint32_t i = 0; i < Args.Count; ++i) {
+                auto Request = new (std::nothrow) MsH3Request(Connection, Headers, HeadersCount, MSH3_REQUEST_FLAG_FIN, (void*)(size_t)(i+1), HeaderReceived, DataReceived, Complete, CleanUpAutoDelete);
+                if (!Request || !Request->IsValid()) {
+                    printf("Request %u failed to start\n", i+1);
+                    break;
                 }
             }
-            Connection.ShutdownComplete.Wait();
         }
+        Connection.ShutdownComplete.Wait();
     }
 
     return 0;

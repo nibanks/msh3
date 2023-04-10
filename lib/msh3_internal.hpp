@@ -342,6 +342,11 @@ struct MsH3pConnection : public MsQuicConnection {
     }
 
     MSH3_STATUS
+    SetConfigurationH3(
+        const MsH3pConfiguration& Configuration
+        );
+
+    MSH3_STATUS
     StartH3(
         const MsH3pConfiguration& Configuration,
         const char* ServerName,
@@ -407,7 +412,8 @@ struct MsH3pUniDirStream : public MsQuicStream {
     uint8_t RawBuffer[256];
     QUIC_BUFFER Buffer {0, RawBuffer}; // Working space
 
-    MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, const MsH3pConfiguration& Configuration, QUIC_STREAM_OPEN_FLAGS StreamFlags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
+    MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type);
+    MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pConfiguration& Configuration); // Type == H3StreamTypeContro
     MsH3pUniDirStream(MsH3pConnection& Connection, const HQUIC StreamHandle);
 
     bool

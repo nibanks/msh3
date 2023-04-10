@@ -111,6 +111,9 @@ struct MsH3Connection {
     MsH3Connection operator=(MsH3Connection& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CONNECTION* () const noexcept { return Handle; }
+    MSH3_STATUS SetConfiguration(const MsH3Configuration& Configuration) noexcept {
+        return MsH3ConnectionSetConfiguration(Handle, Configuration);
+    }
     MSH3_STATUS Start(
         const MsH3Configuration& Configuration,
         const char* ServerName TEST_DEF("localhost"),
@@ -120,9 +123,6 @@ struct MsH3Connection {
     }
     void Shutdown(uint64_t ErrorCode = 0) noexcept {
         MsH3ConnectionShutdown(Handle, ErrorCode);
-    }
-    void SetConfiguration(const MsH3Configuration& Configuration) noexcept {
-        MsH3ConnectionSetConfiguration(Handle, Configuration);
     }
 private:
     const MsH3CleanUpMode CleanUp;

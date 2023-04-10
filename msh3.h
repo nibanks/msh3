@@ -18,12 +18,14 @@
 #include <ws2ipdef.h>
 #define MSH3_CALL __cdecl
 #define MSH3_STATUS HRESULT
+#define MSH3_FAILED(X) FAILED(X)
 #else
 #include <netinet/ip.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #define MSH3_CALL
 #define MSH3_STATUS unsigned int
+#define MSH3_FAILED(X) ((int)(X) > 0)
 #ifndef DEFINE_ENUM_FLAG_OPERATORS
 #ifdef __cplusplus
 extern "C++" {
@@ -269,7 +271,7 @@ MsH3ConnectionSetCallbackInterface(
     void* IfContext
     );
 
-void
+MSH3_STATUS
 MSH3_CALL
 MsH3ConnectionSetConfiguration(
     MSH3_CONNECTION* Connection,
@@ -340,16 +342,16 @@ MsH3RequestSendHeaders(
 
 void
 MSH3_CALL
-MsH3RequestCompleteReceive(
+MsH3RequestSetReceiveEnabled(
     MSH3_REQUEST* Request,
-    uint32_t Length
+    bool Enabled
     );
 
 void
 MSH3_CALL
-MsH3RequestSetReceiveEnabled(
+MsH3RequestCompleteReceive(
     MSH3_REQUEST* Request,
-    bool Enabled
+    uint32_t Length
     );
 
 bool

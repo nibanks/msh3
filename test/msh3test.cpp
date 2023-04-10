@@ -16,8 +16,8 @@ struct TestFunc {
 };
 #define DEF_TEST(X) bool Test##X()
 #define ADD_TEST(X) { Test##X, #X }
-#define VERIFY(X) if (!(X)) { printf(#X " Failed!\n"); return false; }
-#define VERIFY_SUCCCESS(X) VERIFY((X) == 0) // TODO - Fix
+#define VERIFY(X) if (!(X)) { printf(#X " Failed on %s:%d!\n", __FILE__, __LINE__); return false; }
+#define VERIFY_SUCCESS(X) VERIFY(!MSH3_FAILED(X))
 
 const MSH3_HEADER RequestHeaders[] = {
     { ":method", 7, "GET", 3 },
@@ -36,71 +36,85 @@ const size_t ResponseHeadersCount = sizeof(ResponseHeaders)/sizeof(MSH3_HEADER);
 
 const char ResponseData[] = "HELLO WORLD!\n";
 
-struct AutoAcceptListener : public MsH3Listener {
+struct TestServer : public MsH3Listener {
     MsH3Configuration Config;
-    AutoAcceptListener(MsH3Api& Api) : MsH3Listener(Api), Config(Api) { }
+    TestServer(MsH3Api& Api) : MsH3Listener(Api), Config(Api) {
+        if (Handle && MSH3_FAILED(Config.LoadConfiguration())) {
+            MsH3ListenerClose(Handle); Handle = nullptr;
+        }
+    }
     bool WaitForConnection() {
         VERIFY(NewConnection.WaitFor());
         auto ServerConnection = NewConnection.Get();
-        ServerConnection->SetConfiguration(Config);
+        VERIFY_SUCCESS(ServerConnection->SetConfiguration(Config));
         VERIFY(ServerConnection->Connected.WaitFor());
         return true;
     }
 };
 
+const MSH3_CREDENTIAL_CONFIG ClientCredConfig = {
+    MSH3_CREDENTIAL_TYPE_NONE,
+    MSH3_CREDENTIAL_FLAG_CLIENT | MSH3_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION,
+    nullptr
+};
+
+struct TestClient : public MsH3Connection {
+    MsH3Configuration Config;
+    TestClient(MsH3Api& Api) : MsH3Connection(Api), Config(Api) {
+        if (Handle && MSH3_FAILED(Config.LoadConfiguration(ClientCredConfig))) {
+            MsH3ConnectionClose(Handle); Handle = nullptr;
+        }
+    }
+    MSH3_STATUS Start() noexcept { return MsH3Connection::Start(Config); }
+};
+
 DEF_TEST(Handshake) {
     MsH3Api Api; VERIFY(Api.IsValid());
-    AutoAcceptListener Listener(Api); VERIFY(Listener.IsValid());
-    MsH3Connection Connection(Api); VERIFY(Connection.IsValid());
-    MsH3Configuration ClientConfig(Api); VERIFY(ClientConfig.IsValid());
-    VERIFY_SUCCCESS(ClientConfig.LoadConfiguration({ MSH3_CREDENTIAL_TYPE_NONE, MSH3_CREDENTIAL_FLAG_CLIENT }));
-    VERIFY_SUCCCESS(Connection.Start(ClientConfig));
-    VERIFY(Listener.WaitForConnection());
-    VERIFY(Connection.Connected.WaitFor());
-    Connection.Shutdown();
-    VERIFY(Connection.ShutdownComplete.WaitFor());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    Client.Shutdown();
+    VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
 }
 
 DEF_TEST(HandshakeFail) {
     MsH3Api Api; VERIFY(Api.IsValid());
-    MsH3Connection Connection(Api); VERIFY(Connection.IsValid());
-    VERIFY(!Connection.Connected.WaitFor(1500));
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(!Client.Connected.WaitFor(1500));
     return true;
 }
 
 DEF_TEST(HandshakeSetCertTimeout) {
     MsH3Api Api; VERIFY(Api.IsValid());
-    AutoAcceptListener Listener(Api); VERIFY(Listener.IsValid());
-    MsH3Connection Connection(Api); VERIFY(Connection.IsValid());
-    MsH3Configuration ClientConfig(Api); VERIFY(ClientConfig.IsValid());
-    VERIFY_SUCCCESS(ClientConfig.LoadConfiguration({ MSH3_CREDENTIAL_TYPE_NONE, MSH3_CREDENTIAL_FLAG_CLIENT }));
-    VERIFY(Listener.NewConnection.WaitFor());
-    auto ServerConnection = Listener.NewConnection.Get();
-    //ServerConnection->SetCertificate(Cert);
-    VERIFY(!ServerConnection->Connected.WaitFor(1500));
-    VERIFY(!Connection.Connected.WaitFor());
-    Connection.Shutdown();
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.NewConnection.WaitFor());
+    VERIFY(!Server.NewConnection.Get()->Connected.WaitFor(1500));
+    VERIFY(!Client.Connected.WaitFor());
+    Client.Shutdown();
     return true;
 }
 
 DEF_TEST(SimpleRequest) {
     MsH3Api Api; VERIFY(Api.IsValid());
-    MsH3Certificate Cert(Api); VERIFY(Cert.IsValid());
-    MsH3Listener Listener(Api); VERIFY(Listener.IsValid());
-    MsH3Connection Connection(Api); VERIFY(Connection.IsValid());
-    MsH3Request Request(Connection, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN); VERIFY(Request.IsValid());
-    VERIFY(Listener.NewConnection.WaitFor());
-    auto ServerConnection = Listener.NewConnection.Get();
-    ServerConnection->SetCertificate(Cert);
-    VERIFY(ServerConnection->Connected.WaitFor());
-    VERIFY(Connection.Connected.WaitFor());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    MsH3Request Request(Client, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN); VERIFY(Request.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    auto ServerConnection = Server.NewConnection.Get();
     VERIFY(ServerConnection->NewRequest.WaitFor());
     auto ServerRequest = ServerConnection->NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
     VERIFY(Request.Complete.WaitFor());
     VERIFY(ServerRequest->Complete.WaitFor());
-    Connection.Shutdown();
+    Client.Shutdown();
     return true;
 }
 
@@ -122,19 +136,16 @@ bool ReceiveData(bool Async, bool Inline = true) {
         }
     };
     MsH3Api Api; VERIFY(Api.IsValid());
-    MsH3Certificate Cert(Api); VERIFY(Cert.IsValid());
-    MsH3Listener Listener(Api); VERIFY(Listener.IsValid());
-    MsH3Connection Connection(Api); VERIFY(Connection.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
     Context Context(Async, Inline);
-    MsH3Request Request(Connection, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN, &Context, nullptr, Context::RecvData);
+    MsH3Request Request(Client, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN, &Context, nullptr, Context::RecvData);
     VERIFY(Request.IsValid());
-    VERIFY(Listener.NewConnection.WaitFor());
-    auto ServerConnection = Listener.NewConnection.Get();
-    ServerConnection->SetCertificate(Cert);
-    VERIFY(ServerConnection->Connected.WaitFor());
-    VERIFY(Connection.Connected.WaitFor());
-    VERIFY(ServerConnection->NewRequest.WaitFor());
-    auto ServerRequest = ServerConnection->NewRequest.Get();
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    VERIFY(Server.NewConnection.Get()->NewRequest.WaitFor());
+    auto ServerRequest = Server.NewConnection.Get()->NewRequest.Get();
     VERIFY(ServerRequest->Send(MSH3_REQUEST_FLAG_FIN, ResponseData, sizeof(ResponseData)));
     VERIFY(Context.Data.WaitFor());
     VERIFY(Context.Data.Get() == sizeof(ResponseData));
@@ -143,7 +154,7 @@ bool ReceiveData(bool Async, bool Inline = true) {
     }
     VERIFY(Request.Complete.WaitFor());
     VERIFY(ServerRequest->Complete.WaitFor());
-    Connection.Shutdown();
+    Client.Shutdown();
     return true;
 }
 

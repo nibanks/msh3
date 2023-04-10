@@ -61,7 +61,9 @@ MsH3ApiClose(
     MSH3_API* Handle
     )
 {
-    delete (MsQuicRegistration*)Handle;
+    auto Reg = (MsQuicRegistration*)Handle;
+    Reg->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0);
+    delete Reg;
     if (MsH3pRefCount.fetch_sub(1) == 1) {
         delete MsQuic;
         MsQuic = nullptr;
@@ -139,14 +141,14 @@ MsH3ConnectionSetCallbackInterface(
 }
 
 extern "C"
-void
+MSH3_STATUS
 MSH3_CALL
 MsH3ConnectionSetConfiguration(
     MSH3_CONNECTION* Handle,
     MSH3_CONFIGURATION* Configuration
     )
 {
-    ((MsH3pConnection*)Handle)->SetConfiguration(*(MsH3pConfiguration*)Configuration);
+    return ((MsH3pConnection*)Handle)->SetConfigurationH3(*(MsH3pConfiguration*)Configuration);
 }
 
 extern "C"
@@ -183,7 +185,7 @@ MsH3ConnectionClose(
     auto H3 = (MsH3pConnection*)Handle;
     H3->WaitOnShutdownComplete();
     delete H3;
-}   
+}
 
 extern "C"
 MSH3_REQUEST*
@@ -424,13 +426,26 @@ MsH3pConnection::MsH3pConnection(
     ) : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this),
         Callbacks(*Interface), Context(IfContext)
 {
+    lsqpack_enc_preinit(&Encoder, nullptr);
+    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
     if (!IsValid()) return;
+    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
+    if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
+    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder);
+    if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
 }
 
 MsH3pConnection::MsH3pConnection(
     HQUIC ServerHandle
     ) : MsQuicConnection(ServerHandle, CleanUpManual, s_MsQuicCallback, this)
 {
+    lsqpack_enc_preinit(&Encoder, nullptr);
+    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
+    if (!IsValid()) return;
+    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
+    if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
+    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder);
+    if (QUIC_FAILED(InitStatus = LocalDecoder->GetInitStatus())) return;
 }
 
 MsH3pConnection::~MsH3pConnection()
@@ -446,14 +461,19 @@ MsH3pConnection::InitializeConfig(
     const MsH3pConfiguration& Configuration
     )
 {
-    lsqpack_enc_preinit(&Encoder, nullptr);
-    LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeControl, Configuration);
+    LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, Configuration);
     if (QUIC_FAILED(LocalControl->GetInitStatus())) return LocalControl->GetInitStatus();
-    LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder, Configuration);
-    if (QUIC_FAILED(LocalEncoder->GetInitStatus())) return LocalEncoder->GetInitStatus();
-    LocalDecoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeDecoder, Configuration);
-    if (QUIC_FAILED(LocalDecoder->GetInitStatus())) return LocalDecoder->GetInitStatus();
     return QUIC_STATUS_SUCCESS;
+}
+
+MSH3_STATUS
+MsH3pConnection::SetConfigurationH3(
+    const MsH3pConfiguration& Configuration
+    )
+{
+    QUIC_STATUS Status;
+    if (QUIC_FAILED(Status = InitializeConfig(Configuration))) return Status;
+    return SetConfiguration(Configuration);
 }
 
 MSH3_STATUS
@@ -463,15 +483,16 @@ MsH3pConnection::StartH3(
     const MSH3_ADDR* ServerAddress
     )
 {
-    InitializeConfig(Configuration);
+    QUIC_STATUS Status;
+    if (QUIC_FAILED(Status = InitializeConfig(Configuration))) return Status;
     size_t ServerNameLen = strlen(ServerName);
     if (ServerNameLen >= sizeof(HostName)) {
         return QUIC_STATUS_OUT_OF_MEMORY;
     }
     memcpy(HostName, ServerName, ServerNameLen+1);
     auto QuicAddress = (const QUIC_ADDR*)ServerAddress;
-    if (!QuicAddrIsWildCard(QuicAddress) && QUIC_FAILED(InitStatus = SetRemoteAddr(*(QuicAddr*)ServerAddress))) return;
-    if (QUIC_FAILED(InitStatus = Start(Configuration, QuicAddrGetFamily(QuicAddress), HostName, QuicAddrGetPort(QuicAddress)))) return;
+    if (!QuicAddrIsWildCard(QuicAddress) && QUIC_FAILED(Status = SetRemoteAddr(*(QuicAddr*)ServerAddress))) return Status;
+    return Start(Configuration, QuicAddrGetFamily(QuicAddress), HostName, QuicAddrGetPort(QuicAddress));
 }
 
 MsH3pBiDirStream*
@@ -569,7 +590,6 @@ MsH3pConnection::ReceiveSettingsFrame(
         printf("lsqpack_enc_init failed\n");
         return false;
     }
-    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
 
     return true;
 }
@@ -578,15 +598,23 @@ MsH3pConnection::ReceiveSettingsFrame(
 // MsH3pUniDirStream
 //
 
-MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, const MsH3pConfiguration& Configuration, QUIC_STREAM_OPEN_FLAGS StreamFlags)
-    : MsQuicStream(Connection, StreamFlags, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
+MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type)
+    : MsQuicStream(Connection, QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
+{
+    if (!IsValid()) return;
+    Buffer.Buffer[0] = (uint8_t)Type;
+    Buffer.Length = 1;
+    InitStatus = Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START);
+}
+
+MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pConfiguration& Configuration)
+    : MsQuicStream(Connection, QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(H3StreamTypeControl)
 {
     if (!IsValid()) return;
     Buffer.Buffer[0] = (uint8_t)Type;
     Buffer.Length = 1;
     const uint32_t SettingsLength = Configuration.DatagramEnabled ? ARRAYSIZE(SettingsH3) : ARRAYSIZE(SettingsH3) - 1;
-    if (Type == H3StreamTypeControl &&
-        !H3WriteSettingsFrame(SettingsH3, SettingsLength, &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
+    if (!H3WriteSettingsFrame(SettingsH3, SettingsLength, &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
         InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
         return;
     }
