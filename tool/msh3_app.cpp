@@ -8,6 +8,7 @@
 #include "msh3.hpp"
 #include <vector>
 #include <cstring>
+#include <atomic>
 
 using namespace std;
 
@@ -18,6 +19,8 @@ struct Arguments {
     MSH3_CREDENTIAL_FLAGS Flags { MSH3_CREDENTIAL_FLAG_CLIENT };
     bool Print { false };
     uint32_t Count { 1 };
+    std::atomic_int CompletionCount { 0 };
+    MsH3Connection* Connection { nullptr };
 } Args;
 
 void MSH3_CALL HeaderReceived(struct MsH3Request* , const MSH3_HEADER* Header) {
@@ -39,6 +42,9 @@ void MSH3_CALL Complete(struct MsH3Request* Request, bool Aborted, uint64_t Abor
     if (Args.Print) printf("\n");
     if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
     else         printf("Request %u complete\n", Index);
+    if (++Args.CompletionCount == (int)Args.Count) {
+        Args.Connection->Shutdown();
+    }
 }
 
 void ParseArgs(int argc, char **argv) {
@@ -115,6 +121,7 @@ int MSH3_CALL main(int argc, char **argv) {
         MsH3Configuration Configuration(Api); if (!Configuration.IsValid()) exit(-1);
         if (MSH3_FAILED(Configuration.LoadConfiguration({MSH3_CREDENTIAL_TYPE_NONE, Args.Flags, 0}))) exit(-1);
         MsH3Connection Connection(Api); if (!Connection.IsValid()) exit(-1);
+        Args.Connection = &Connection;
         if (MSH3_FAILED(Connection.Start(Configuration, Args.Host, Args.Address))) exit(-1);
         for (auto Path : Args.Paths) {
             printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
