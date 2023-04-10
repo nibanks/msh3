@@ -6,7 +6,6 @@
 --*/
 
 #define MSH3_TEST_MODE 1
-#define MSH3_SERVER_SUPPORT 1
 
 #include "msh3.hpp"
 #include <stdio.h>
@@ -18,6 +17,7 @@ struct TestFunc {
 #define DEF_TEST(X) bool Test##X()
 #define ADD_TEST(X) { Test##X, #X }
 #define VERIFY(X) if (!(X)) { printf(#X " Failed!\n"); return false; }
+#define VERIFY_SUCCCESS(X) VERIFY((X) == 0) // TODO - Fix
 
 const MSH3_HEADER RequestHeaders[] = {
     { ":method", 7, "GET", 3 },
@@ -36,15 +36,26 @@ const size_t ResponseHeadersCount = sizeof(ResponseHeaders)/sizeof(MSH3_HEADER);
 
 const char ResponseData[] = "HELLO WORLD!\n";
 
+struct AutoAcceptListener : public MsH3Listener {
+    MsH3Configuration Config;
+    AutoAcceptListener(MsH3Api& Api) : MsH3Listener(Api), Config(Api) { }
+    bool WaitForConnection() {
+        VERIFY(NewConnection.WaitFor());
+        auto ServerConnection = NewConnection.Get();
+        ServerConnection->SetConfiguration(Config);
+        VERIFY(ServerConnection->Connected.WaitFor());
+        return true;
+    }
+};
+
 DEF_TEST(Handshake) {
     MsH3Api Api; VERIFY(Api.IsValid());
-    MsH3Certificate Cert(Api); VERIFY(Cert.IsValid());
-    MsH3Listener Listener(Api); VERIFY(Listener.IsValid());
+    AutoAcceptListener Listener(Api); VERIFY(Listener.IsValid());
     MsH3Connection Connection(Api); VERIFY(Connection.IsValid());
-    VERIFY(Listener.NewConnection.WaitFor());
-    auto ServerConnection = Listener.NewConnection.Get();
-    ServerConnection->SetCertificate(Cert);
-    VERIFY(ServerConnection->Connected.WaitFor());
+    MsH3Configuration ClientConfig(Api); VERIFY(ClientConfig.IsValid());
+    VERIFY_SUCCCESS(ClientConfig.LoadConfiguration({ MSH3_CREDENTIAL_TYPE_NONE, MSH3_CREDENTIAL_FLAG_CLIENT }));
+    VERIFY_SUCCCESS(Connection.Start(ClientConfig));
+    VERIFY(Listener.WaitForConnection());
     VERIFY(Connection.Connected.WaitFor());
     Connection.Shutdown();
     VERIFY(Connection.ShutdownComplete.WaitFor());
@@ -60,9 +71,10 @@ DEF_TEST(HandshakeFail) {
 
 DEF_TEST(HandshakeSetCertTimeout) {
     MsH3Api Api; VERIFY(Api.IsValid());
-    MsH3Certificate Cert(Api); VERIFY(Cert.IsValid());
-    MsH3Listener Listener(Api); VERIFY(Listener.IsValid());
+    AutoAcceptListener Listener(Api); VERIFY(Listener.IsValid());
     MsH3Connection Connection(Api); VERIFY(Connection.IsValid());
+    MsH3Configuration ClientConfig(Api); VERIFY(ClientConfig.IsValid());
+    VERIFY_SUCCCESS(ClientConfig.LoadConfiguration({ MSH3_CREDENTIAL_TYPE_NONE, MSH3_CREDENTIAL_FLAG_CLIENT }));
     VERIFY(Listener.NewConnection.WaitFor());
     auto ServerConnection = Listener.NewConnection.Get();
     //ServerConnection->SetCertificate(Cert);

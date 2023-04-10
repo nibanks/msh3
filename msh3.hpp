@@ -62,6 +62,28 @@ struct MsH3Api {
     operator MSH3_API* () const noexcept { return Handle; }
 };
 
+struct MsH3Configuration {
+    MSH3_CONFIGURATION* Handle { nullptr };
+    MsH3Configuration(MsH3Api& Api) {
+        Handle = MsH3ConfigurationOpen(Api, nullptr, 0);
+    }
+    MsH3Configuration(MsH3Api& Api, const MSH3_SETTINGS* Settings) {
+        Handle = MsH3ConfigurationOpen(Api, Settings, sizeof(*Settings));
+    }
+    ~MsH3Configuration() noexcept { if (Handle) { MsH3ConfigurationClose(Handle); } }
+    bool IsValid() const noexcept { return Handle != nullptr; }
+    operator MSH3_CONFIGURATION* () const noexcept { return Handle; }
+#if MSH3_TEST_MODE
+    MSH3_STATUS LoadConfiguration() noexcept {
+        const MSH3_CREDENTIAL_CONFIG Config = { MSH3_CREDENTIAL_TYPE_SELF_SIGNED_CERTIFICATE };
+        return MsH3ConfigurationLoadCredential(Handle, &Config);
+    }
+#endif
+    MSH3_STATUS LoadConfiguration(const MSH3_CREDENTIAL_CONFIG& Config) noexcept {
+        return MsH3ConfigurationLoadCredential(Handle, &Config);
+    }
+};
+
 struct MsH3Addr {
     MSH3_ADDR Addr {0};
     MsH3Addr(uint16_t Port TEST_DEF(4433)) {
@@ -71,45 +93,37 @@ struct MsH3Addr {
     void SetPort(uint16_t Port) noexcept { MSH3_SET_PORT(&Addr, Port); }
 };
 
-#ifndef MSH3_DEFAULT_CONNECTION_FLAGS
-#if MSH3_TEST_MODE
-#define MSH3_DEFAULT_CONNECTION_FLAGS MSH3_CONNECTION_FLAG_UNSECURE
-#else
-#define MSH3_DEFAULT_CONNECTION_FLAGS MSH3_CONNECTION_FLAG_NONE
-#endif
-#endif // MSH3_DEFAULT_CONNECTION_FLAGS
-
 struct MsH3Connection {
     MSH3_CONNECTION* Handle { nullptr };
     MsH3Waitable<bool> Connected;
     MsH3Waitable<bool> ShutdownComplete;
     MsH3Waitable<MsH3Request*> NewRequest;
     MsH3Connection(
-        MsH3Api& Api,
-        const char* ServerName TEST_DEF("localhost"),
-        const MsH3Addr& ServerAddress TEST_DEF(MsH3Addr()),
-        MSH3_CONNECTION_FLAGS Flags = MSH3_DEFAULT_CONNECTION_FLAGS
+        MsH3Api& Api
         ) noexcept : CleanUp(CleanUpManual) {
-        Handle = MsH3ConnectionOpen(Api, &Interface, this, ServerName, ServerAddress, Flags);
+        Handle = MsH3ConnectionOpen(Api, &Interface, this);
     }
-#ifdef MSH3_SERVER_SUPPORT
     MsH3Connection(MSH3_CONNECTION* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
         MsH3ConnectionSetCallbackInterface(Handle, &Interface, this);
     }
-#endif
     ~MsH3Connection() noexcept { if (Handle) { MsH3ConnectionClose(Handle); } }
     MsH3Connection(MsH3Connection& other) = delete;
     MsH3Connection operator=(MsH3Connection& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CONNECTION* () const noexcept { return Handle; }
+    MSH3_STATUS Start(
+        const MsH3Configuration& Configuration,
+        const char* ServerName TEST_DEF("localhost"),
+        const MsH3Addr& ServerAddress TEST_DEF(MsH3Addr())
+        ) noexcept {
+        return MsH3ConnectionStart(Handle, Configuration, ServerName, ServerAddress);
+    }
     void Shutdown(uint64_t ErrorCode = 0) noexcept {
         MsH3ConnectionShutdown(Handle, ErrorCode);
     }
-#ifdef MSH3_SERVER_SUPPORT
-    void SetCertificate(MSH3_CERTIFICATE* Certificate) noexcept {
-        MsH3ConnectionSetCertificate(Handle, Certificate);
+    void SetConfiguration(const MsH3Configuration& Configuration) noexcept {
+        MsH3ConnectionSetConfiguration(Handle, Configuration);
     }
-#endif
 private:
     const MsH3CleanUpMode CleanUp;
     const MSH3_CONNECTION_IF Interface { s_OnConnected, s_OnShutdownByPeer, s_OnShutdownByTransport, s_OnShutdownComplete, s_OnNewRequest };
@@ -172,11 +186,9 @@ struct MsH3Request {
         ) noexcept : AppContext(AppContext), HeaderRecvFn(HeaderRecv), DataRecvFn(DataRecv), CompleteFn(Complete), CleanUp(CleanUpMode) {
         Handle = MsH3RequestOpen(Connection, &Interface, this, Headers, HeadersCount, Flags);
     }
-#ifdef MSH3_SERVER_SUPPORT
     MsH3Request(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
         MsH3RequestSetCallbackInterface(Handle, &Interface, this);
     }
-#endif
     ~MsH3Request() noexcept { if (Handle) { MsH3RequestClose(Handle); } }
     MsH3Request(MsH3Request& other) = delete;
     MsH3Request operator=(MsH3Request& Other) = delete;
@@ -202,7 +214,6 @@ struct MsH3Request {
         ) noexcept {
         return MsH3RequestShutdown(Handle, Flags, _AbortError);
     }
-#ifdef MSH3_SERVER_SUPPORT
     bool SendHeaders(
         const MSH3_HEADER* Headers,
         size_t HeadersCount,
@@ -210,7 +221,6 @@ struct MsH3Request {
         ) noexcept {
         return MsH3RequestSendHeaders(Handle, Headers, HeadersCount, Flags);
     }
-#endif
 private:
     const MsH3CleanUpMode CleanUp;
     const MSH3_REQUEST_IF Interface { s_OnHeaderReceived, s_OnDataReceived, s_OnComplete, s_OnShutdownComplete, s_OnDataSent };
@@ -255,37 +265,15 @@ private: // Static stuff
 };
 
 void MsH3Connection::OnNewRequest(MSH3_REQUEST* Request) noexcept {
-#if MSH3_SERVER_SUPPORT
     NewRequest.Set(new(std::nothrow) MsH3Request(Request));
-#else
-    (void)Request;
-#endif
 }
-
-#if MSH3_SERVER_SUPPORT
-
-struct MsH3Certificate {
-    MSH3_CERTIFICATE* Handle { nullptr };
-#if MSH3_TEST_MODE
-    MsH3Certificate(MsH3Api& Api) { // Self-signed certificate
-        const MSH3_CERTIFICATE_CONFIG Config = { MSH3_CERTIFICATE_TYPE_SELF_SIGNED };
-        Handle = MsH3CertificateOpen(Api, &Config);
-    }
-#endif
-    MsH3Certificate(MsH3Api& Api, const MSH3_CERTIFICATE_CONFIG& Config) {
-        Handle = MsH3CertificateOpen(Api, &Config);
-    }
-    ~MsH3Certificate() noexcept { if (Handle) { MsH3CertificateClose(Handle); } }
-    bool IsValid() const noexcept { return Handle != nullptr; }
-    operator MSH3_CERTIFICATE* () const noexcept { return Handle; }
-};
 
 struct MsH3Listener {
     MSH3_LISTENER* Handle { nullptr };
     const MSH3_LISTENER_IF Interface { s_OnNewConnection };
     MsH3Waitable<MsH3Connection*> NewConnection;
-    MsH3Listener(MsH3Api& Api, const MsH3Addr& Address TEST_DEF(MsH3Addr()), MSH3_CONNECTION_FLAGS ConnectionFlags = MSH3_CONNECTION_FLAG_NONE) noexcept {
-        Handle = MsH3ListenerOpen(Api, Address, &Interface, this, ConnectionFlags);
+    MsH3Listener(MsH3Api& Api, const MsH3Addr& Address TEST_DEF(MsH3Addr())) noexcept {
+        Handle = MsH3ListenerOpen(Api, Address, &Interface, this);
     }
     ~MsH3Listener() noexcept { if (Handle) { MsH3ListenerClose(Handle); } }
     MsH3Listener(MsH3Listener& other) = delete;
@@ -301,5 +289,3 @@ private: // Static stuff
         ((MsH3Listener*)IfContext)->OnNewConnection(Connection, ServerName, ServerNameLength);
     }
 };
-
-#endif // MSH3_SERVER_SUPPORT

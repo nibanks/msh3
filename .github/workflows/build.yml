@@ -25,7 +25,6 @@ jobs:
         os: [ubuntu, windows]
         tls: [schannel, openssl]
         link: [static, shared]
-        mode: [client-only, server]
         config: [Debug, Release]
         exclude:
         - os: ubuntu
@@ -51,7 +50,7 @@ jobs:
       uses: ilammy/setup-nasm@321e6ed62a1fc77024a3bd853deb33645e8b22c4
     - name: Build
       shell: pwsh
-      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -Mode ${{ matrix.mode }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
+      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
     - name: Upload
       uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
       with:
@@ -68,5 +67,4 @@ jobs:
         ./artifacts/msh3app www.cloudflare.com
         ./artifacts/msh3app www.google.com
     - name: msh3test
-      if: matrix.mode == 'server'
       run: ./artifacts/msh3test

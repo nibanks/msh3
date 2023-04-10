@@ -6,7 +6,6 @@ project(msh3)
 
 cmake_minimum_required(VERSION 3.16)
 
-option(MSH3_SERVER_SUPPORT "Enable server support" OFF)
 option(MSH3_TOOL "Build tool" OFF)
 option(MSH3_TEST "Build tests" OFF)
 
@@ -46,11 +45,6 @@ if (WIN32)
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /IGNORE:4075 /DEBUG /OPT:REF /OPT:ICF")
 else()
     set(QUIC_COMMON_DEFINES _GNU_SOURCE)
-endif()
-
-if (MSH3_SERVER_SUPPORT)
-    message(STATUS "msh3: Configuring for server support")
-    list(APPEND MSH3_COMMON_DEFINES MSH3_SERVER_SUPPORT=1)
 endif()
 
 set(MSH3_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/bin CACHE STRING "Output directory for build artifacts")

@@ -58,21 +58,73 @@ extern "C" {
 #endif
 
 typedef struct MSH3_API MSH3_API;
+typedef struct MSH3_CONFIGURATION MSH3_CONFIGURATION;
+typedef struct MSH3_CREDENTIAL_CONFIG MSH3_CREDENTIAL_CONFIG;
 typedef struct MSH3_CONNECTION_IF MSH3_CONNECTION_IF;
 typedef struct MSH3_CONNECTION MSH3_CONNECTION;
 typedef struct MSH3_REQUEST MSH3_REQUEST;
-typedef struct MSH3_CERTIFICATE_CONFIG MSH3_CERTIFICATE_CONFIG;
-typedef struct MSH3_CERTIFICATE MSH3_CERTIFICATE;
 typedef struct MSH3_LISTENER_IF MSH3_LISTENER_IF;
 typedef struct MSH3_LISTENER MSH3_LISTENER;
 
-typedef enum MSH3_CONNECTION_FLAGS {
-    MSH3_CONNECTION_FLAG_NONE           = 0x0000,
-    MSH3_CONNECTION_FLAG_UNSECURE       = 0x0001,   // Disables server certificate validation.
-    MSH3_CONNECTION_FLAG_DATAGRAM       = 0x0002,   // Indicates support for the HTTP/3 datagrams extension.
-} MSH3_CONNECTION_FLAGS;
+typedef enum MSH3_CREDENTIAL_TYPE {
+    MSH3_CREDENTIAL_TYPE_NONE,
+    MSH3_CREDENTIAL_TYPE_CERTIFICATE_HASH,
+    MSH3_CREDENTIAL_TYPE_CERTIFICATE_HASH_STORE,
+    MSH3_CREDENTIAL_TYPE_CERTIFICATE_CONTEXT,
+    MSH3_CREDENTIAL_TYPE_CERTIFICATE_FILE,
+    MSH3_CREDENTIAL_TYPE_CERTIFICATE_FILE_PROTECTED,
+    MSH3_CREDENTIAL_TYPE_CERTIFICATE_PKCS12,
+#ifdef MSH3_TEST_MODE
+    MSH3_CREDENTIAL_TYPE_SELF_SIGNED_CERTIFICATE,
+#endif // MSH3_TEST_MODE
+} MSH3_CREDENTIAL_TYPE;
 
-DEFINE_ENUM_FLAG_OPERATORS(MSH3_CONNECTION_FLAGS)
+typedef enum MSH3_CREDENTIAL_FLAGS {
+    MSH3_CREDENTIAL_FLAG_NONE                                   = 0x00000000,
+    MSH3_CREDENTIAL_FLAG_CLIENT                                 = 0x00000001, // Lack of client flag indicates server.
+    MSH3_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION              = 0x00000002,
+    MSH3_CREDENTIAL_FLAG_REQUIRE_CLIENT_AUTHENTICATION          = 0x00000004,
+} MSH3_CREDENTIAL_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_CREDENTIAL_FLAGS)
+
+typedef enum MSH3_CERTIFICATE_HASH_STORE_FLAGS {
+    MSH3_CERTIFICATE_HASH_STORE_FLAG_NONE           = 0x0000,
+    MSH3_CERTIFICATE_HASH_STORE_FLAG_MACHINE_STORE  = 0x0001,
+} MSH3_CERTIFICATE_HASH_STORE_FLAGS;
+
+typedef struct MSH3_SETTINGS {
+    union {
+        uint64_t IsSetFlags;
+        struct {
+            uint64_t IdleTimeoutMs                          : 1;
+            uint64_t DisconnectTimeoutMs                    : 1;
+            uint64_t KeepAliveIntervalMs                    : 1;
+            uint64_t InitialRttMs                           : 1;
+            uint64_t PeerRequestCount                       : 1;
+            uint64_t DatagramEnabled                        : 1;
+        } IsSet;
+    };
+    uint64_t IdleTimeoutMs;
+    uint32_t DisconnectTimeoutMs;
+    uint32_t KeepAliveIntervalMs;
+    uint32_t InitialRttMs;
+    uint16_t PeerRequestCount;
+    uint8_t DatagramEnabled : 1; // TODO - Add flags instead?
+    uint8_t RESERVED : 7;
+} MSH3_SETTINGS;
+
+typedef union MSH3_ADDR {
+    struct sockaddr Ip;
+    struct sockaddr_in Ipv4;
+    struct sockaddr_in6 Ipv6;
+} MSH3_ADDR;
+
+#if _WIN32
+#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = _byteswap_ushort(port)
+#else
+#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = __builtin_bswap16(port)
+#endif
 
 typedef enum MSH3_REQUEST_FLAGS {
     MSH3_REQUEST_FLAG_NONE              = 0x0000,
@@ -93,38 +145,6 @@ typedef enum MSH3_REQUEST_SHUTDOWN_FLAGS {
 
 DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_SHUTDOWN_FLAGS)
 
-#ifdef MSH3_SERVER_SUPPORT
-typedef enum MSH3_CERTIFICATE_TYPE {
-    MSH3_CERTIFICATE_TYPE_NONE,
-    MSH3_CERTIFICATE_TYPE_HASH,
-    MSH3_CERTIFICATE_TYPE_HASH_STORE,
-    MSH3_CERTIFICATE_TYPE_CONTEXT,
-    MSH3_CERTIFICATE_TYPE_FILE,
-    MSH3_CERTIFICATE_TYPE_FILE_PROTECTED,
-    MSH3_CERTIFICATE_TYPE_PKCS12,
-#ifdef MSH3_TEST_MODE
-    MSH3_CERTIFICATE_TYPE_SELF_SIGNED,
-#endif // MSH3_TEST_MODE
-} MSH3_CERTIFICATE_TYPE;
-
-typedef enum MSH3_CERTIFICATE_HASH_STORE_FLAGS {
-    MSH3_CERTIFICATE_HASH_STORE_FLAG_NONE           = 0x0000,
-    MSH3_CERTIFICATE_HASH_STORE_FLAG_MACHINE_STORE  = 0x0001,
-} MSH3_CERTIFICATE_HASH_STORE_FLAGS;
-#endif // MSH3_SERVER_SUPPORT
-
-typedef union MSH3_ADDR {
-    struct sockaddr Ip;
-    struct sockaddr_in Ipv4;
-    struct sockaddr_in6 Ipv6;
-} MSH3_ADDR;
-
-#if _WIN32
-#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = _byteswap_ushort(port)
-#else
-#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = __builtin_bswap16(port)
-#endif
-
 typedef struct MSH3_HEADER {
     const char* Name;
     size_t NameLength;
@@ -132,7 +152,6 @@ typedef struct MSH3_HEADER {
     size_t ValueLength;
 } MSH3_HEADER;
 
-#ifdef MSH3_SERVER_SUPPORT
 typedef struct MSH3_CERTIFICATE_HASH {
     uint8_t ShaHash[20];
 } MSH3_CERTIFICATE_HASH;
@@ -162,8 +181,9 @@ typedef struct MSH3_CERTIFICATE_PKCS12 {
     const char *PrivateKeyPassword;     // Optional
 } MSH3_CERTIFICATE_PKCS12;
 
-typedef struct MSH3_CERTIFICATE_CONFIG {
-    MSH3_CERTIFICATE_TYPE Type;
+typedef struct MSH3_CREDENTIAL_CONFIG {
+    MSH3_CREDENTIAL_TYPE Type;
+    MSH3_CREDENTIAL_FLAGS Flags;
     union {
         MSH3_CERTIFICATE_HASH* CertificateHash;
         MSH3_CERTIFICATE_HASH_STORE* CertificateHashStore;
@@ -172,8 +192,11 @@ typedef struct MSH3_CERTIFICATE_CONFIG {
         MSH3_CERTIFICATE_FILE_PROTECTED* CertificateFileProtected;
         MSH3_CERTIFICATE_PKCS12* CertificatePkcs12;
     };
-} MSH3_CERTIFICATE_CONFIG;
-#endif // MSH3_SERVER_SUPPORT
+} MSH3_CREDENTIAL_CONFIG;
+
+//
+// API global interface
+//
 
 void
 MSH3_CALL
@@ -190,8 +213,37 @@ MsH3ApiOpen(
 void
 MSH3_CALL
 MsH3ApiClose(
-    MSH3_API* Handle
+    MSH3_API* Api
     );
+
+//
+// Configuration interface
+//
+
+MSH3_CONFIGURATION*
+MSH3_CALL
+MsH3ConfigurationOpen(
+    MSH3_API* Api,
+    const MSH3_SETTINGS* Settings, // optional
+    uint32_t SettingsLength
+    );
+
+MSH3_STATUS
+MSH3_CALL
+MsH3ConfigurationLoadCredential(
+    MSH3_CONFIGURATION* Configuration,
+    const MSH3_CREDENTIAL_CONFIG* CredentialConfig
+    );
+
+void
+MSH3_CALL
+MsH3ConfigurationClose(
+    MSH3_CONFIGURATION* Configuration
+    );
+
+//
+// Connection interface
+//
 
 typedef struct MSH3_CONNECTION_IF {
     void (MSH3_CALL *Connected)(MSH3_CONNECTION* Connection, void* IfContext);
@@ -204,18 +256,33 @@ typedef struct MSH3_CONNECTION_IF {
 MSH3_CONNECTION*
 MSH3_CALL
 MsH3ConnectionOpen(
-    MSH3_API* Handle,
+    MSH3_API* Api,
     const MSH3_CONNECTION_IF* Interface,
-    void* IfContext,
-    const char* ServerName,
-    const MSH3_ADDR* ServerAddress,
-    MSH3_CONNECTION_FLAGS Flags
+    void* IfContext
     );
 
 void
 MSH3_CALL
-MsH3ConnectionClose(
-    MSH3_CONNECTION* Handle
+MsH3ConnectionSetCallbackInterface(
+    MSH3_CONNECTION* Connection,
+    const MSH3_CONNECTION_IF* Interface,
+    void* IfContext
+    );
+
+void
+MSH3_CALL
+MsH3ConnectionSetConfiguration(
+    MSH3_CONNECTION* Connection,
+    MSH3_CONFIGURATION* Configuration
+    );
+
+MSH3_STATUS
+MSH3_CALL
+MsH3ConnectionStart(
+    MSH3_CONNECTION* Connection,
+    MSH3_CONFIGURATION* Configuration,
+    const char* ServerName,
+    const MSH3_ADDR* ServerAddress
     );
 
 void
@@ -225,22 +292,15 @@ MsH3ConnectionShutdown(
     uint64_t ErrorCode
     );
 
-#ifdef MSH3_SERVER_SUPPORT
 void
 MSH3_CALL
-MsH3ConnectionSetCallbackInterface(
-    MSH3_CONNECTION* Handle,
-    const MSH3_CONNECTION_IF* Interface,
-    void* IfContext
+MsH3ConnectionClose(
+    MSH3_CONNECTION* Connection
     );
 
-void
-MSH3_CALL
-MsH3ConnectionSetCertificate(
-    MSH3_CONNECTION* Handle,
-    MSH3_CERTIFICATE* Certificate
-    );
-#endif // MSH3_SERVER_SUPPORT
+//
+// Request Interface
+//
 
 typedef struct MSH3_REQUEST_IF {
     void (MSH3_CALL *HeaderReceived)(MSH3_REQUEST* Request, void* IfContext, const MSH3_HEADER* Header);
@@ -253,7 +313,7 @@ typedef struct MSH3_REQUEST_IF {
 MSH3_REQUEST*
 MSH3_CALL
 MsH3RequestOpen(
-    MSH3_CONNECTION* Handle,
+    MSH3_CONNECTION* Connection,
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
     const MSH3_HEADER* Headers,
@@ -263,28 +323,39 @@ MsH3RequestOpen(
 
 void
 MSH3_CALL
-MsH3RequestClose(
-    MSH3_REQUEST* Handle
+MsH3RequestSetCallbackInterface(
+    MSH3_REQUEST* Request,
+    const MSH3_REQUEST_IF* Interface,
+    void* IfContext
+    );
+
+bool
+MSH3_CALL
+MsH3RequestSendHeaders(
+    MSH3_REQUEST* Request,
+    const MSH3_HEADER* Headers,
+    size_t HeadersCount,
+    MSH3_REQUEST_FLAGS Flags
     );
 
 void
 MSH3_CALL
 MsH3RequestCompleteReceive(
-    MSH3_REQUEST* Handle,
+    MSH3_REQUEST* Request,
     uint32_t Length
     );
 
 void
 MSH3_CALL
 MsH3RequestSetReceiveEnabled(
-    MSH3_REQUEST* Handle,
+    MSH3_REQUEST* Request,
     bool Enabled
     );
 
 bool
 MSH3_CALL
 MsH3RequestSend(
-    MSH3_REQUEST* Handle,
+    MSH3_REQUEST* Request,
     MSH3_REQUEST_FLAGS Flags,
     const void* Data,
     uint32_t DataLength,
@@ -294,41 +365,20 @@ MsH3RequestSend(
 void
 MSH3_CALL
 MsH3RequestShutdown(
-    MSH3_REQUEST* Handle,
+    MSH3_REQUEST* Request,
     MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
     uint64_t AbortError // Only for MSH3_REQUEST_SHUTDOWN_FLAG_ABORT*
     );
 
-#ifdef MSH3_SERVER_SUPPORT
 void
 MSH3_CALL
-MsH3RequestSetCallbackInterface(
-    MSH3_REQUEST* Handle,
-    const MSH3_REQUEST_IF* Interface,
-    void* IfContext
+MsH3RequestClose(
+    MSH3_REQUEST* Request
     );
 
-bool
-MSH3_CALL
-MsH3RequestSendHeaders(
-    MSH3_REQUEST* Handle,
-    const MSH3_HEADER* Headers,
-    size_t HeadersCount,
-    MSH3_REQUEST_FLAGS Flags
-    );
-
-MSH3_CERTIFICATE*
-MSH3_CALL
-MsH3CertificateOpen(
-    MSH3_API* Handle,
-    const MSH3_CERTIFICATE_CONFIG* Config
-    );
-
-void
-MSH3_CALL
-MsH3CertificateClose(
-    MSH3_CERTIFICATE* Handle
-    );
+//
+// Listener Interface
+//
 
 typedef struct MSH3_LISTENER_IF {
     void (MSH3_CALL *NewConnection)(MSH3_LISTENER* Listener, void* IfContext, MSH3_CONNECTION* Connection, const char* ServerName, uint16_t ServerNameLength);
@@ -340,8 +390,7 @@ MsH3ListenerOpen(
     MSH3_API* Handle,
     const MSH3_ADDR* Address,
     const MSH3_LISTENER_IF* Interface,
-    void* IfContext,
-    MSH3_CONNECTION_FLAGS ConnectionFlags
+    void* IfContext
     );
 
 void
@@ -349,7 +398,6 @@ MSH3_CALL
 MsH3ListenerClose(
     MSH3_LISTENER* Handle
     );
-#endif // MSH3_SERVER_SUPPORT
 
 #if defined(__cplusplus)
 }
