@@ -61,11 +61,8 @@ extern "C" {
 
 typedef struct MSH3_API MSH3_API;
 typedef struct MSH3_CONFIGURATION MSH3_CONFIGURATION;
-typedef struct MSH3_CREDENTIAL_CONFIG MSH3_CREDENTIAL_CONFIG;
-typedef struct MSH3_CONNECTION_IF MSH3_CONNECTION_IF;
 typedef struct MSH3_CONNECTION MSH3_CONNECTION;
 typedef struct MSH3_REQUEST MSH3_REQUEST;
-typedef struct MSH3_LISTENER_IF MSH3_LISTENER_IF;
 typedef struct MSH3_LISTENER MSH3_LISTENER;
 
 typedef enum MSH3_CREDENTIAL_TYPE {
@@ -290,7 +287,7 @@ MsH3ConnectionStart(
 void
 MSH3_CALL
 MsH3ConnectionShutdown(
-    MSH3_CONNECTION* Handle,
+    MSH3_CONNECTION* Connection,
     uint64_t ErrorCode
     );
 
@@ -389,7 +386,7 @@ typedef struct MSH3_LISTENER_IF {
 MSH3_LISTENER*
 MSH3_CALL
 MsH3ListenerOpen(
-    MSH3_API* Handle,
+    MSH3_API* Api,
     const MSH3_ADDR* Address,
     const MSH3_LISTENER_IF* Interface,
     void* IfContext
@@ -398,7 +395,7 @@ MsH3ListenerOpen(
 void
 MSH3_CALL
 MsH3ListenerClose(
-    MSH3_LISTENER* Handle
+    MSH3_LISTENER* Listener
     );
 
 #if defined(__cplusplus)

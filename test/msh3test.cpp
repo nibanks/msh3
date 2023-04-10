@@ -43,7 +43,7 @@ struct TestServer : public MsH3Listener {
             MsH3ListenerClose(Handle); Handle = nullptr;
         }
     }
-    bool WaitForConnection() {
+    bool WaitForConnection() noexcept {
         VERIFY(NewConnection.WaitFor());
         auto ServerConnection = NewConnection.Get();
         VERIFY_SUCCESS(ServerConnection->SetConfiguration(Config));

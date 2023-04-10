@@ -413,7 +413,7 @@ struct MsH3pUniDirStream : public MsQuicStream {
     QUIC_BUFFER Buffer {0, RawBuffer}; // Working space
 
     MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type);
-    MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pConfiguration& Configuration); // Type == H3StreamTypeContro
+    MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pConfiguration& Configuration); // Type == H3StreamTypeControl
     MsH3pUniDirStream(MsH3pConnection& Connection, const HQUIC StreamHandle);
 
     bool
