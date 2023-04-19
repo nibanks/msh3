@@ -269,7 +269,7 @@ MsH3CertificateOpen(
 #ifdef MSH3_SERVER_SUPPORT
     auto Reg = (MsQuicRegistration*)Handle;
     if (Config->Type == MSH3_CERTIFICATE_TYPE_SELF_SIGNED) {
-        auto SelfSign = CxPlatGetSelfSignedCert(CXPLAT_SELF_SIGN_CERT_USER, FALSE);
+        auto SelfSign = CxPlatGetSelfSignedCert(CXPLAT_SELF_SIGN_CERT_USER, FALSE, NULL);
         if (!SelfSign) return nullptr;
         auto Cert = new(std::nothrow) MsH3pCertificate(*Reg, SelfSign);
         if (!Cert || QUIC_FAILED(Cert->GetInitStatus())) {
