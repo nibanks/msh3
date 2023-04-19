@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu, windows]
-        tls: [schannel, openssl]
+        tls: [schannel, openssl, openssl3]
         link: [static, shared]
         mode: [client-only, server]
         config: [Debug, Release]
