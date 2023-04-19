@@ -407,7 +407,7 @@ MsH3pConfiguration::LoadH3Credential(
     )
 {
     if (CredentialConfig->Type == MSH3_CREDENTIAL_TYPE_SELF_SIGNED_CERTIFICATE) {
-        SelfSign = CxPlatGetSelfSignedCert(CXPLAT_SELF_SIGN_CERT_USER, FALSE);
+        SelfSign = CxPlatGetSelfSignedCert(CXPLAT_SELF_SIGN_CERT_USER, FALSE, NULL);
         if (!SelfSign) return QUIC_STATUS_OUT_OF_MEMORY;
         return LoadCredential(SelfSign);
     }
