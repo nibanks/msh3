@@ -243,14 +243,14 @@ inline QUIC_STREAM_OPEN_FLAGS ToQuicOpenFlags(MSH3_REQUEST_FLAGS Flags) {
     return Flags & MSH3_REQUEST_FLAG_ALLOW_0_RTT ? QUIC_STREAM_OPEN_FLAG_0_RTT : QUIC_STREAM_OPEN_FLAG_NONE;
 }
 
-inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_FLAGS Flags) {
+inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_SEND_FLAGS Flags) {
     QUIC_SEND_FLAGS QuicFlags = QUIC_SEND_FLAG_NONE;
-    if (Flags & MSH3_REQUEST_FLAG_ALLOW_0_RTT) {
+    if (Flags & MSH3_REQUEST_SEND_FLAG_ALLOW_0_RTT) {
         QuicFlags |= QUIC_SEND_FLAG_ALLOW_0_RTT;
     }
-    if (Flags & MSH3_REQUEST_FLAG_FIN) {
+    if (Flags & MSH3_REQUEST_SEND_FLAG_FIN) {
         QuicFlags |= QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_FIN;
-    } else if (Flags & MSH3_REQUEST_FLAG_DELAY_SEND) {
+    } else if (Flags & MSH3_REQUEST_SEND_FLAG_DELAY_SEND) {
         QuicFlags |= QUIC_SEND_FLAG_DELAY_SEND; // TODO - Add support for a _START_DELAYED flag in MsQuic?
     } else {
         QuicFlags |= QUIC_SEND_FLAG_START;
@@ -351,16 +351,6 @@ struct MsH3pConnection : public MsQuicConnection {
         const MsH3pConfiguration& Configuration,
         const char* ServerName,
         const MSH3_ADDR* ServerAddress
-        );
-
-    MsH3pBiDirStream*
-    OpenRequest(
-        _In_ const MSH3_REQUEST_IF* Interface,
-        _In_ void* IfContext,
-        _In_reads_(HeadersCount)
-            const MSH3_HEADER* Headers,
-        _In_ size_t HeadersCount,
-        _In_ MSH3_REQUEST_FLAGS Flags
         );
 
     void WaitOnShutdownComplete() {
@@ -528,9 +518,6 @@ struct MsH3pBiDirStream : public MsQuicStream {
         _In_ MsH3pConnection& Connection,
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
-        _In_reads_(HeadersCount)
-            const MSH3_HEADER* Headers,
-        _In_ size_t HeadersCount,
         _In_ MSH3_REQUEST_FLAGS Flags
         );
 
@@ -550,8 +537,11 @@ struct MsH3pBiDirStream : public MsQuicStream {
         );
 
     bool
-    SendAppData(
-        _In_ MSH3_REQUEST_FLAGS Flags,
+    Send(
+        _In_ MSH3_REQUEST_SEND_FLAGS Flags,
+        _In_reads_(HeadersCount)
+            const MSH3_HEADER* Headers,
+        _In_ size_t HeadersCount,
         _In_reads_bytes_(DataLength) const void* Data,
         _In_ uint32_t DataLength,
         _In_opt_ void* AppContext
@@ -566,14 +556,6 @@ struct MsH3pBiDirStream : public MsQuicStream {
         Callbacks = *Interface;
         Context = IfContext;
     }
-
-    bool
-    SendHeaders(
-        _In_reads_(HeadersCount)
-            const MSH3_HEADER* Headers,
-        _In_ size_t HeadersCount,
-        _In_ MSH3_REQUEST_FLAGS Flags
-        );
 
 private:
 

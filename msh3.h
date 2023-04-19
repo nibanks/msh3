@@ -128,9 +128,16 @@ typedef union MSH3_ADDR {
 typedef enum MSH3_REQUEST_FLAGS {
     MSH3_REQUEST_FLAG_NONE              = 0x0000,
     MSH3_REQUEST_FLAG_ALLOW_0_RTT       = 0x0001,   // Allows the use of encrypting with 0-RTT key.
-    MSH3_REQUEST_FLAG_FIN               = 0x0002,   // Indicates the request should be gracefully shutdown too.
-    MSH3_REQUEST_FLAG_DELAY_SEND        = 0x0004,   // Indicates the send should be delayed because more will be queued soon.
 } MSH3_REQUEST_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_FLAGS)
+
+typedef enum MSH3_REQUEST_SEND_FLAGS {
+    MSH3_REQUEST_SEND_FLAG_NONE         = 0x0000,
+    MSH3_REQUEST_SEND_FLAG_ALLOW_0_RTT  = 0x0001,   // Allows the use of encrypting with 0-RTT key.
+    MSH3_REQUEST_SEND_FLAG_FIN          = 0x0002,   // Indicates the request should be gracefully shutdown too.
+    MSH3_REQUEST_SEND_FLAG_DELAY_SEND   = 0x0004,   // Indicates the send should be delayed because more will be queued soon.
+} MSH3_REQUEST_SEND_FLAGS;
 
 DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_FLAGS)
 
@@ -315,9 +322,7 @@ MsH3RequestOpen(
     MSH3_CONNECTION* Connection,
     const MSH3_REQUEST_IF* Interface,
     void* IfContext,
-    const MSH3_HEADER* Headers,
-    size_t HeadersCount,
-    MSH3_REQUEST_FLAGS Flags    // Pass MSH3_REQUEST_FLAG_FIN if there is no data to send
+    MSH3_REQUEST_FLAGS Flags
     );
 
 void
@@ -330,11 +335,14 @@ MsH3RequestSetCallbackInterface(
 
 bool
 MSH3_CALL
-MsH3RequestSendHeaders(
+MsH3RequestSend(
     MSH3_REQUEST* Request,
+    MSH3_REQUEST_SEND_FLAGS Flags,
     const MSH3_HEADER* Headers,
     size_t HeadersCount,
-    MSH3_REQUEST_FLAGS Flags
+    const void* Data,
+    uint32_t DataLength,
+    void* AppContext
     );
 
 void
@@ -349,16 +357,6 @@ MSH3_CALL
 MsH3RequestCompleteReceive(
     MSH3_REQUEST* Request,
     uint32_t Length
-    );
-
-bool
-MSH3_CALL
-MsH3RequestSend(
-    MSH3_REQUEST* Request,
-    MSH3_REQUEST_FLAGS Flags,
-    const void* Data,
-    uint32_t DataLength,
-    void* AppContext
     );
 
 void

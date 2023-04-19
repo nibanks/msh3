@@ -175,8 +175,6 @@ struct MsH3Request {
     MsH3RequestComplete* CompleteFn {nullptr};
     MsH3Request(
         MsH3Connection& Connection,
-        const MSH3_HEADER* Headers,
-        size_t HeadersCount,
         MSH3_REQUEST_FLAGS Flags = MSH3_REQUEST_FLAG_NONE,
         void* AppContext = nullptr,
         MsH3RequestHeaderRecvCallback* HeaderRecv = nullptr,
@@ -184,7 +182,7 @@ struct MsH3Request {
         MsH3RequestComplete* Complete = nullptr,
         MsH3CleanUpMode CleanUpMode = CleanUpManual
         ) noexcept : AppContext(AppContext), HeaderRecvFn(HeaderRecv), DataRecvFn(DataRecv), CompleteFn(Complete), CleanUp(CleanUpMode) {
-        Handle = MsH3RequestOpen(Connection, &Interface, this, Headers, HeadersCount, Flags);
+        Handle = MsH3RequestOpen(Connection, &Interface, this, Flags);
     }
     MsH3Request(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
         MsH3RequestSetCallbackInterface(Handle, &Interface, this);
@@ -201,25 +199,20 @@ struct MsH3Request {
         MsH3RequestSetReceiveEnabled(Handle, Enabled);
     };
     bool Send(
-        MSH3_REQUEST_FLAGS Flags,
-        const void* Data,
-        uint32_t DataLength,
+        const MSH3_HEADER* Headers,
+        size_t HeadersCount,
+        const void* Data = nullptr,
+        uint32_t DataLength = 0,
+        MSH3_REQUEST_SEND_FLAGS Flags = MSH3_REQUEST_SEND_FLAG_NONE,
         void* SendContext = nullptr
         ) noexcept {
-        return MsH3RequestSend(Handle, Flags, Data, DataLength, SendContext);
+        return MsH3RequestSend(Handle, Flags, Headers, HeadersCount, Data, DataLength, SendContext);
     }
     void Shutdown(
         MSH3_REQUEST_SHUTDOWN_FLAGS Flags,
         uint64_t _AbortError = 0
         ) noexcept {
         return MsH3RequestShutdown(Handle, Flags, _AbortError);
-    }
-    bool SendHeaders(
-        const MSH3_HEADER* Headers,
-        size_t HeadersCount,
-        MSH3_REQUEST_FLAGS Flags
-        ) noexcept {
-        return MsH3RequestSendHeaders(Handle, Headers, HeadersCount, Flags);
     }
 private:
     const MsH3CleanUpMode CleanUp;

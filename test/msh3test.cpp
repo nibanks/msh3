@@ -104,7 +104,8 @@ DEF_TEST(SimpleRequest) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    MsH3Request Request(Client, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN); VERIFY(Request.IsValid());
+    MsH3Request Request(Client); VERIFY(Request.IsValid());
+    VERIFY_SUCCESS(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
@@ -139,14 +140,14 @@ bool ReceiveData(bool Async, bool Inline = true) {
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
     Context Context(Async, Inline);
-    MsH3Request Request(Client, RequestHeaders, RequestHeadersCount, MSH3_REQUEST_FLAG_FIN, &Context, nullptr, Context::RecvData);
+    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, &Context, nullptr, Context::RecvData);
     VERIFY(Request.IsValid());
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
     VERIFY(Server.NewConnection.Get()->NewRequest.WaitFor());
     auto ServerRequest = Server.NewConnection.Get()->NewRequest.Get();
-    VERIFY(ServerRequest->Send(MSH3_REQUEST_FLAG_FIN, ResponseData, sizeof(ResponseData)));
+    VERIFY(ServerRequest->Send(RequestHeaders, RequestHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Context.Data.WaitFor());
     VERIFY(Context.Data.Get() == sizeof(ResponseData));
     if (Async && !Inline) {

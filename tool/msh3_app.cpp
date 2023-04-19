@@ -128,11 +128,12 @@ int MSH3_CALL main(int argc, char **argv) {
             Headers[1].Value = Path;
             Headers[1].ValueLength = strlen(Path);
             for (uint32_t i = 0; i < Args.Count; ++i) {
-                auto Request = new (std::nothrow) MsH3Request(Connection, Headers, HeadersCount, MSH3_REQUEST_FLAG_FIN, (void*)(size_t)(i+1), HeaderReceived, DataReceived, Complete, CleanUpAutoDelete);
+                auto Request = new (std::nothrow) MsH3Request(Connection, MSH3_REQUEST_FLAG_NONE, (void*)(size_t)(i+1), HeaderReceived, DataReceived, Complete, CleanUpAutoDelete);
                 if (!Request || !Request->IsValid()) {
                     printf("Request %u failed to start\n", i+1);
                     break;
                 }
+                Request->Send(Headers, HeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN);
             }
         }
         Connection.ShutdownComplete.Wait();
