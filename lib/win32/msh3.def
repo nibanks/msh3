@@ -15,10 +15,9 @@ EXPORTS
     MsH3ConnectionClose
     MsH3RequestOpen
     MsH3RequestSetCallbackInterface
-    MsH3RequestSendHeaders
+    MsH3RequestSend
     MsH3RequestSetReceiveEnabled
     MsH3RequestCompleteReceive
-    MsH3RequestSend
     MsH3RequestShutdown
     MsH3RequestClose
     MsH3ListenerOpen

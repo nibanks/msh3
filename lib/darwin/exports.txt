@@ -12,7 +12,6 @@ _MsH3ConnectionShutdown
 _MsH3ConnectionClose
 _MsH3RequestOpen
 _MsH3RequestSetCallbackInterface
-_MsH3RequestSendHeaders
 _MsH3RequestSetReceiveEnabled
 _MsH3RequestCompleteReceive
 _MsH3RequestSend
