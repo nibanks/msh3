@@ -831,7 +831,7 @@ MsH3pBiDirStream::Send(
         auto HeadersLength = Buffers[1].Length + Buffers[2].Length;
         auto HeaderFlags = Flags;
         if (Data && DataLength != 0) {
-            HeaderFlags &= MSH3_REQUEST_SEND_FLAG_FIN;
+            HeaderFlags &= ~MSH3_REQUEST_SEND_FLAG_FIN;
             HeaderFlags |= MSH3_REQUEST_SEND_FLAG_DELAY_SEND;
         }
         if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer) ||
