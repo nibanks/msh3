@@ -827,18 +827,14 @@ MsH3pBiDirStream::Send(
     )
 {
     if (Headers && HeadersCount != 0) { // TODO - Make sure headers weren't already sent
-    if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return false;
+        if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return false;
         auto HeadersLength = Buffers[1].Length + Buffers[2].Length;
-        if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer)) {
-            printf("Framing headers failed\n");
-            return false;
-        } else if (QUIC_FAILED(InitStatus = MsQuicStream::Send(Buffers, 3, ToQuicSendFlags(Flags)))) { // TODO - Don't flush if we're about to do another send
-            printf("Headers send failed\n");
+        if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer) ||
+            QUIC_FAILED(MsQuicStream::Send(Buffers, 3, ToQuicSendFlags(Flags)))) { // TODO - Don't flush if we're about to do another send
             return false;
         }
     }
-
-    if (Data) {
+    if (Data && DataLength != 0) {
         auto AppSend = new(std::nothrow) MsH3pAppSend(AppContext); // TODO - Pool alloc
         if (!AppSend || !AppSend->SetData(Data, DataLength) ||
             QUIC_FAILED(MsQuicStream::Send(AppSend->Buffers, 2, ToQuicSendFlags(Flags), AppSend))) {
