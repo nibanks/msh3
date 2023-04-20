@@ -829,8 +829,13 @@ MsH3pBiDirStream::Send(
     if (Headers && HeadersCount != 0) { // TODO - Make sure headers weren't already sent
         if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return false;
         auto HeadersLength = Buffers[1].Length + Buffers[2].Length;
+        auto HeaderFlags = Flags;
+        if (Data && DataLength != 0) {
+            HeaderFlags &= MSH3_REQUEST_SEND_FLAG_FIN;
+            HeaderFlags |= MSH3_REQUEST_SEND_FLAG_DELAY_SEND;
+        }
         if (!H3WriteFrameHeader(H3FrameHeaders, HeadersLength, &Buffers[0].Length, sizeof(FrameHeaderBuffer), FrameHeaderBuffer) ||
-            QUIC_FAILED(MsQuicStream::Send(Buffers, 3, ToQuicSendFlags(Flags)))) { // TODO - Don't flush if we're about to do another send
+            QUIC_FAILED(MsQuicStream::Send(Buffers, 3, ToQuicSendFlags(HeaderFlags)))) {
             return false;
         }
     }

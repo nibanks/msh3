@@ -491,7 +491,7 @@ struct MsH3pBiDirStream : public MsQuicStream {
     uint8_t FrameHeaderBuffer[16];
     uint8_t PrefixBuffer[32];
     uint8_t HeadersBuffer[256];
-    QUIC_BUFFER Buffers[3] = {
+    QUIC_BUFFER Buffers[3] = { // TODO - Put in AppSend struct?
         {0, FrameHeaderBuffer},
         {0, PrefixBuffer},
         {0, HeadersBuffer}

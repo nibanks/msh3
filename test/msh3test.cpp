@@ -141,6 +141,7 @@ bool ReceiveData(bool Async, bool Inline = true) {
     TestClient Client(Api); VERIFY(Client.IsValid());
     Context Context(Async, Inline);
     MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, &Context, nullptr, Context::RecvData);
+    VERIFY_SUCCESS(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Request.IsValid());
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
