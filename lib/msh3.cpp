@@ -234,7 +234,7 @@ MsH3RequestSetReceiveEnabled(
     bool Enabled
     )
 {
-    ((MsH3pBiDirStream*)Handle)->SetReceiveEnabled(Enabled);
+    (void)((MsH3pBiDirStream*)Handle)->ReceiveSetEnabled(Enabled);
 }
 
 extern "C"
@@ -616,8 +616,7 @@ MsH3pUniDirStream::ControlStreamCallback(
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Control peer recv abort, 0x%llx\n", (unsigned long long)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
-    default:
-        break;
+    default: break;
     }
     return QUIC_STATUS_SUCCESS;
 }
@@ -715,8 +714,7 @@ MsH3pUniDirStream::EncoderStreamCallback(
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Encoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
-    default:
-        break;
+    default: break;
     }
     return QUIC_STATUS_SUCCESS;
 }
@@ -736,8 +734,7 @@ MsH3pUniDirStream::DecoderStreamCallback(
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Decoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
-    default:
-        break;
+    default: break;
     }
     return QUIC_STATUS_SUCCESS;
 }
@@ -781,8 +778,7 @@ MsH3pUniDirStream::UnknownStreamCallback(
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Unknown peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
-    default:
-        break;
+    default: break;
     }
     return QUIC_STATUS_SUCCESS;
 }
@@ -797,23 +793,6 @@ MsH3pBiDirStream::hset_if = {
     .dhi_prepare_decode = s_DecodePrepare,
     .dhi_process_header = s_DecodeProcess,
 };
-
-MsH3pBiDirStream::MsH3pBiDirStream(
-    _In_ MsH3pConnection& Connection,
-    _In_ const MSH3_REQUEST_IF* Interface,
-    _In_ void* IfContext,
-    _In_ MSH3_REQUEST_FLAGS Flags
-    ) : MsQuicStream(Connection, ToQuicOpenFlags(Flags), CleanUpManual, s_MsQuicCallback, this),
-        H3(Connection), Callbacks(*Interface), Context(IfContext)
-{
-}
-
-MsH3pBiDirStream::MsH3pBiDirStream(
-    _In_ MsH3pConnection& Connection,
-    _In_ HQUIC StreamHandle
-    ) : MsQuicStream(StreamHandle, CleanUpManual, s_MsQuicCallback, this), H3(Connection)
-{
-}
 
 bool
 MsH3pBiDirStream::Send(
@@ -885,8 +864,7 @@ MsH3pBiDirStream::MsQuicCallback(
         if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0xffffffffUL);
         if (!ShutdownComplete) Callbacks.ShutdownComplete((MSH3_REQUEST*)this, Context);
         break;
-    default:
-        break;
+    default: break;
     }
     return QUIC_STATUS_SUCCESS;
 }
@@ -997,14 +975,6 @@ MsH3pBiDirStream::CompleteReceive(
     }
 }
 
-void
-MsH3pBiDirStream::SetReceiveEnabled(
-    _In_ bool Enabled
-    )
-{
-    (void)ReceiveSetEnabled(Enabled);
-}
-
 struct lsxpack_header*
 MsH3pBiDirStream::DecodePrepare(
     struct lsxpack_header* Header,
@@ -1066,8 +1036,7 @@ MsH3pListener::MsQuicCallback(
         Callbacks.NewConnection((MSH3_LISTENER*)this, Context, (MSH3_CONNECTION*)Connection, Event->NEW_CONNECTION.Info->ServerName, Event->NEW_CONNECTION.Info->ServerNameLength);
         break;
     }
-    default:
-        break;
+    default: break;
     }
     return QUIC_STATUS_SUCCESS;
 }

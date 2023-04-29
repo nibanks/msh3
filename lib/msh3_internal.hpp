@@ -519,21 +519,18 @@ struct MsH3pBiDirStream : public MsQuicStream {
         _In_ const MSH3_REQUEST_IF* Interface,
         _In_ void* IfContext,
         _In_ MSH3_REQUEST_FLAGS Flags
-        );
+        ) : MsQuicStream(Connection, ToQuicOpenFlags(Flags), CleanUpManual, s_MsQuicCallback, this),
+            H3(Connection), Callbacks(*Interface), Context(IfContext) { }
 
     MsH3pBiDirStream(
         _In_ MsH3pConnection& Connection,
         _In_ HQUIC StreamHandle
-        );
+        ) : MsQuicStream(StreamHandle, CleanUpManual, s_MsQuicCallback, this),
+            H3(Connection) { }
 
     void
     CompleteReceive(
         _In_ uint32_t Length
-        );
-
-    void
-    SetReceiveEnabled(
-        _In_ bool Enabled
         );
 
     bool

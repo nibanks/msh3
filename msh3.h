@@ -79,18 +79,46 @@ typedef enum MSH3_CREDENTIAL_TYPE {
 } MSH3_CREDENTIAL_TYPE;
 
 typedef enum MSH3_CREDENTIAL_FLAGS {
-    MSH3_CREDENTIAL_FLAG_NONE                                   = 0x00000000,
-    MSH3_CREDENTIAL_FLAG_CLIENT                                 = 0x00000001, // Lack of client flag indicates server.
-    MSH3_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION              = 0x00000002,
-    MSH3_CREDENTIAL_FLAG_REQUIRE_CLIENT_AUTHENTICATION          = 0x00000004,
+    MSH3_CREDENTIAL_FLAG_NONE                           = 0x00000000,
+    MSH3_CREDENTIAL_FLAG_CLIENT                         = 0x00000001, // Lack of client flag indicates server.
+    MSH3_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION      = 0x00000002,
+    MSH3_CREDENTIAL_FLAG_REQUIRE_CLIENT_AUTHENTICATION  = 0x00000004,
 } MSH3_CREDENTIAL_FLAGS;
 
 DEFINE_ENUM_FLAG_OPERATORS(MSH3_CREDENTIAL_FLAGS)
 
 typedef enum MSH3_CERTIFICATE_HASH_STORE_FLAGS {
-    MSH3_CERTIFICATE_HASH_STORE_FLAG_NONE           = 0x0000,
-    MSH3_CERTIFICATE_HASH_STORE_FLAG_MACHINE_STORE  = 0x0001,
+    MSH3_CERTIFICATE_HASH_STORE_FLAG_NONE               = 0x0000,
+    MSH3_CERTIFICATE_HASH_STORE_FLAG_MACHINE_STORE      = 0x0001,
 } MSH3_CERTIFICATE_HASH_STORE_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_CERTIFICATE_HASH_STORE_FLAGS)
+
+typedef enum MSH3_REQUEST_FLAGS {
+    MSH3_REQUEST_FLAG_NONE                              = 0x0000,
+    MSH3_REQUEST_FLAG_ALLOW_0_RTT                       = 0x0001,   // Allows the use of encrypting with 0-RTT key.
+} MSH3_REQUEST_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_FLAGS)
+
+typedef enum MSH3_REQUEST_SEND_FLAGS {
+    MSH3_REQUEST_SEND_FLAG_NONE                         = 0x0000,
+    MSH3_REQUEST_SEND_FLAG_ALLOW_0_RTT                  = 0x0001,   // Allows the use of encrypting with 0-RTT key.
+    MSH3_REQUEST_SEND_FLAG_FIN                          = 0x0002,   // Indicates the request should be gracefully shutdown too.
+    MSH3_REQUEST_SEND_FLAG_DELAY_SEND                   = 0x0004,   // Indicates the send should be delayed because more will be queued soon.
+} MSH3_REQUEST_SEND_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_SEND_FLAGS)
+
+typedef enum MSH3_REQUEST_SHUTDOWN_FLAGS {
+    MSH3_REQUEST_SHUTDOWN_FLAG_NONE                     = 0x0000,
+    MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL                 = 0x0001,   // Cleanly closes the send path.
+    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_SEND               = 0x0002,   // Abruptly closes the send path.
+    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_RECEIVE            = 0x0004,   // Abruptly closes the receive path.
+    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT                    = 0x0006,   // Abruptly closes both send and receive paths.
+} MSH3_REQUEST_SHUTDOWN_FLAGS;
+
+DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_SHUTDOWN_FLAGS)
 
 typedef struct MSH3_SETTINGS {
     union {
@@ -112,51 +140,6 @@ typedef struct MSH3_SETTINGS {
     uint8_t DatagramEnabled : 1; // TODO - Add flags instead?
     uint8_t RESERVED : 7;
 } MSH3_SETTINGS;
-
-typedef union MSH3_ADDR {
-    struct sockaddr Ip;
-    struct sockaddr_in Ipv4;
-    struct sockaddr_in6 Ipv6;
-} MSH3_ADDR;
-
-#if _WIN32
-#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = _byteswap_ushort(port)
-#else
-#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = __builtin_bswap16(port)
-#endif
-
-typedef enum MSH3_REQUEST_FLAGS {
-    MSH3_REQUEST_FLAG_NONE              = 0x0000,
-    MSH3_REQUEST_FLAG_ALLOW_0_RTT       = 0x0001,   // Allows the use of encrypting with 0-RTT key.
-} MSH3_REQUEST_FLAGS;
-
-DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_FLAGS)
-
-typedef enum MSH3_REQUEST_SEND_FLAGS {
-    MSH3_REQUEST_SEND_FLAG_NONE         = 0x0000,
-    MSH3_REQUEST_SEND_FLAG_ALLOW_0_RTT  = 0x0001,   // Allows the use of encrypting with 0-RTT key.
-    MSH3_REQUEST_SEND_FLAG_FIN          = 0x0002,   // Indicates the request should be gracefully shutdown too.
-    MSH3_REQUEST_SEND_FLAG_DELAY_SEND   = 0x0004,   // Indicates the send should be delayed because more will be queued soon.
-} MSH3_REQUEST_SEND_FLAGS;
-
-DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_SEND_FLAGS)
-
-typedef enum MSH3_REQUEST_SHUTDOWN_FLAGS {
-    MSH3_REQUEST_SHUTDOWN_FLAG_NONE          = 0x0000,
-    MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL      = 0x0001,   // Cleanly closes the send path.
-    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_SEND    = 0x0002,   // Abruptly closes the send path.
-    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT_RECEIVE = 0x0004,   // Abruptly closes the receive path.
-    MSH3_REQUEST_SHUTDOWN_FLAG_ABORT         = 0x0006,   // Abruptly closes both send and receive paths.
-} MSH3_REQUEST_SHUTDOWN_FLAGS;
-
-DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_SHUTDOWN_FLAGS)
-
-typedef struct MSH3_HEADER {
-    const char* Name;
-    size_t NameLength;
-    const char* Value;
-    size_t ValueLength;
-} MSH3_HEADER;
 
 typedef struct MSH3_CERTIFICATE_HASH {
     uint8_t ShaHash[20];
@@ -199,6 +182,25 @@ typedef struct MSH3_CREDENTIAL_CONFIG {
         MSH3_CERTIFICATE_PKCS12* CertificatePkcs12;
     };
 } MSH3_CREDENTIAL_CONFIG;
+
+typedef union MSH3_ADDR {
+    struct sockaddr Ip;
+    struct sockaddr_in Ipv4;
+    struct sockaddr_in6 Ipv6;
+} MSH3_ADDR;
+
+#if _WIN32
+#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = _byteswap_ushort(port)
+#else
+#define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = __builtin_bswap16(port)
+#endif
+
+typedef struct MSH3_HEADER {
+    const char* Name;
+    size_t NameLength;
+    const char* Value;
+    size_t ValueLength;
+} MSH3_HEADER;
 
 //
 // API global interface
