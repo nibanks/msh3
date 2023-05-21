@@ -104,7 +104,7 @@ struct MsH3Connection {
         Handle = MsH3ConnectionOpen(Api, &Interface, this);
     }
     MsH3Connection(MSH3_CONNECTION* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
-        MsH3ConnectionSetCallbackInterface(Handle, &Interface, this);
+        MsH3ConnectionSetCallbackHandler(Handle, &Interface, this);
     }
     ~MsH3Connection() noexcept { if (Handle) { MsH3ConnectionClose(Handle); } }
     MsH3Connection(MsH3Connection& other) = delete;
@@ -185,7 +185,7 @@ struct MsH3Request {
         Handle = MsH3RequestOpen(Connection, &Interface, this, Flags);
     }
     MsH3Request(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
-        MsH3RequestSetCallbackInterface(Handle, &Interface, this);
+        MsH3RequestSetCallbackHandler(Handle, &Interface, this);
     }
     ~MsH3Request() noexcept { if (Handle) { MsH3RequestClose(Handle); } }
     MsH3Request(MsH3Request& other) = delete;

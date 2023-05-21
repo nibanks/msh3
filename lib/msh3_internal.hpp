@@ -293,7 +293,7 @@ struct MsH3pBiDirStream;
 
 struct MsH3pConnection : public MsQuicConnection {
 
-    MSH3_CONNECTION_IF Callbacks {nullptr};
+    MSH3_CONNECTION_CALLBACK_HANDLER Callbacks {nullptr};
     void* Context {nullptr};
 
     struct lsqpack_enc Encoder;
@@ -321,8 +321,8 @@ struct MsH3pConnection : public MsQuicConnection {
 
     MsH3pConnection(
         const MsQuicRegistration& Registration,
-        const MSH3_CONNECTION_IF* Interface,
-        void* IfContext
+        const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+        void* Context
         );
 
     MsH3pConnection(
@@ -332,13 +332,13 @@ struct MsH3pConnection : public MsQuicConnection {
     ~MsH3pConnection();
 
     void
-    SetCallbackInterface(
-        const MSH3_CONNECTION_IF* Interface,
-        void* IfContext
+    SetCallbackHandler(
+        const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+        void* Context
         )
     {
-        Callbacks = *Interface;
-        Context = IfContext;
+        Callbacks = Handler;
+        Context = Context;
     }
 
     MSH3_STATUS
@@ -485,7 +485,7 @@ struct MsH3pBiDirStream : public MsQuicStream {
 
     MsH3pConnection& H3;
 
-    MSH3_REQUEST_IF Callbacks;
+    MSH3_REQUEST_CALLBACK_HANDLER Callbacks;
     void* Context;
 
     uint8_t FrameHeaderBuffer[16];
@@ -516,11 +516,11 @@ struct MsH3pBiDirStream : public MsQuicStream {
 
     MsH3pBiDirStream(
         _In_ MsH3pConnection& Connection,
-        _In_ const MSH3_REQUEST_IF* Interface,
-        _In_ void* IfContext,
+        const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+        _In_ void* Context,
         _In_ MSH3_REQUEST_FLAGS Flags
         ) : MsQuicStream(Connection, ToQuicOpenFlags(Flags), CleanUpManual, s_MsQuicCallback, this),
-            H3(Connection), Callbacks(*Interface), Context(IfContext) { }
+            H3(Connection), Callbacks(Handler), Context(Context) { }
 
     MsH3pBiDirStream(
         _In_ MsH3pConnection& Connection,
@@ -545,13 +545,13 @@ struct MsH3pBiDirStream : public MsQuicStream {
         );
 
     void
-    SetCallbackInterface(
-        const MSH3_REQUEST_IF* Interface,
-        void* IfContext
+    SetCallbackHandler(
+        const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+        void* Context
         )
     {
-        Callbacks = *Interface;
-        Context = IfContext;
+        Callbacks = Handler;
+        Context = Context;
     }
 
 private:
@@ -618,14 +618,14 @@ private:
 
 struct MsH3pListener : public MsQuicListener {
 
-    MSH3_LISTENER_IF Callbacks;
+    MSH3_LISTENER_CALLBACK_HANDLER Callbacks;
     void* Context;
 
     MsH3pListener(
         const MsQuicRegistration& Registration,
         const MSH3_ADDR* Address,
-        const MSH3_LISTENER_IF* Interface,
-        void* IfContext
+        const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+        void* Context
         );
 
 private:

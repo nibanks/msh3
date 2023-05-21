@@ -8,13 +8,13 @@ EXPORTS
     MsH3ConfigurationLoadCredential
     MsH3ConfigurationClose
     MsH3ConnectionOpen
-    MsH3ConnectionSetCallbackInterface
+    MsH3ConnectionSetCallbackHandler
     MsH3ConnectionSetConfiguration
     MsH3ConnectionStart
     MsH3ConnectionShutdown
     MsH3ConnectionClose
     MsH3RequestOpen
-    MsH3RequestSetCallbackInterface
+    MsH3RequestSetCallbackHandler
     MsH3RequestSend
     MsH3RequestSetReceiveEnabled
     MsH3RequestCompleteReceive

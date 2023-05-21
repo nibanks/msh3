@@ -115,12 +115,12 @@ MSH3_CONNECTION*
 MSH3_CALL
 MsH3ConnectionOpen(
     MSH3_API* Handle,
-    const MSH3_CONNECTION_IF* Interface,
-    void* IfContext
+    const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+    void* Context
     )
 {
     auto Reg = (MsQuicRegistration*)Handle;
-    auto H3 = new(std::nothrow) MsH3pConnection(*Reg, Interface, IfContext);
+    auto H3 = new(std::nothrow) MsH3pConnection(*Reg, Handler, Context);
     if (!H3 || QUIC_FAILED(H3->GetInitStatus())) {
         delete H3;
         return nullptr;
@@ -131,13 +131,13 @@ MsH3ConnectionOpen(
 extern "C"
 void
 MSH3_CALL
-MsH3ConnectionSetCallbackInterface(
+MsH3ConnectionSetCallbackHandler(
     MSH3_CONNECTION* Handle,
-    const MSH3_CONNECTION_IF* Interface,
-    void* IfContext
+    const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+    void* Context
     )
 {
-    ((MsH3pConnection*)Handle)->SetCallbackInterface(Interface, IfContext);
+    ((MsH3pConnection*)Handle)->SetCallbackHandler(Handler, Context);
 }
 
 extern "C"
@@ -192,12 +192,12 @@ MSH3_REQUEST*
 MSH3_CALL
 MsH3RequestOpen(
     MSH3_CONNECTION* Handle,
-    const MSH3_REQUEST_IF* Interface,
-    void* IfContext,
+    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    void* Context,
     MSH3_REQUEST_FLAGS Flags
     )
 {
-    auto Request = new(std::nothrow) MsH3pBiDirStream(*(MsH3pConnection*)Handle, Interface, IfContext, Flags);
+    auto Request = new(std::nothrow) MsH3pBiDirStream(*(MsH3pConnection*)Handle, Handler, Context, Flags);
     if (!Request || !Request->IsValid()) {
         delete Request;
         return nullptr;
@@ -268,13 +268,13 @@ MsH3RequestShutdown(
 extern "C"
 void
 MSH3_CALL
-MsH3RequestSetCallbackInterface(
+MsH3RequestSetCallbackHandler(
     MSH3_REQUEST* Handle,
-    const MSH3_REQUEST_IF* Interface,
-    void* IfContext
+    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    void* Context
     )
 {
-    ((MsH3pBiDirStream*)Handle)->SetCallbackInterface(Interface, IfContext);
+    ((MsH3pBiDirStream*)Handle)->SetCallbackHandler(Handler, Context);
 }
 
 extern "C"
@@ -283,12 +283,12 @@ MSH3_CALL
 MsH3ListenerOpen(
     MSH3_API* Handle,
     const MSH3_ADDR* Address,
-    const MSH3_LISTENER_IF* Interface,
-    void* IfContext
+    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    void* Context
     )
 {
     auto Reg = (MsQuicRegistration*)Handle;
-    auto Listener = new(std::nothrow) MsH3pListener(*Reg,Address, Interface, IfContext);
+    auto Listener = new(std::nothrow) MsH3pListener(*Reg,Address, Handler, Context);
     if (!Listener || QUIC_FAILED(Listener->GetInitStatus())) {
         delete Listener;
         return nullptr;
@@ -413,10 +413,10 @@ MsH3pConfiguration::LoadH3Credential(
 
 MsH3pConnection::MsH3pConnection(
         const MsQuicRegistration& Registration,
-        const MSH3_CONNECTION_IF* Interface,
-        void* IfContext
+        const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+        void* Context
     ) : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this),
-        Callbacks(*Interface), Context(IfContext)
+        Callbacks(Handler), Context(Context)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
     lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
@@ -492,20 +492,28 @@ MsH3pConnection::MsQuicCallback(
     _Inout_ QUIC_CONNECTION_EVENT* Event
     )
 {
+    MSH3_CONNECTION_EVENT h3Event;
     switch (Event->Type) {
     case QUIC_CONNECTION_EVENT_CONNECTED:
         HandshakeSuccess = true;
-        Callbacks.Connected((MSH3_CONNECTION*)this, Context);
+        h3Event.Type = MSH3_CONNECTION_EVENT_CONNECTED;
+        Callbacks((MSH3_CONNECTION*)this, Context, &h3Event);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
-        Callbacks.ShutdownByTransport((MSH3_CONNECTION*)this, Context, Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+        h3Event.Type = MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT;
+        h3Event.SHUTDOWN_INITIATED_BY_TRANSPORT.Status = Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status;
+        h3Event.SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode = Event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode;
+        Callbacks((MSH3_CONNECTION*)this, Context, &h3Event);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
-        Callbacks.ShutdownByPeer((MSH3_CONNECTION*)this, Context, Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+        h3Event.Type = MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER;
+        h3Event.SHUTDOWN_INITIATED_BY_PEER.ErrorCode = Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode;
+        Callbacks((MSH3_CONNECTION*)this, Context, &h3Event);
         break;
     case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         SetShutdownComplete();
-        Callbacks.ShutdownComplete((MSH3_CONNECTION*)this, Context);
+        h3Event.Type = MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE;
+        Callbacks((MSH3_CONNECTION*)this, Context, &h3Event);
         break;
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
         if (Event->PEER_STREAM_STARTED.Flags & QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL) {
@@ -515,11 +523,12 @@ MsH3pConnection::MsQuicCallback(
         } else { // Server scenario
             auto Request = new(std::nothrow) MsH3pBiDirStream(*this, Event->PEER_STREAM_STARTED.Stream);
             if (!Request) return QUIC_STATUS_OUT_OF_MEMORY;
-            Callbacks.NewRequest((MSH3_CONNECTION*)this, Context, (MSH3_REQUEST*)Request);
+            h3Event.Type = MSH3_CONNECTION_EVENT_NEW_REQUEST;
+            h3Event.NEW_REQUEST.Request = (MSH3_REQUEST*)Request;
+            Callbacks((MSH3_CONNECTION*)this, Context, &h3Event); // TODO - Check return
         }
         break;
-    default:
-        break;
+    default: break;
     }
     return QUIC_STATUS_SUCCESS;
 }
@@ -834,13 +843,26 @@ MsH3pBiDirStream::MsQuicCallback(
     _Inout_ QUIC_STREAM_EVENT* Event
     )
 {
+    MSH3_REQUEST_EVENT h3Event;
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_START_COMPLETE:
         if (QUIC_FAILED(Event->START_COMPLETE.Status)) {
-            if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0xffffffffUL);
+            if (!Complete) {
+                h3Event.Type = MSH3_REQUEST_EVENT_SEND_SHUTDOWN_COMPLETE;
+                h3Event.SEND_SHUTDOWN_COMPLETE.Graceful = false;
+                Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
+            }
             Complete = true;
             ShutdownComplete = true;
-            Callbacks.ShutdownComplete((MSH3_REQUEST*)this, Context);
+            h3Event.Type = MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionShutdown = false;
+            h3Event.SHUTDOWN_COMPLETE.AppCloseInProgress = false;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionShutdownByApp = false;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionClosedRemotely = false;
+            h3Event.SHUTDOWN_COMPLETE.RESERVED = false;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionErrorCode = 0;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionCloseStatus = Event->START_COMPLETE.Status;
+            Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
         }
         break;
     case QUIC_STREAM_EVENT_RECEIVE:
@@ -1005,7 +1027,10 @@ MsH3pBiDirStream::DecodeProcess(
         .NameLength = Header->name_len,
         .Value = Header->buf + Header->val_offset,
         .ValueLength = Header->val_len };
-    Callbacks.HeaderReceived((MSH3_REQUEST*)this, Context, &h);
+    MSH3_REQUEST_EVENT h3Event;
+    h3Event.Type = MSH3_REQUEST_EVENT_HEADER_RECEIVED;
+    h3Event.HEADER_RECEIVED.Header = &h;
+    Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
 }
 
 //
@@ -1015,9 +1040,9 @@ MsH3pBiDirStream::DecodeProcess(
 MsH3pListener::MsH3pListener(
     const MsQuicRegistration& Registration,
     const MSH3_ADDR* Address,
-    const MSH3_LISTENER_IF* Interface,
-    void* IfContext
-    ) : MsQuicListener(Registration, s_MsQuicCallback, this), Callbacks(*Interface), Context(IfContext)
+    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    void* Context
+    ) : MsQuicListener(Registration, s_MsQuicCallback, this), Callbacks(Handler), Context(Context)
 {
     if (QUIC_SUCCEEDED(InitStatus)) {
         InitStatus = Start("h3", (QUIC_ADDR*)Address);

@@ -253,28 +253,61 @@ MsH3ConfigurationClose(
 // Connection interface
 //
 
-typedef struct MSH3_CONNECTION_IF {
-    void (MSH3_CALL *Connected)(MSH3_CONNECTION* Connection, void* IfContext);
-    void (MSH3_CALL *ShutdownByPeer)(MSH3_CONNECTION* Connection, void* IfContext, uint64_t ErrorCode);
-    void (MSH3_CALL *ShutdownByTransport)(MSH3_CONNECTION* Connection, void* IfContext, MSH3_STATUS Status);
-    void (MSH3_CALL *ShutdownComplete)(MSH3_CONNECTION* Connection, void* IfContext);
-    void (MSH3_CALL *NewRequest)(MSH3_CONNECTION* Connection, void* IfContext, MSH3_REQUEST* Request);
-} MSH3_CONNECTION_IF;
+typedef enum MSH3_CONNECTION_EVENT_TYPE {
+    MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE                 = 0,    // Ready for the handle to be closed.
+    MSH3_CONNECTION_EVENT_CONNECTED                         = 1,
+    MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT   = 2,    // The transport started the shutdown process.
+    MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER        = 3,    // The peer application started the shutdown process.
+    MSH3_CONNECTION_EVENT_NEW_REQUEST                       = 4,
+    // Future events may be added. Existing code should
+    // return NOT_SUPPORTED for any unknown event.
+} MSH3_CONNECTION_EVENT_TYPE;
+
+typedef struct MSH3_CONNECTION_EVENT {
+    MSH3_CONNECTION_EVENT_TYPE Type;
+    union {
+        struct {
+            QUIC_STATUS Status;
+            uint64_t ErrorCode; // Wire format error code.
+        } SHUTDOWN_INITIATED_BY_TRANSPORT;
+        struct {
+            uint64_t ErrorCode;
+        } SHUTDOWN_INITIATED_BY_PEER;
+        struct {
+            bool HandshakeCompleted          : 1;
+            bool PeerAcknowledgedShutdown    : 1;
+            bool AppCloseInProgress          : 1;
+        } SHUTDOWN_COMPLETE;
+        struct {
+            MSH3_REQUEST* Request;
+        } NEW_REQUEST;
+    };
+} MSH3_CONNECTION_EVENT;
+
+typedef
+QUIC_STATUS
+(MSH3_CALL MSH3_CONNECTION_CALLBACK)(
+    MSH3_CONNECTION* Connection,
+    void* Context,
+    MSH3_CONNECTION_EVENT* Event
+    );
+
+typedef MSH3_CONNECTION_CALLBACK *MSH3_CONNECTION_CALLBACK_HANDLER;
 
 MSH3_CONNECTION*
 MSH3_CALL
 MsH3ConnectionOpen(
     MSH3_API* Api,
-    const MSH3_CONNECTION_IF* Interface,
-    void* IfContext
+    const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+    void* Context
     );
 
 void
 MSH3_CALL
-MsH3ConnectionSetCallbackInterface(
+MsH3ConnectionSetCallbackHandler(
     MSH3_CONNECTION* Connection,
-    const MSH3_CONNECTION_IF* Interface,
-    void* IfContext
+    const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+    void* Context
     );
 
 MSH3_STATUS
@@ -310,29 +343,83 @@ MsH3ConnectionClose(
 // Request Interface
 //
 
-typedef struct MSH3_REQUEST_IF {
-    void (MSH3_CALL *HeaderReceived)(MSH3_REQUEST* Request, void* IfContext, const MSH3_HEADER* Header);
-    bool (MSH3_CALL *DataReceived)(MSH3_REQUEST* Request, void* IfContext, uint32_t* Length, const uint8_t* Data);
-    void (MSH3_CALL *Complete)(MSH3_REQUEST* Request, void* IfContext, bool Aborted, uint64_t AbortError);
-    void (MSH3_CALL *ShutdownComplete)(MSH3_REQUEST* Request, void* IfContext);
-    void (MSH3_CALL *DataSent)(MSH3_REQUEST* Request, void* IfContext, void* SendContext);
-} MSH3_REQUEST_IF;
+typedef enum MSH3_REQUEST_EVENT_TYPE {
+    MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE                 = 0,    // Ready for the handle to be closed.
+    MSH3_REQUEST_EVENT_HEADER_RECEIVED                   = 1,
+    MSH3_REQUEST_EVENT_DATA_RECEIVED                     = 2,
+    MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN                = 3,
+    MSH3_REQUEST_EVENT_PEER_SEND_ABORTED                 = 4,
+    MSH3_REQUEST_EVENT_IDEAL_SEND_SIZE                   = 5,
+    MSH3_REQUEST_EVENT_SEND_COMPLETE                     = 6,
+    MSH3_REQUEST_EVENT_SEND_SHUTDOWN_COMPLETE            = 7,
+    MSH3_REQUEST_EVENT_PEER_RECEIVE_ABORTED              = 8,
+    // Future events may be added. Existing code should
+    // return NOT_SUPPORTED for any unknown event.
+} MSH3_REQUEST_EVENT_TYPE;
+
+typedef struct MSH3_REQUEST_EVENT {
+    MSH3_REQUEST_EVENT_TYPE Type;
+    union {
+        struct {
+            bool ConnectionShutdown;
+            bool AppCloseInProgress       : 1;
+            bool ConnectionShutdownByApp  : 1;
+            bool ConnectionClosedRemotely : 1;
+            bool RESERVED                 : 5;
+            uint64_t ConnectionErrorCode;
+            QUIC_STATUS ConnectionCloseStatus;
+        } SHUTDOWN_COMPLETE;
+        struct {
+            const MSH3_HEADER* Header;
+        } HEADER_RECEIVED;
+        struct {
+            uint32_t Length;
+            const uint8_t* Data;
+        } DATA_RECEIVED;
+        struct {
+            uint64_t ErrorCode;
+        } PEER_SEND_ABORTED;
+        struct {
+            uint64_t ByteCount;
+        } IDEAL_SEND_SIZE;
+        struct {
+            bool Canceled;
+            void* ClientContext;
+        } SEND_COMPLETE;
+        struct {
+            bool Graceful;
+        } SEND_SHUTDOWN_COMPLETE;
+        struct {
+            uint64_t ErrorCode;
+        } PEER_RECEIVE_ABORTED;
+    };
+} MSH3_REQUEST_EVENT;
+
+typedef
+QUIC_STATUS
+(MSH3_CALL MSH3_REQUEST_CALLBACK)(
+    MSH3_REQUEST* Request,
+    void* Context,
+    MSH3_REQUEST_EVENT* Event
+    );
+
+typedef MSH3_REQUEST_CALLBACK *MSH3_REQUEST_CALLBACK_HANDLER;
 
 MSH3_REQUEST*
 MSH3_CALL
 MsH3RequestOpen(
     MSH3_CONNECTION* Connection,
-    const MSH3_REQUEST_IF* Interface,
-    void* IfContext,
+    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    void* Context,
     MSH3_REQUEST_FLAGS Flags
     );
 
 void
 MSH3_CALL
-MsH3RequestSetCallbackInterface(
+MsH3RequestSetCallbackHandler(
     MSH3_REQUEST* Request,
-    const MSH3_REQUEST_IF* Interface,
-    void* IfContext
+    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    void* Context
     );
 
 bool
@@ -379,17 +466,45 @@ MsH3RequestClose(
 // Listener Interface
 //
 
-typedef struct MSH3_LISTENER_IF {
-    void (MSH3_CALL *NewConnection)(MSH3_LISTENER* Listener, void* IfContext, MSH3_CONNECTION* Connection, const char* ServerName, uint16_t ServerNameLength);
-} MSH3_LISTENER_IF;
+typedef enum MSH3_LISTENER_EVENT_TYPE {
+    MSH3_LISTENER_EVENT_SHUTDOWN_COMPLETE                 = 0,    // Ready for the handle to be closed.
+    MSH3_LISTENER_EVENT_NEW_CONNECTION                    = 1,
+    // Future events may be added. Existing code should
+    // return NOT_SUPPORTED for any unknown event.
+} MSH3_LISTENER_EVENT_TYPE;
+
+typedef struct MSH3_LISTENER_EVENT {
+    MSH3_LISTENER_EVENT_TYPE Type;
+    union {
+        struct {
+            bool AppCloseInProgress  : 1;
+            bool RESERVED            : 7;
+        } SHUTDOWN_COMPLETE;
+        struct {
+            MSH3_CONNECTION* Connection;
+            const char* ServerName;
+            uint16_t ServerNameLength;
+        } NEW_CONNECTION;
+    };
+} MSH3_LISTENER_EVENT;
+
+typedef
+QUIC_STATUS
+(MSH3_CALL MSH3_LISTENER_CALLBACK)(
+    MSH3_LISTENER* Connection,
+    void* Context,
+    MSH3_LISTENER_EVENT* Event
+    );
+
+typedef MSH3_LISTENER_CALLBACK *MSH3_LISTENER_CALLBACK_HANDLER;
 
 MSH3_LISTENER*
 MSH3_CALL
 MsH3ListenerOpen(
     MSH3_API* Api,
     const MSH3_ADDR* Address,
-    const MSH3_LISTENER_IF* Interface,
-    void* IfContext
+    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    void* Context
     );
 
 void
