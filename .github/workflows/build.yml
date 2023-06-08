@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu, windows]
+        os: [windows]
         tls: [schannel, openssl, openssl3]
         link: [static, shared]
         mode: [client-only, server]
@@ -30,7 +30,12 @@ jobs:
         exclude:
         - os: ubuntu
           tls: schannel
-    runs-on: ${{ matrix.os }}-latest
+    runs-on:
+      [
+        self-hosted,
+        "1ES.Pool=xdp-ci-spinxsk-gh",
+        "1ES.ImageOverride=WS2022-Spinxsk"
+      ]
     timeout-minutes: 15
     steps:
     - name: Harden Runner
