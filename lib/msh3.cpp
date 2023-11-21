@@ -870,22 +870,39 @@ MsH3pBiDirStream::MsQuicCallback(
     case QUIC_STREAM_EVENT_SEND_COMPLETE:
         if (Event->SEND_COMPLETE.ClientContext) {
             auto AppSend = (MsH3pAppSend*)Event->SEND_COMPLETE.ClientContext;
-            Callbacks.DataSent((MSH3_REQUEST*)this, Context, AppSend->AppContext);
+            h3Event.Type = MSH3_REQUEST_EVENT_SEND_COMPLETE;
+            h3Event.SEND_COMPLETE.Canceled = FALSE;
+            h3Event.SEND_COMPLETE.ClientContext = AppSend->AppContext;
+            Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
             delete AppSend;
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
         Complete = true;
-        Callbacks.Complete((MSH3_REQUEST*)this, Context, false, 0);
+        h3Event.Type = MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN;
+        Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         Complete = true;
-        Callbacks.Complete((MSH3_REQUEST*)this, Context, true, Event->PEER_SEND_ABORTED.ErrorCode);
+        h3Event.Type = MSH3_REQUEST_EVENT_PEER_SEND_ABORTED;
+        h3Event.PEER_SEND_ABORTED.ErrorCode = Event->PEER_SEND_ABORTED.ErrorCode;
+        Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
+        break;
+    case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
+        h3Event.Type = MSH3_REQUEST_EVENT_SEND_SHUTDOWN_COMPLETE;
+        h3Event.SEND_SHUTDOWN_COMPLETE.Graceful = Event->SEND_SHUTDOWN_COMPLETE.Graceful;
+        Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
         if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0xffffffffUL);
         if (!ShutdownComplete) Callbacks.ShutdownComplete((MSH3_REQUEST*)this, Context);
         break;
+    case QUIC_STREAM_EVENT_IDEAL_SEND_BUFFER_SIZE:
+        h3Event.Type = MSH3_REQUEST_EVENT_IDEAL_SEND_SIZE;
+        h3Event.IDEAL_SEND_SIZE.ByteCount = Event->IDEAL_SEND_BUFFER_SIZE.ByteCount;
+        Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
+        break;
+    //case QUIC_STREAM_EVENT_PEER_ACCEPTED: break; // TODO - Indicate up?
     default: break;
     }
     return QUIC_STATUS_SUCCESS;
