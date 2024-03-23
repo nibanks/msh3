@@ -68,3 +68,11 @@ jobs:
         ./artifacts/msh3app www.google.com
     - name: msh3test
       run: ./artifacts/msh3test
+  all-done:
+    name: Build Complete
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - name: No-op
+      shell: pwsh
+      run: Write-Host "All done!"
