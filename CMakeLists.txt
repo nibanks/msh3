@@ -1,10 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+cmake_minimum_required(VERSION 3.16)
+
 message(STATUS "msh3: Configuration start...")
 project(msh3)
-
-cmake_minimum_required(VERSION 3.16)
 
 option(MSH3_TOOL "Build tool" OFF)
 option(MSH3_TEST "Build tests" OFF)
