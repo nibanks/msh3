@@ -243,7 +243,7 @@ struct MsH3AutoAcceptListener : public MsH3Listener {
     MsH3Waitable<MsH3Connection*> NewConnection;
 
     MsH3AutoAcceptListener(
-        const MsH3Api& Api,
+        MsH3Api& Api,
         const MsH3Addr& Address,
         MsH3ConnectionCallback* _ConnectionHandler,
         void* _ConnectionContext = nullptr
@@ -255,7 +255,7 @@ struct MsH3AutoAcceptListener : public MsH3Listener {
     { }
 
     MsH3AutoAcceptListener(
-        const MsH3Api& Api,
+        MsH3Api& Api,
         const MsH3Addr& Address,
         const MsH3Configuration& Config,
         MsH3ConnectionCallback* _ConnectionHandler,
