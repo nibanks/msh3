@@ -94,10 +94,10 @@ struct MsH3Addr {
 };
 
 typedef MSH3_STATUS MsH3ListenerCallback(
-    _In_ struct MsH3Listener* Listener,
-    _In_opt_ void* Context,
-    _Inout_ MSH3_LISTENER_EVENT* Event
-);
+    struct MsH3Listener* Listener,
+    void* Context,
+    MSH3_LISTENER_EVENT* Event
+    );
 
 struct MsH3Listener {
     MSH3_LISTENER* Handle { nullptr };
@@ -122,9 +122,9 @@ private:
     static
     MSH3_STATUS
     MsH3Callback(
-        _In_ MSH3_LISTENER* /* Listener */,
-        _In_opt_ MsH3Listener* pThis,
-        _Inout_ MSH3_LISTENER_EVENT* Event
+        MSH3_LISTENER* /* Listener */,
+        MsH3Listener* pThis,
+        MSH3_LISTENER_EVENT* Event
         ) noexcept {
         auto DeleteOnExit =
             Event->Type == MSH3_LISTENER_EVENT_SHUTDOWN_COMPLETE &&
@@ -140,7 +140,7 @@ private:
 typedef MSH3_STATUS MsH3ConnectionCallback(
     struct MsH3Connection* Connection,
     void* Context,
-    _Inout_ MSH3_CONNECTION_EVENT* Event
+    MSH3_CONNECTION_EVENT* Event
     );
 
 struct MsH3Connection {
@@ -272,9 +272,9 @@ private:
     static
     MSH3_STATUS
     ListenerCallback(
-        _In_ MsH3Listener* /* Listener */,
-        _In_opt_ void* Context,
-        _Inout_ MSH3_LISTENER_EVENT* Event
+        MsH3Listener* /* Listener */,
+        void* Context,
+        MSH3_LISTENER_EVENT* Event
         ) noexcept {
         auto pThis = (MsH3AutoAcceptListener*)Context;
 #ifdef _WIN32
@@ -303,9 +303,9 @@ private:
 };
 
 typedef MSH3_STATUS MsH3RequestCallback(
-    _In_ struct MsH3Request* Request,
-    _In_opt_ void* Context,
-    _Inout_ MSH3_REQUEST_EVENT* Event
+    struct MsH3Request* Request,
+    void* Context,
+    MSH3_REQUEST_EVENT* Event
     );
 
 struct MsH3Request {
@@ -377,9 +377,9 @@ struct MsH3Request {
     static
     MSH3_STATUS
     NoOpCallback(
-        _In_ MsH3Request* /* Request */,
-        _In_opt_ void* /* Context */,
-        _Inout_ MSH3_REQUEST_EVENT* /* Event */
+        MsH3Request* /* Request */,
+        void* /* Context */,
+        MSH3_REQUEST_EVENT* /* Event */
         ) noexcept {
         return MSH3_STATUS_SUCCESS;
     }

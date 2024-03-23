@@ -334,11 +334,11 @@ struct MsH3pConnection : public MsQuicConnection {
     void
     SetCallbackHandler(
         const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
-        void* Context
+        void* _Context
         )
     {
         Callbacks = Handler;
-        Context = Context;
+        Context = _Context;
     }
 
     MSH3_STATUS
@@ -547,11 +547,11 @@ struct MsH3pBiDirStream : public MsQuicStream {
     void
     SetCallbackHandler(
         const MSH3_REQUEST_CALLBACK_HANDLER Handler,
-        void* Context
+        void* _Context
         )
     {
         Callbacks = Handler;
-        Context = Context;
+        Context = _Context;
     }
 
 private:
