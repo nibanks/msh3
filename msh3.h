@@ -55,6 +55,8 @@ inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) throw() { return (ENUMTYP
 #endif // DEFINE_ENUM_FLAG_OPERATORS
 #endif
 
+#define MSH3_STATUS_SUCCESS 0
+
 #if defined(__cplusplus)
 extern "C" {
 #endif

@@ -93,24 +93,92 @@ struct MsH3Addr {
     void SetPort(uint16_t Port) noexcept { MSH3_SET_PORT(&Addr, Port); }
 };
 
+typedef MSH3_STATUS MsH3ListenerCallback(
+    _In_ struct MsH3Listener* Listener,
+    _In_opt_ void* Context,
+    _Inout_ MSH3_LISTENER_EVENT* Event
+);
+
+struct MsH3Listener {
+    MSH3_LISTENER* Handle { nullptr };
+    MsH3CleanUpMode CleanUpMode;
+    MsH3ListenerCallback* Callback{ nullptr };
+    void* Context{ nullptr };
+    MsH3Listener(
+        MsH3Api& Api,
+        MsH3CleanUpMode CleanUpMode,
+        MsH3ListenerCallback* Callback,
+        void* Context = nullptr,
+        const MsH3Addr& Address TEST_DEF(MsH3Addr())
+        ) noexcept : CleanUpMode(CleanUpMode), Callback(Callback), Context(Context) {
+        Handle = MsH3ListenerOpen(Api, Address, (MSH3_LISTENER_CALLBACK_HANDLER)MsH3Callback, this);
+    }
+    ~MsH3Listener() noexcept { if (Handle) { MsH3ListenerClose(Handle); } }
+    MsH3Listener(MsH3Listener& other) = delete;
+    MsH3Listener operator=(MsH3Listener& Other) = delete;
+    bool IsValid() const noexcept { return Handle != nullptr; }
+    operator MSH3_LISTENER* () const noexcept { return Handle; }
+private:
+    static
+    MSH3_STATUS
+    MsH3Callback(
+        _In_ MSH3_LISTENER* /* Listener */,
+        _In_opt_ MsH3Listener* pThis,
+        _Inout_ MSH3_LISTENER_EVENT* Event
+        ) noexcept {
+        auto DeleteOnExit =
+            Event->Type == MSH3_LISTENER_EVENT_SHUTDOWN_COMPLETE &&
+            pThis->CleanUpMode == CleanUpAutoDelete;
+        auto Status = pThis->Callback(pThis, pThis->Context, Event);
+        if (DeleteOnExit) {
+            delete pThis;
+        }
+        return Status;
+    }
+};
+
+typedef MSH3_STATUS MsH3ConnectionCallback(
+    struct MsH3Connection* Connection,
+    void* Context,
+    _Inout_ MSH3_CONNECTION_EVENT* Event
+    );
+
 struct MsH3Connection {
     MSH3_CONNECTION* Handle { nullptr };
     MsH3Waitable<bool> Connected;
     MsH3Waitable<bool> ShutdownComplete;
     MsH3Waitable<MsH3Request*> NewRequest;
     MsH3Connection(
-        MsH3Api& Api
-        ) noexcept : CleanUp(CleanUpManual) {
-        Handle = MsH3ConnectionOpen(Api, &Interface, this);
+        MsH3Api& Api,
+        MsH3CleanUpMode CleanUpMode = CleanUpManual,
+        MsH3ConnectionCallback* Callback = NoOpCallback,
+        void* Context = nullptr
+        ) noexcept : CleanUp(CleanUpManual), Callback(Callback), Context(Context) {
+        Handle = MsH3ConnectionOpen(Api, (MSH3_CONNECTION_CALLBACK_HANDLER)MsH3Callback, this);
     }
-    MsH3Connection(MSH3_CONNECTION* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
-        MsH3ConnectionSetCallbackHandler(Handle, &Interface, this);
+    MsH3Connection(
+        MSH3_CONNECTION* ServerHandle,
+        MsH3CleanUpMode CleanUpMode,
+        MsH3ConnectionCallback* Callback,
+        void* Context = nullptr
+        ) noexcept : Handle(ServerHandle), CleanUp(CleanUpManual), Callback(Callback), Context(Context)  {
+        MsH3ConnectionSetCallbackHandler(Handle, (MSH3_CONNECTION_CALLBACK_HANDLER)MsH3Callback, this);
     }
-    ~MsH3Connection() noexcept { if (Handle) { MsH3ConnectionClose(Handle); } }
+    ~MsH3Connection() noexcept { Close(); }
     MsH3Connection(MsH3Connection& other) = delete;
     MsH3Connection operator=(MsH3Connection& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_CONNECTION* () const noexcept { return Handle; }
+    void Close() noexcept {
+#ifdef _WIN32
+        auto HandleToClose = (MSH3_CONNECTION*)InterlockedExchangePointer((PVOID*)&Handle, NULL);
+#else
+        auto HandleToClose = (MSH3_CONNECTION*)__sync_fetch_and_and(&Handle, 0);
+#endif
+        if (HandleToClose) {
+            MsH3ConnectionClose(HandleToClose);
+        }
+    }
     MSH3_STATUS SetConfiguration(const MsH3Configuration& Configuration) noexcept {
         return MsH3ConnectionSetConfiguration(Handle, Configuration);
     }
@@ -124,74 +192,166 @@ struct MsH3Connection {
     void Shutdown(uint64_t ErrorCode = 0) noexcept {
         MsH3ConnectionShutdown(Handle, ErrorCode);
     }
+    static
+    MSH3_STATUS
+    NoOpCallback(
+        MsH3Connection* /* Connection */,
+        void* /* Context */,
+        MSH3_CONNECTION_EVENT* Event
+        ) noexcept {
+        if (Event->Type == MSH3_CONNECTION_EVENT_NEW_REQUEST) {
+            //
+            // Not great beacuse it doesn't provide an application specific
+            // error code. If you expect to get streams, you should not no-op
+            // the callbacks.
+            //
+            MsH3RequestClose(Event->NEW_REQUEST.Request);
+        }
+        return MSH3_STATUS_SUCCESS;
+    }
 private:
     const MsH3CleanUpMode CleanUp;
-    const MSH3_CONNECTION_IF Interface { s_OnConnected, s_OnShutdownByPeer, s_OnShutdownByTransport, s_OnShutdownComplete, s_OnNewRequest };
-    void OnConnected() noexcept {
-        Connected.Set(true);
-    }
-    void OnShutdownByPeer(uint64_t /*ErrorCode*/) noexcept {
-    }
-    void OnShutdownByTransport(MSH3_STATUS /*Status*/) noexcept {
-    }
-    void OnShutdownComplete() noexcept {
-        ShutdownComplete.Set(true);
-        if (CleanUp == CleanUpAutoDelete) {
-            delete this;
+    MsH3ConnectionCallback* Callback;
+    void* Context;
+    static
+    MSH3_STATUS
+    MsH3Callback(
+        MSH3_CONNECTION* /* Connection */,
+        MsH3Connection* pThis,
+        MSH3_CONNECTION_EVENT* Event
+        ) noexcept {
+        if (Event->Type == MSH3_CONNECTION_EVENT_CONNECTED) {
+            pThis->Connected.Set(true);
+        } else if (Event->Type == MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE) {
+            pThis->ShutdownComplete.Set(true);
         }
-    }
-    void OnNewRequest(MSH3_REQUEST* Request) noexcept;
-private: // Static stuff
-    static void MSH3_CALL s_OnConnected(MSH3_CONNECTION* /*Connection*/, void* IfContext) noexcept {
-        ((MsH3Connection*)IfContext)->OnConnected();
-    }
-    static void MSH3_CALL s_OnShutdownByPeer(MSH3_CONNECTION* /*Connection*/, void* IfContext, uint64_t ErrorCode) noexcept {
-        ((MsH3Connection*)IfContext)->OnShutdownByPeer(ErrorCode);
-    }
-    static void MSH3_CALL s_OnShutdownByTransport(MSH3_CONNECTION* /*Connection*/, void* IfContext, MSH3_STATUS Status) noexcept {
-        ((MsH3Connection*)IfContext)->OnShutdownByTransport(Status);
-    }
-    static void MSH3_CALL s_OnShutdownComplete(MSH3_CONNECTION* /*Connection*/, void* IfContext) noexcept {
-        ((MsH3Connection*)IfContext)->OnShutdownComplete();
-    }
-    static void MSH3_CALL s_OnNewRequest(MSH3_CONNECTION* /*Connection*/, void* IfContext, MSH3_REQUEST* Request) noexcept {
-        ((MsH3Connection*)IfContext)->OnNewRequest(Request);
+        auto DeleteOnExit =
+            Event->Type == MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE &&
+            pThis->CleanUp == CleanUpAutoDelete;
+        auto Status = pThis->Callback(pThis, pThis->Context, Event);
+        if (DeleteOnExit) {
+            delete pThis;
+        }
+        return Status;
     }
 };
 
-typedef void MSH3_CALL MsH3RequestHeaderRecvCallback(struct MsH3Request* Request, const MSH3_HEADER* Header);
-typedef bool MSH3_CALL MsH3RequestDataRecvCallback(struct MsH3Request* Request, uint32_t* Length, const uint8_t* Data);
-typedef void MSH3_CALL MsH3RequestComplete(struct MsH3Request* Request, bool Aborted, uint64_t AbortError);
+struct MsH3AutoAcceptListener : public MsH3Listener {
+    const MsH3Configuration* Configuration;
+    MsH3ConnectionCallback* ConnectionHandler;
+    void* ConnectionContext;
+    MsH3Waitable<MsH3Connection*> NewConnection;
+
+    MsH3AutoAcceptListener(
+        const MsH3Api& Api,
+        const MsH3Addr& Address,
+        MsH3ConnectionCallback* _ConnectionHandler,
+        void* _ConnectionContext = nullptr
+        ) noexcept :
+        MsH3Listener(Api, CleanUpManual, ListenerCallback, this, Address),
+        Configuration(nullptr),
+        ConnectionHandler(_ConnectionHandler),
+        ConnectionContext(_ConnectionContext)
+    { }
+
+    MsH3AutoAcceptListener(
+        const MsH3Api& Api,
+        const MsH3Addr& Address,
+        const MsH3Configuration& Config,
+        MsH3ConnectionCallback* _ConnectionHandler,
+        void* _ConnectionContext = nullptr
+        ) noexcept :
+        MsH3Listener(Api, CleanUpManual, ListenerCallback, this, Address),
+        Configuration(&Config),
+        ConnectionHandler(_ConnectionHandler),
+        ConnectionContext(_ConnectionContext)
+    { }
+
+private:
+
+    static
+    MSH3_STATUS
+    ListenerCallback(
+        _In_ MsH3Listener* /* Listener */,
+        _In_opt_ void* Context,
+        _Inout_ MSH3_LISTENER_EVENT* Event
+        ) noexcept {
+        auto pThis = (MsH3AutoAcceptListener*)Context;
+#ifdef _WIN32
+        MSH3_STATUS Status = E_NOT_VALID_STATE;
+#else
+        MSH3_STATUS Status = EINVAL;
+#endif
+        if (Event->Type == MSH3_LISTENER_EVENT_NEW_CONNECTION) {
+            auto Connection = new(std::nothrow) MsH3Connection(Event->NEW_CONNECTION.Connection, CleanUpAutoDelete, pThis->ConnectionHandler, pThis->ConnectionContext);
+            if (Connection) {
+                if (!pThis->Configuration ||
+                    MSH3_FAILED(Status = Connection->SetConfiguration(*pThis->Configuration))) {
+                    //
+                    // The connection is being rejected. Let MsH3 free the handle.
+                    //
+                    Connection->Handle = nullptr;
+                    delete Connection;
+                } else {
+                    Status = MSH3_STATUS_SUCCESS;
+                    pThis->NewConnection.Set(Connection);
+                }
+            }
+        }
+        return Status;
+    }
+};
+
+typedef MSH3_STATUS MsH3RequestCallback(
+    _In_ struct MsH3Request* Request,
+    _In_opt_ void* Context,
+    _Inout_ MSH3_REQUEST_EVENT* Event
+    );
 
 struct MsH3Request {
     MSH3_REQUEST* Handle { nullptr };
-    MsH3Waitable<bool> Complete;
+    MsH3CleanUpMode CleanUpMode;
+    MsH3RequestCallback* Callback;
+    void* Context;
+    //MsH3Waitable<bool> Complete;
     MsH3Waitable<bool> ShutdownComplete;
     bool Aborted {false};
     uint64_t AbortError {0};
-    void* AppContext {nullptr};
-    MsH3RequestHeaderRecvCallback* HeaderRecvFn {nullptr};
-    MsH3RequestDataRecvCallback* DataRecvFn {nullptr};
-    MsH3RequestComplete* CompleteFn {nullptr};
     MsH3Request(
         MsH3Connection& Connection,
         MSH3_REQUEST_FLAGS Flags = MSH3_REQUEST_FLAG_NONE,
-        void* AppContext = nullptr,
-        MsH3RequestHeaderRecvCallback* HeaderRecv = nullptr,
-        MsH3RequestDataRecvCallback* DataRecv = nullptr,
-        MsH3RequestComplete* Complete = nullptr,
-        MsH3CleanUpMode CleanUpMode = CleanUpManual
-        ) noexcept : AppContext(AppContext), HeaderRecvFn(HeaderRecv), DataRecvFn(DataRecv), CompleteFn(Complete), CleanUp(CleanUpMode) {
-        Handle = MsH3RequestOpen(Connection, &Interface, this, Flags);
+        MsH3CleanUpMode CleanUpMode = CleanUpManual,
+        MsH3RequestCallback* Callback = NoOpCallback,
+        void* Context = nullptr
+        ) noexcept : CleanUpMode(CleanUpMode), Callback(Callback), Context(Context) {
+        if (Connection.IsValid()) {
+            Handle = MsH3RequestOpen(Connection, (MSH3_REQUEST_CALLBACK_HANDLER)MsH3Callback, this, Flags);
+        }
     }
-    MsH3Request(MSH3_REQUEST* ServerHandle) noexcept : Handle(ServerHandle), CleanUp(CleanUpAutoDelete) {
-        MsH3RequestSetCallbackHandler(Handle, &Interface, this);
+    MsH3Request(
+        MSH3_REQUEST* ServerHandle,
+        MsH3CleanUpMode CleanUpMode,
+        MsH3RequestCallback* Callback = NoOpCallback,
+        void* Context = nullptr
+        ) noexcept : Handle(ServerHandle), CleanUpMode(CleanUpMode), Callback(Callback), Context(Context) {
+        MsH3RequestSetCallbackHandler(Handle, (MSH3_REQUEST_CALLBACK_HANDLER)MsH3Callback, this);
     }
-    ~MsH3Request() noexcept { if (Handle) { MsH3RequestClose(Handle); } }
+    ~MsH3Request() noexcept { Close(); }
     MsH3Request(MsH3Request& other) = delete;
     MsH3Request operator=(MsH3Request& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_REQUEST* () const noexcept { return Handle; }
+    void
+    Close() noexcept {
+#ifdef _WIN32
+        auto HandleToClose = (MSH3_REQUEST*)InterlockedExchangePointer((PVOID*)&Handle, NULL);
+#else
+        HMSH3 HandleToClose = (MSH3_REQUEST*)__sync_fetch_and_and(&Handle, 0);
+#endif
+        if (HandleToClose) {
+            MsH3RequestClose(HandleToClose);
+        }
+    }
     void CompleteReceive(uint32_t Length) noexcept {
         MsH3RequestCompleteReceive(Handle, Length);
     };
@@ -214,71 +374,38 @@ struct MsH3Request {
         ) noexcept {
         return MsH3RequestShutdown(Handle, Flags, _AbortError);
     }
+    static
+    MSH3_STATUS
+    NoOpCallback(
+        _In_ MsH3Request* /* Request */,
+        _In_opt_ void* /* Context */,
+        _Inout_ MSH3_REQUEST_EVENT* /* Event */
+        ) noexcept {
+        return MSH3_STATUS_SUCCESS;
+    }
 private:
-    const MsH3CleanUpMode CleanUp;
-    const MSH3_REQUEST_IF Interface { s_OnHeaderReceived, s_OnDataReceived, s_OnComplete, s_OnShutdownComplete, s_OnDataSent };
-    void OnComplete(bool _Aborted, uint64_t _AbortError) noexcept {
+    static
+    MSH3_STATUS
+    MsH3Callback(
+        MSH3_REQUEST* /* Request */,
+        MsH3Request* pThis,
+        MSH3_REQUEST_EVENT* Event
+        ) noexcept {
+        if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE) {
+            pThis->ShutdownComplete.Set(true);
+        }
+        auto DeleteOnExit =
+            Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE &&
+            pThis->CleanUpMode == CleanUpAutoDelete;
+        auto Status = pThis->Callback(pThis, pThis->Context, Event);
+        if (DeleteOnExit) {
+            delete pThis;
+        }
+        return Status;
+    }
+    /*void OnComplete(bool _Aborted, uint64_t _AbortError) noexcept {
         Aborted = _Aborted;
         AbortError = _AbortError;
         Complete.Set(true);
-    }
-    void OnShutdownComplete() noexcept {
-        ShutdownComplete.Set(true);
-        if (CleanUp == CleanUpAutoDelete) {
-            delete this;
-        }
-    }
-    void OnDataSent(void* /*SendContext*/) noexcept {
-    }
-private: // Static stuff
-    static void MSH3_CALL s_OnHeaderReceived(MSH3_REQUEST* /*Request*/, void* IfContext, const MSH3_HEADER* Header) noexcept {
-        if (((MsH3Request*)IfContext)->HeaderRecvFn) {
-            ((MsH3Request*)IfContext)->HeaderRecvFn((MsH3Request*)IfContext, Header);
-        }
-    }
-    static bool MSH3_CALL s_OnDataReceived(MSH3_REQUEST* /*Request*/, void* IfContext, uint32_t* Length, const uint8_t* Data) noexcept {
-        if (((MsH3Request*)IfContext)->DataRecvFn) {
-            return ((MsH3Request*)IfContext)->DataRecvFn((MsH3Request*)IfContext, Length, Data);
-        } else {
-            return true;
-        }
-    }
-    static void MSH3_CALL s_OnComplete(MSH3_REQUEST* /*Request*/, void* IfContext, bool Aborted, uint64_t AbortError) noexcept {
-        if (((MsH3Request*)IfContext)->CompleteFn) {
-            ((MsH3Request*)IfContext)->CompleteFn((MsH3Request*)IfContext, Aborted, AbortError);
-        }
-        ((MsH3Request*)IfContext)->OnComplete(Aborted, AbortError);
-    }
-    static void MSH3_CALL s_OnShutdownComplete(MSH3_REQUEST* /*Request*/, void* IfContext) noexcept {
-        ((MsH3Request*)IfContext)->OnShutdownComplete();
-    }
-    static void MSH3_CALL s_OnDataSent(MSH3_REQUEST* /*Request*/, void* IfContext, void* SendContext) noexcept {
-        ((MsH3Request*)IfContext)->OnDataSent(SendContext);
-    }
-};
-
-void MsH3Connection::OnNewRequest(MSH3_REQUEST* Request) noexcept {
-    NewRequest.Set(new(std::nothrow) MsH3Request(Request));
-}
-
-struct MsH3Listener {
-    MSH3_LISTENER* Handle { nullptr };
-    const MSH3_LISTENER_IF Interface { s_OnNewConnection };
-    MsH3Waitable<MsH3Connection*> NewConnection;
-    MsH3Listener(MsH3Api& Api, const MsH3Addr& Address TEST_DEF(MsH3Addr())) noexcept {
-        Handle = MsH3ListenerOpen(Api, Address, &Interface, this);
-    }
-    ~MsH3Listener() noexcept { if (Handle) { MsH3ListenerClose(Handle); } }
-    MsH3Listener(MsH3Listener& other) = delete;
-    MsH3Listener operator=(MsH3Listener& Other) = delete;
-    bool IsValid() const noexcept { return Handle != nullptr; }
-    operator MSH3_LISTENER* () const noexcept { return Handle; }
-private:
-    void OnNewConnection(MSH3_CONNECTION* Connection, const char* /*ServerName*/, uint16_t /*ServerNameLength*/) noexcept {
-        NewConnection.Set(new(std::nothrow) MsH3Connection(Connection));
-    }
-private: // Static stuff
-    static void MSH3_CALL s_OnNewConnection(MSH3_LISTENER* /*Listener*/, void* IfContext, MSH3_CONNECTION* Connection, const char* ServerName, uint16_t ServerNameLength) noexcept {
-        ((MsH3Listener*)IfContext)->OnNewConnection(Connection, ServerName, ServerNameLength);
-    }
+    }*/
 };
