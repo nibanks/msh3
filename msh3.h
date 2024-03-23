@@ -267,7 +267,7 @@ typedef struct MSH3_CONNECTION_EVENT {
     MSH3_CONNECTION_EVENT_TYPE Type;
     union {
         struct {
-            QUIC_STATUS Status;
+            MSH3_STATUS Status;
             uint64_t ErrorCode; // Wire format error code.
         } SHUTDOWN_INITIATED_BY_TRANSPORT;
         struct {
@@ -285,7 +285,7 @@ typedef struct MSH3_CONNECTION_EVENT {
 } MSH3_CONNECTION_EVENT;
 
 typedef
-QUIC_STATUS
+MSH3_STATUS
 (MSH3_CALL MSH3_CONNECTION_CALLBACK)(
     MSH3_CONNECTION* Connection,
     void* Context,
@@ -367,7 +367,7 @@ typedef struct MSH3_REQUEST_EVENT {
             bool ConnectionClosedRemotely : 1;
             bool RESERVED                 : 5;
             uint64_t ConnectionErrorCode;
-            QUIC_STATUS ConnectionCloseStatus;
+            MSH3_STATUS ConnectionCloseStatus;
         } SHUTDOWN_COMPLETE;
         struct {
             const MSH3_HEADER* Header;
@@ -396,7 +396,7 @@ typedef struct MSH3_REQUEST_EVENT {
 } MSH3_REQUEST_EVENT;
 
 typedef
-QUIC_STATUS
+MSH3_STATUS
 (MSH3_CALL MSH3_REQUEST_CALLBACK)(
     MSH3_REQUEST* Request,
     void* Context,
@@ -489,7 +489,7 @@ typedef struct MSH3_LISTENER_EVENT {
 } MSH3_LISTENER_EVENT;
 
 typedef
-QUIC_STATUS
+MSH3_STATUS
 (MSH3_CALL MSH3_LISTENER_CALLBACK)(
     MSH3_LISTENER* Connection,
     void* Context,
@@ -503,7 +503,7 @@ MSH3_CALL
 MsH3ListenerOpen(
     MSH3_API* Api,
     const MSH3_ADDR* Address,
-    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    const MSH3_LISTENER_CALLBACK_HANDLER Handler,
     void* Context
     );
 

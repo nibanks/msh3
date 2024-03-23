@@ -54,10 +54,11 @@ jobs:
     - name: Upload
       uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
       with:
-        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}-${{ matrix.config }}
+        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.config }}
         path: |
           artifacts/*.dll
           artifacts/*.exe
+          artifacts/*.pdb
           artifacts/*.so
           artifacts/msh3app
           artifacts/msh3test

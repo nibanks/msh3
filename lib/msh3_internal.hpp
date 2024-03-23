@@ -624,7 +624,7 @@ struct MsH3pListener : public MsQuicListener {
     MsH3pListener(
         const MsQuicRegistration& Registration,
         const MSH3_ADDR* Address,
-        const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+        const MSH3_LISTENER_CALLBACK_HANDLER Handler,
         void* Context
         );
 

@@ -283,7 +283,7 @@ MSH3_CALL
 MsH3ListenerOpen(
     MSH3_API* Handle,
     const MSH3_ADDR* Address,
-    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    const MSH3_LISTENER_CALLBACK_HANDLER Handler,
     void* Context
     )
 {
@@ -894,8 +894,17 @@ MsH3pBiDirStream::MsQuicCallback(
         Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
         break;
     case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-        if (!Complete) Callbacks.Complete((MSH3_REQUEST*)this, Context, true, 0xffffffffUL);
-        if (!ShutdownComplete) Callbacks.ShutdownComplete((MSH3_REQUEST*)this, Context);
+        if (!ShutdownComplete) { // TODO - Need better logic here?
+            h3Event.Type = MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionShutdown = Event->SHUTDOWN_COMPLETE.ConnectionShutdown;
+            h3Event.SHUTDOWN_COMPLETE.AppCloseInProgress = Event->SHUTDOWN_COMPLETE.AppCloseInProgress;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionShutdownByApp = Event->SHUTDOWN_COMPLETE.ConnectionShutdownByApp;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionClosedRemotely = Event->SHUTDOWN_COMPLETE.ConnectionClosedRemotely;
+            h3Event.SHUTDOWN_COMPLETE.RESERVED = Event->SHUTDOWN_COMPLETE.RESERVED;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionErrorCode = Event->SHUTDOWN_COMPLETE.ConnectionErrorCode;
+            h3Event.SHUTDOWN_COMPLETE.ConnectionCloseStatus = Event->SHUTDOWN_COMPLETE.ConnectionCloseStatus;
+            Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
+        }
         break;
     case QUIC_STREAM_EVENT_IDEAL_SEND_BUFFER_SIZE:
         h3Event.Type = MSH3_REQUEST_EVENT_IDEAL_SEND_SIZE;
@@ -949,7 +958,12 @@ MsH3pBiDirStream::Receive(
             if (CurFrameType == H3FrameData) {
                 uint32_t AppReceiveLength = AvailFrameLength;
                 ReceivePending = true;
-                if (Callbacks.DataReceived((MSH3_REQUEST*)this, Context, &AppReceiveLength, Buffer->Buffer + CurRecvOffset)) {
+                MSH3_REQUEST_EVENT h3Event;
+                h3Event.Type = MSH3_REQUEST_EVENT_DATA_RECEIVED;
+                h3Event.DATA_RECEIVED.Data = Buffer->Buffer + CurRecvOffset;
+                h3Event.DATA_RECEIVED.Length = AvailFrameLength;
+                MSH3_STATUS Status = Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
+                if (Status == QUIC_STATUS_SUCCESS) {
                     ReceivePending = false; // Not pending receive
                     if (AppReceiveLength < AvailFrameLength) { // Partial receive case
                         CurFrameLengthLeft -= AppReceiveLength;
@@ -958,11 +972,13 @@ MsH3pBiDirStream::Receive(
                         CurRecvOffset = 0;
                         return QUIC_STATUS_SUCCESS;
                     }
-                } else { // Receive pending (but may have been completed via API call already)
+                } else if (Status == QUIC_STATUS_PENDING) { // Receive pending (but may have been completed via API call already)
                     if (!ReceivePending) {
                         // TODO - Support continuing this receive since it was completed via the API call
                     }
                     return QUIC_STATUS_PENDING;
+                } else {
+                    // TODO - Assert
                 }
             } else if (CurFrameType == H3FrameHeaders) {
                 const uint8_t* Frame = Buffer->Buffer + CurRecvOffset;
@@ -1057,9 +1073,10 @@ MsH3pBiDirStream::DecodeProcess(
 MsH3pListener::MsH3pListener(
     const MsQuicRegistration& Registration,
     const MSH3_ADDR* Address,
-    const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+    const MSH3_LISTENER_CALLBACK_HANDLER Handler,
     void* Context
-    ) : MsQuicListener(Registration, s_MsQuicCallback, this), Callbacks(Handler), Context(Context)
+    ) : MsQuicListener(Registration, CleanUpManual, s_MsQuicCallback, this),
+        Callbacks(Handler), Context(Context)
 {
     if (QUIC_SUCCEEDED(InitStatus)) {
         InitStatus = Start("h3", (QUIC_ADDR*)Address);
@@ -1075,7 +1092,12 @@ MsH3pListener::MsQuicCallback(
     case QUIC_LISTENER_EVENT_NEW_CONNECTION: {
         auto Connection = new(std::nothrow) MsH3pConnection(Event->NEW_CONNECTION.Connection);
         if (!Connection) return QUIC_STATUS_OUT_OF_MEMORY;
-        Callbacks.NewConnection((MSH3_LISTENER*)this, Context, (MSH3_CONNECTION*)Connection, Event->NEW_CONNECTION.Info->ServerName, Event->NEW_CONNECTION.Info->ServerNameLength);
+        MSH3_LISTENER_EVENT h3Event;
+        h3Event.Type = MSH3_LISTENER_EVENT_NEW_CONNECTION;
+        h3Event.NEW_CONNECTION.Connection = (MSH3_CONNECTION*)Connection;
+        h3Event.NEW_CONNECTION.ServerName = Event->NEW_CONNECTION.Info->ServerName;
+        h3Event.NEW_CONNECTION.ServerNameLength = Event->NEW_CONNECTION.Info->ServerNameLength;
+        Callbacks((MSH3_LISTENER*)this, Context, &h3Event);
         break;
     }
     default: break;
