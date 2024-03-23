@@ -25,7 +25,7 @@ struct Arguments {
 
 MSH3_STATUS
 MsH3RequestHandler(
-    MsH3Request* Request,
+    MsH3Request* /* Request */,
     void* Context,
     MSH3_REQUEST_EVENT* Event
     )
