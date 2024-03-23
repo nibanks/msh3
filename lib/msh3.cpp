@@ -956,7 +956,6 @@ MsH3pBiDirStream::Receive(
             }
 
             if (CurFrameType == H3FrameData) {
-                uint32_t AppReceiveLength = AvailFrameLength;
                 ReceivePending = true;
                 MSH3_REQUEST_EVENT h3Event;
                 h3Event.Type = MSH3_REQUEST_EVENT_DATA_RECEIVED;
@@ -965,9 +964,10 @@ MsH3pBiDirStream::Receive(
                 MSH3_STATUS Status = Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
                 if (Status == QUIC_STATUS_SUCCESS) {
                     ReceivePending = false; // Not pending receive
-                    if (AppReceiveLength < AvailFrameLength) { // Partial receive case
-                        CurFrameLengthLeft -= AppReceiveLength;
-                        Event->RECEIVE.TotalBufferLength = CurRecvCompleteLength + CurRecvOffset + AppReceiveLength;
+                    if (h3Event.DATA_RECEIVED.Length < AvailFrameLength) { // Partial receive case
+                        CurFrameLengthLeft -= h3Event.DATA_RECEIVED.Length;
+                        Event->RECEIVE.TotalBufferLength =
+                            CurRecvCompleteLength + CurRecvOffset + h3Event.DATA_RECEIVED.Length;
                         CurRecvCompleteLength = 0;
                         CurRecvOffset = 0;
                         return QUIC_STATUS_SUCCESS;

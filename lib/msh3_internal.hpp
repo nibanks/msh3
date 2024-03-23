@@ -636,7 +636,7 @@ private:
     QUIC_STATUS
     QUIC_API
     s_MsQuicCallback(
-        _In_ HQUIC /* Listener */,
+        _In_ MsQuicListener* /* Listener */,
         _In_opt_ void* Context,
         _Inout_ QUIC_LISTENER_EVENT* Event
         )
