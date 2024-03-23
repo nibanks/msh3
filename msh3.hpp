@@ -106,10 +106,10 @@ struct MsH3Listener {
     void* Context{ nullptr };
     MsH3Listener(
         MsH3Api& Api,
+        const MsH3Addr& Address,
         MsH3CleanUpMode CleanUpMode,
         MsH3ListenerCallback* Callback,
-        void* Context = nullptr,
-        const MsH3Addr& Address TEST_DEF(MsH3Addr())
+        void* Context = nullptr
         ) noexcept : CleanUpMode(CleanUpMode), Callback(Callback), Context(Context) {
         Handle = MsH3ListenerOpen(Api, Address, (MSH3_LISTENER_CALLBACK_HANDLER)MsH3Callback, this);
     }
@@ -153,7 +153,7 @@ struct MsH3Connection {
         MsH3CleanUpMode CleanUpMode = CleanUpManual,
         MsH3ConnectionCallback* Callback = NoOpCallback,
         void* Context = nullptr
-        ) noexcept : CleanUp(CleanUpManual), Callback(Callback), Context(Context) {
+        ) noexcept : CleanUp(CleanUpMode), Callback(Callback), Context(Context) {
         Handle = MsH3ConnectionOpen(Api, (MSH3_CONNECTION_CALLBACK_HANDLER)MsH3Callback, this);
     }
     MsH3Connection(
@@ -161,7 +161,7 @@ struct MsH3Connection {
         MsH3CleanUpMode CleanUpMode,
         MsH3ConnectionCallback* Callback,
         void* Context = nullptr
-        ) noexcept : Handle(ServerHandle), CleanUp(CleanUpManual), Callback(Callback), Context(Context)  {
+        ) noexcept : Handle(ServerHandle), CleanUp(CleanUpMode), Callback(Callback), Context(Context)  {
         MsH3ConnectionSetCallbackHandler(Handle, (MSH3_CONNECTION_CALLBACK_HANDLER)MsH3Callback, this);
     }
     ~MsH3Connection() noexcept { Close(); }
@@ -248,7 +248,7 @@ struct MsH3AutoAcceptListener : public MsH3Listener {
         MsH3ConnectionCallback* _ConnectionHandler,
         void* _ConnectionContext = nullptr
         ) noexcept :
-        MsH3Listener(Api, CleanUpManual, ListenerCallback, this, Address),
+        MsH3Listener(Api, Address, CleanUpManual, ListenerCallback, this),
         Configuration(nullptr),
         ConnectionHandler(_ConnectionHandler),
         ConnectionContext(_ConnectionContext)
@@ -261,7 +261,7 @@ struct MsH3AutoAcceptListener : public MsH3Listener {
         MsH3ConnectionCallback* _ConnectionHandler,
         void* _ConnectionContext = nullptr
         ) noexcept :
-        MsH3Listener(Api, CleanUpManual, ListenerCallback, this, Address),
+        MsH3Listener(Api, Address, CleanUpManual, ListenerCallback, this),
         Configuration(&Config),
         ConnectionHandler(_ConnectionHandler),
         ConnectionContext(_ConnectionContext)
@@ -313,7 +313,6 @@ struct MsH3Request {
     MsH3CleanUpMode CleanUpMode;
     MsH3RequestCallback* Callback;
     void* Context;
-    //MsH3Waitable<bool> Complete;
     MsH3Waitable<bool> ShutdownComplete;
     bool Aborted {false};
     uint64_t AbortError {0};
@@ -346,7 +345,7 @@ struct MsH3Request {
 #ifdef _WIN32
         auto HandleToClose = (MSH3_REQUEST*)InterlockedExchangePointer((PVOID*)&Handle, NULL);
 #else
-        HMSH3 HandleToClose = (MSH3_REQUEST*)__sync_fetch_and_and(&Handle, 0);
+        auto HandleToClose = (MSH3_REQUEST*)__sync_fetch_and_and(&Handle, 0);
 #endif
         if (HandleToClose) {
             MsH3RequestClose(HandleToClose);
@@ -403,9 +402,4 @@ private:
         }
         return Status;
     }
-    /*void OnComplete(bool _Aborted, uint64_t _AbortError) noexcept {
-        Aborted = _Aborted;
-        AbortError = _AbortError;
-        Complete.Set(true);
-    }*/
 };

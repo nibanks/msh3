@@ -23,28 +23,41 @@ struct Arguments {
     MsH3Connection* Connection { nullptr };
 } Args;
 
-void MSH3_CALL HeaderReceived(struct MsH3Request* , const MSH3_HEADER* Header) {
-    if (Args.Print) {
-        fwrite(Header->Name, 1, Header->NameLength, stdout);
-        printf(":");
-        fwrite(Header->Value, 1, Header->ValueLength, stdout);
-        printf("\n");
+MSH3_STATUS
+MsH3RequestHandler(
+    MsH3Request* Request,
+    void* Context,
+    MSH3_REQUEST_EVENT* Event
+    )
+{
+    const uint32_t Index = (uint32_t)(size_t)Context;
+    switch (Event->Type) {
+    case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE:
+        if (Args.Print) printf("\n");
+        /*if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
+        else*/         printf("Request %u complete\n", Index);
+        if (++Args.CompletionCount == (int)Args.Count) {
+            Args.Connection->Shutdown();
+        }
+        break;
+    case MSH3_REQUEST_EVENT_HEADER_RECEIVED:
+        if (Args.Print) {
+            auto Header = Event->HEADER_RECEIVED.Header;
+            fwrite(Header->Name, 1, Header->NameLength, stdout);
+            printf(":");
+            fwrite(Header->Value, 1, Header->ValueLength, stdout);
+            printf("\n");
+        }
+        break;
+    case MSH3_REQUEST_EVENT_DATA_RECEIVED:
+        if (Args.Print) {
+            fwrite(Event->DATA_RECEIVED.Data, 1, Event->DATA_RECEIVED.Length, stdout);
+        }
+        break;
+    default:
+        break;
     }
-}
-
-bool MSH3_CALL DataReceived(struct MsH3Request* , uint32_t* Length, const uint8_t* Data) {
-    if (Args.Print) fwrite(Data, 1, *Length, stdout);
-    return true;
-}
-
-void MSH3_CALL Complete(struct MsH3Request* Request, bool Aborted, uint64_t AbortError) {
-    const uint32_t Index = (uint32_t)(size_t)Request->AppContext;
-    if (Args.Print) printf("\n");
-    if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
-    else         printf("Request %u complete\n", Index);
-    if (++Args.CompletionCount == (int)Args.Count) {
-        Args.Connection->Shutdown();
-    }
+    return MSH3_STATUS_SUCCESS;
 }
 
 void ParseArgs(int argc, char **argv) {
@@ -128,7 +141,7 @@ int MSH3_CALL main(int argc, char **argv) {
             Headers[1].Value = Path;
             Headers[1].ValueLength = strlen(Path);
             for (uint32_t i = 0; i < Args.Count; ++i) {
-                auto Request = new (std::nothrow) MsH3Request(Connection, MSH3_REQUEST_FLAG_NONE, (void*)(size_t)(i+1), HeaderReceived, DataReceived, Complete, CleanUpAutoDelete);
+                auto Request = new (std::nothrow) MsH3Request(Connection, MSH3_REQUEST_FLAG_NONE, CleanUpAutoDelete, MsH3RequestHandler, (void*)(size_t)(i+1));
                 if (!Request || !Request->IsValid()) {
                     printf("Request %u failed to start\n", i+1);
                     break;
