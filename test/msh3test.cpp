@@ -124,7 +124,6 @@ DEF_TEST(SimpleRequest) {
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
-    auto ServerConnection = Server.NewConnection.Get();
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest = Server.NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
