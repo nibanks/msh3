@@ -67,8 +67,10 @@ jobs:
         ./artifacts/msh3app outlook.office.com
         ./artifacts/msh3app www.cloudflare.com
         ./artifacts/msh3app www.google.com
+      timeout-minutes: 1
     - name: msh3test
       run: ./artifacts/msh3test
+      timeout-minutes: 1
   all-done:
     name: Build Complete
     runs-on: ubuntu-latest
