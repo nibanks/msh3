@@ -36,9 +36,11 @@ const size_t ResponseHeadersCount = sizeof(ResponseHeaders)/sizeof(MSH3_HEADER);
 
 const char ResponseData[] = "HELLO WORLD!\n";
 
-struct TestServer : public MsH3Listener {
+struct TestServer : public MsH3AutoAcceptListener {
     MsH3Configuration Config;
-    TestServer(MsH3Api& Api) : MsH3Listener(Api), Config(Api) {
+    MsH3Waitable<MsH3Request*> NewRequest;
+    TestServer(MsH3Api& Api)
+     : MsH3AutoAcceptListener(Api, MsH3Addr(), Config, ConnectionCallback, this), Config(Api) {
         if (Handle && MSH3_FAILED(Config.LoadConfiguration())) {
             MsH3ListenerClose(Handle); Handle = nullptr;
         }
@@ -46,9 +48,22 @@ struct TestServer : public MsH3Listener {
     bool WaitForConnection() noexcept {
         VERIFY(NewConnection.WaitFor());
         auto ServerConnection = NewConnection.Get();
-        VERIFY_SUCCESS(ServerConnection->SetConfiguration(Config));
         VERIFY(ServerConnection->Connected.WaitFor());
         return true;
+    }
+    static
+    MSH3_STATUS
+    ConnectionCallback(
+        MsH3Connection* /* Connection */,
+        void* Context,
+        MSH3_CONNECTION_EVENT* Event
+        ) noexcept {
+        auto pThis = (TestServer*)Context;
+        if (Event->Type == MSH3_CONNECTION_EVENT_NEW_REQUEST) {
+            auto Request = new (std::nothrow) MsH3Request(Event->NEW_REQUEST.Request, CleanUpAutoDelete, MsH3Request::NoOpCallback, pThis);
+            pThis->NewRequest.Set(Request);
+        }
+        return MSH3_STATUS_SUCCESS;
     }
 };
 
@@ -110,52 +125,58 @@ DEF_TEST(SimpleRequest) {
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
     auto ServerConnection = Server.NewConnection.Get();
-    VERIFY(ServerConnection->NewRequest.WaitFor());
-    auto ServerRequest = ServerConnection->NewRequest.Get();
+    VERIFY(Server.NewRequest.WaitFor());
+    auto ServerRequest = Server.NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
-    VERIFY(Request.Complete.WaitFor());
-    VERIFY(ServerRequest->Complete.WaitFor());
+    VERIFY(Request.ShutdownComplete.WaitFor());
+    VERIFY(ServerRequest->ShutdownComplete.WaitFor());
     Client.Shutdown();
     return true;
 }
 
 bool ReceiveData(bool Async, bool Inline = true) {
-    struct Context {
+    struct TestContext {
         bool Async; bool Inline;
         MsH3Waitable<uint32_t> Data;
-        Context(bool Async, bool Inline) : Async(Async), Inline(Inline) {}
-        static bool RecvData(MsH3Request* Request, uint32_t* Length, const uint8_t* /* Data */) {
-            auto ctx = (Context*)Request->AppContext;
-            ctx->Data.Set(*Length);
-            if (ctx->Async) {
-                if (ctx->Inline) {
-                    Request->CompleteReceive(*Length);
+        TestContext(bool Async, bool Inline) : Async(Async), Inline(Inline) {}
+        static MSH3_STATUS RequestCallback(
+            struct MsH3Request* Request,
+            void* Context,
+            MSH3_REQUEST_EVENT* Event
+            ) {
+            auto ctx = (TestContext*)Context;
+            if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
+                ctx->Data.Set(Event->DATA_RECEIVED.Length);
+                if (ctx->Async) {
+                    if (ctx->Inline) {
+                        Request->CompleteReceive(Event->DATA_RECEIVED.Length);
+                    }
+                    return MSH3_STATUS_PENDING;
                 }
-                return false;
             }
-            return true;
+            return MSH3_STATUS_SUCCESS;
         }
     };
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    Context Context(Async, Inline);
-    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, &Context, nullptr, Context::RecvData);
+    TestContext Context(Async, Inline);
+    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, TestContext::RequestCallback, &Context);
     VERIFY_SUCCESS(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Request.IsValid());
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
-    VERIFY(Server.NewConnection.Get()->NewRequest.WaitFor());
-    auto ServerRequest = Server.NewConnection.Get()->NewRequest.Get();
+    VERIFY(Server.NewRequest.WaitFor());
+    auto ServerRequest = Server.NewRequest.Get();
     VERIFY(ServerRequest->Send(RequestHeaders, RequestHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Context.Data.WaitFor());
     VERIFY(Context.Data.Get() == sizeof(ResponseData));
     if (Async && !Inline) {
         Request.CompleteReceive(Context.Data.Get());
     }
-    VERIFY(Request.Complete.WaitFor());
-    VERIFY(ServerRequest->Complete.WaitFor());
+    VERIFY(Request.ShutdownComplete.WaitFor());
+    VERIFY(ServerRequest->ShutdownComplete.WaitFor());
     Client.Shutdown();
     return true;
 }

@@ -147,7 +147,6 @@ struct MsH3Connection {
     MSH3_CONNECTION* Handle { nullptr };
     MsH3Waitable<bool> Connected;
     MsH3Waitable<bool> ShutdownComplete;
-    MsH3Waitable<MsH3Request*> NewRequest;
     MsH3Connection(
         MsH3Api& Api,
         MsH3CleanUpMode CleanUpMode = CleanUpManual,

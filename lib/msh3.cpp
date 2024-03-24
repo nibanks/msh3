@@ -962,7 +962,7 @@ MsH3pBiDirStream::Receive(
                 h3Event.DATA_RECEIVED.Data = Buffer->Buffer + CurRecvOffset;
                 h3Event.DATA_RECEIVED.Length = AvailFrameLength;
                 MSH3_STATUS Status = Callbacks((MSH3_REQUEST*)this, Context, &h3Event);
-                if (Status == QUIC_STATUS_SUCCESS) {
+                if (Status == MSH3_STATUS_SUCCESS) {
                     ReceivePending = false; // Not pending receive
                     if (h3Event.DATA_RECEIVED.Length < AvailFrameLength) { // Partial receive case
                         CurFrameLengthLeft -= h3Event.DATA_RECEIVED.Length;
@@ -972,7 +972,7 @@ MsH3pBiDirStream::Receive(
                         CurRecvOffset = 0;
                         return QUIC_STATUS_SUCCESS;
                     }
-                } else if (Status == QUIC_STATUS_PENDING) { // Receive pending (but may have been completed via API call already)
+                } else if (Status == MSH3_STATUS_PENDING) { // Receive pending (but may have been completed via API call already)
                     if (!ReceivePending) {
                         // TODO - Support continuing this receive since it was completed via the API call
                     }

@@ -16,8 +16,13 @@
 #include <winsock2.h>
 #include <ws2def.h>
 #include <ws2ipdef.h>
+#define SUCCESS_HRESULT_FROM_WIN32(x) \
+    ((HRESULT)(((x) & 0x0000FFFF) | (FACILITY_WIN32 << 16)))
 #define MSH3_CALL __cdecl
 #define MSH3_STATUS HRESULT
+#define MSH3_STATUS_SUCCESS         S_OK
+#define MSH3_STATUS_PENDING         SUCCESS_HRESULT_FROM_WIN32(ERROR_IO_PENDING)
+#define MSH3_STATUS_INVALID_STATE   E_NOT_VALID_STATE
 #define MSH3_FAILED(X) FAILED(X)
 #else
 #include <netinet/ip.h>
@@ -25,6 +30,9 @@
 #include <arpa/inet.h>
 #define MSH3_CALL
 #define MSH3_STATUS unsigned int
+#define MSH3_STATUS_SUCCESS         ((MSH3_STATUS)0)
+#define MSH3_STATUS_PENDING         ((MSH3_STATUS)-2)
+#define MSH3_STATUS_INVALID_STATE   ((MSH3_STATUS)EPERM)
 #define MSH3_FAILED(X) ((int)(X) > 0)
 #ifndef DEFINE_ENUM_FLAG_OPERATORS
 #ifdef __cplusplus
@@ -55,7 +63,6 @@ inline ENUMTYPE &operator ^= (ENUMTYPE &a, ENUMTYPE b) throw() { return (ENUMTYP
 #endif // DEFINE_ENUM_FLAG_OPERATORS
 #endif
 
-#define MSH3_STATUS_SUCCESS 0
 
 #if defined(__cplusplus)
 extern "C" {
