@@ -284,10 +284,10 @@ private:
         if (Event->Type == MSH3_LISTENER_EVENT_NEW_CONNECTION) {
             auto Connection = new(std::nothrow) MsH3Connection(Event->NEW_CONNECTION.Connection, CleanUpAutoDelete, pThis->ConnectionHandler, pThis->ConnectionContext);
             if (Connection) {
-                if (!pThis->Configuration ||
+                if (pThis->Configuration &&
                     MSH3_FAILED(Status = Connection->SetConfiguration(*pThis->Configuration))) {
                     //
-                    // The connection is being rejected. Let MsH3 free the handle.
+                    // The connection is being rejected. Let the library free the handle.
                     //
                     Connection->Handle = nullptr;
                     delete Connection;
