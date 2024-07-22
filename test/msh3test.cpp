@@ -16,7 +16,7 @@ struct TestFunc {
 };
 #define DEF_TEST(X) bool Test##X()
 #define ADD_TEST(X) { Test##X, #X }
-#define VERIFY(X) if (!(X)) { printf(#X " Failed on %s:%d!\n", __FILE__, __LINE__); return false; }
+#define VERIFY(X) if (!(X)) { fprintf(stderr, #X " Failed on %s:%d!\n", __FILE__, __LINE__); return false; }
 #define VERIFY_SUCCESS(X) VERIFY(!MSH3_FAILED(X))
 
 const MSH3_HEADER RequestHeaders[] = {
@@ -202,13 +202,14 @@ const TestFunc TestFunctions[] = {
     ADD_TEST(ReceiveDataAsync),
     ADD_TEST(ReceiveDataAsyncInline),
 };
-const uint32_t TestCount = 1; //sizeof(TestFunctions)/sizeof(TestFunc);
+const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
 
 int MSH3_CALL main(int , char**) {
     printf("Running %u tests\n", TestCount);
     uint32_t FailCount = 0;
     for (uint32_t i = 0; i < TestCount; ++i) {
         printf("  %s\n", TestFunctions[i].Name);
+        fflush(stdout);
         if (!TestFunctions[i].Func()) FailCount++;
     }
     printf("Complete! %u tests failed\n", FailCount);
