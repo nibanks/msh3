@@ -202,7 +202,7 @@ const TestFunc TestFunctions[] = {
     ADD_TEST(ReceiveDataAsync),
     ADD_TEST(ReceiveDataAsyncInline),
 };
-const uint32_t TestCount = 0; //sizeof(TestFunctions)/sizeof(TestFunc);
+const uint32_t TestCount = 1; //sizeof(TestFunctions)/sizeof(TestFunc);
 
 int MSH3_CALL main(int , char**) {
     printf("Running %u tests\n", TestCount);
