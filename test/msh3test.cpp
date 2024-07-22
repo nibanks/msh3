@@ -20,7 +20,7 @@ struct TestFunc {
 #define VERIFY_SUCCESS(X) \
     do { \
         auto _status = X; \
-        if (MSH3_FAILED(X)) { \
+        if (MSH3_FAILED(_status)) { \
             fprintf(stderr, #X " Failed with %u on %s:%d!\n", (uint32_t)_status, __FILE__, __LINE__); \
             return false; \
         } \
@@ -55,7 +55,7 @@ struct TestServer : public MsH3AutoAcceptListener {
     bool WaitForConnection() noexcept {
         VERIFY(NewConnection.WaitFor());
         auto ServerConnection = NewConnection.Get();
-        ServerConnection->SetConfiguration(Config);
+        VERIFY_SUCCESS(ServerConnection->SetConfiguration(Config));
         VERIFY(ServerConnection->Connected.WaitFor());
         return true;
     }
