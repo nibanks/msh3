@@ -25,7 +25,6 @@ jobs:
         os: [ubuntu, windows]
         tls: [schannel, openssl, openssl3]
         link: [static, shared]
-        mode: [client-only, server]
         config: [Debug, Release]
         exclude:
         - os: ubuntu
@@ -51,14 +50,15 @@ jobs:
       uses: ilammy/setup-nasm@13cbeb366c45c4379d3478cdcbadd8295feb5028
     - name: Build
       shell: pwsh
-      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -Mode ${{ matrix.mode }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
+      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
     - name: Upload
       uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b
       with:
-        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.mode }}-${{ matrix.config }}
+        name: bin-${{ matrix.os }}-${{ matrix.tls }}-${{ matrix.link }}-${{ matrix.config }}
         path: |
           artifacts/*.dll
           artifacts/*.exe
+          artifacts/*.pdb
           artifacts/*.so
           artifacts/msh3app
           artifacts/msh3test
@@ -67,6 +67,15 @@ jobs:
         ./artifacts/msh3app outlook.office.com
         ./artifacts/msh3app www.cloudflare.com
         ./artifacts/msh3app www.google.com
+      timeout-minutes: 1
     - name: msh3test
-      if: matrix.mode == 'server'
       run: ./artifacts/msh3test
+      timeout-minutes: 1
+  all-done:
+    name: Build Complete
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - name: No-op
+      shell: pwsh
+      run: Write-Host "All done!"

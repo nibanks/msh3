@@ -14,37 +14,55 @@ using namespace std;
 
 struct Arguments {
     const char* Host { nullptr };
-    MsH3Addr Address {443};
+    MsH3Addr Address { 443 };
     vector<const char*> Paths;
-    bool Unsecure { false };
+    MSH3_CREDENTIAL_FLAGS Flags { MSH3_CREDENTIAL_FLAG_CLIENT };
     bool Print { false };
     uint32_t Count { 1 };
     std::atomic_int CompletionCount { 0 };
     MsH3Connection* Connection { nullptr };
 } Args;
 
-void MSH3_CALL HeaderReceived(struct MsH3Request* , const MSH3_HEADER* Header) {
-    if (Args.Print) {
-        fwrite(Header->Name, 1, Header->NameLength, stdout);
-        printf(":");
-        fwrite(Header->Value, 1, Header->ValueLength, stdout);
-        printf("\n");
+MSH3_STATUS
+MsH3RequestHandler(
+    MsH3Request* /* Request */,
+    void* Context,
+    MSH3_REQUEST_EVENT* Event
+    )
+{
+    const uint32_t Index = (uint32_t)(size_t)Context;
+    switch (Event->Type) {
+    case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE:
+        if (++Args.CompletionCount == (int)Args.Count) {
+            Args.Connection->Shutdown();
+        }
+        break;
+    case MSH3_REQUEST_EVENT_HEADER_RECEIVED:
+        if (Args.Print) {
+            auto Header = Event->HEADER_RECEIVED.Header;
+            fwrite(Header->Name, 1, Header->NameLength, stdout);
+            printf(":");
+            fwrite(Header->Value, 1, Header->ValueLength, stdout);
+            printf("\n");
+        }
+        break;
+    case MSH3_REQUEST_EVENT_DATA_RECEIVED:
+        if (Args.Print) {
+            fwrite(Event->DATA_RECEIVED.Data, 1, Event->DATA_RECEIVED.Length, stdout);
+        }
+        break;
+    case MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN:
+        if (Args.Print) printf("\n");
+        printf("Request %u complete\n", Index);
+        break;
+    case MSH3_REQUEST_EVENT_PEER_SEND_ABORTED:
+        if (Args.Print) printf("\n");
+        printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
+        break;
+    default:
+        break;
     }
-}
-
-bool MSH3_CALL DataReceived(struct MsH3Request* , uint32_t* Length, const uint8_t* Data) {
-    if (Args.Print) fwrite(Data, 1, *Length, stdout);
-    return true;
-}
-
-void MSH3_CALL Complete(struct MsH3Request* Request, bool Aborted, uint64_t AbortError) {
-    const uint32_t Index = (uint32_t)(size_t)Request->AppContext;
-    if (Args.Print) printf("\n");
-    if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
-    else         printf("Request %u complete\n", Index);
-    if (++Args.CompletionCount == (int)Args.Count) {
-        Args.Connection->Shutdown();
-    }
+    return MSH3_STATUS_SUCCESS;
 }
 
 void ParseArgs(int argc, char **argv) {
@@ -87,7 +105,7 @@ void ParseArgs(int argc, char **argv) {
             } while (true);
 
         } else if (!strcmp(argv[i], "--unsecure") || !strcmp(argv[i], "-u")) {
-            Args.Unsecure = true;
+            Args.Flags |= MSH3_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
 
         } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
             Args.Print = true;
@@ -118,23 +136,25 @@ int MSH3_CALL main(int argc, char **argv) {
 
     MsH3Api Api;
     if (Api.IsValid()) {
-        MsH3Connection Connection(Api, Args.Host, Args.Address, Args.Unsecure);
-        if (Connection.IsValid()) {
-            Args.Connection = &Connection;
-            for (auto Path : Args.Paths) {
-                printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
-                Headers[1].Value = Path;
-                Headers[1].ValueLength = strlen(Path);
-                for (uint32_t i = 0; i < Args.Count; ++i) {
-                    auto Request = new (std::nothrow) MsH3Request(Connection, Headers, HeadersCount, MSH3_REQUEST_FLAG_FIN, (void*)(size_t)(i+1), HeaderReceived, DataReceived, Complete, CleanUpAutoDelete);
-                    if (!Request || !Request->IsValid()) {
-                        printf("Request %u failed to start\n", i+1);
-                        break;
-                    }
+        MsH3Configuration Configuration(Api); if (!Configuration.IsValid()) exit(-1);
+        if (MSH3_FAILED(Configuration.LoadConfiguration({MSH3_CREDENTIAL_TYPE_NONE, Args.Flags, 0}))) exit(-1);
+        MsH3Connection Connection(Api); if (!Connection.IsValid()) exit(-1);
+        Args.Connection = &Connection;
+        if (MSH3_FAILED(Connection.Start(Configuration, Args.Host, Args.Address))) exit(-1);
+        for (auto Path : Args.Paths) {
+            printf("HTTP/3 GET https://%s%s\n", Args.Host, Path);
+            Headers[1].Value = Path;
+            Headers[1].ValueLength = strlen(Path);
+            for (uint32_t i = 0; i < Args.Count; ++i) {
+                auto Request = new (std::nothrow) MsH3Request(Connection, MSH3_REQUEST_FLAG_NONE, CleanUpAutoDelete, MsH3RequestHandler, (void*)(size_t)(i+1));
+                if (!Request || !Request->IsValid()) {
+                    printf("Request %u failed to start\n", i+1);
+                    break;
                 }
+                Request->Send(Headers, HeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN);
             }
-            Connection.ShutdownComplete.Wait();
         }
+        Connection.ShutdownComplete.Wait();
     }
 
     return 0;

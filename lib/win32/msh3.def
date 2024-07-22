@@ -4,20 +4,21 @@ EXPORTS
     MsH3Version
     MsH3ApiOpen
     MsH3ApiClose
+    MsH3ConfigurationOpen
+    MsH3ConfigurationLoadCredential
+    MsH3ConfigurationClose
     MsH3ConnectionOpen
-    MsH3ConnectionClose
+    MsH3ConnectionSetCallbackHandler
+    MsH3ConnectionSetConfiguration
+    MsH3ConnectionStart
     MsH3ConnectionShutdown
-    MsH3ConnectionSetCallbackInterface
-    MsH3ConnectionSetCertificate
+    MsH3ConnectionClose
     MsH3RequestOpen
-    MsH3RequestClose
-    MsH3RequestCompleteReceive
-    MsH3RequestSetReceiveEnabled
+    MsH3RequestSetCallbackHandler
     MsH3RequestSend
+    MsH3RequestSetReceiveEnabled
+    MsH3RequestCompleteReceive
     MsH3RequestShutdown
-    MsH3RequestSetCallbackInterface
-    MsH3RequestSendHeaders
-    MsH3CertificateOpen
-    MsH3CertificateClose
+    MsH3RequestClose
     MsH3ListenerOpen
     MsH3ListenerClose

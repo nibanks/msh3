@@ -43,8 +43,6 @@ if (Api) {
 
 ## Server
 
-Server is supported, but is not built by default to keep the library smaller for clients. To enable, set the `MSH3_SERVER_SUPPORT` option to `on`. 
-
 > **TODO** - Add documentation
 
 # Build

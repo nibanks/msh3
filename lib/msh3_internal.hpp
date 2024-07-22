@@ -13,11 +13,9 @@
 #pragma warning(disable:4267) // LSQpack int conversion
 #endif
 
-#ifdef MSH3_SERVER_SUPPORT
 #define MSH3_TEST_MODE 1 // Always built in if server is supported
 #define QUIC_TEST_APIS 1
 #include <quic_platform.h>
-#endif
 
 #include <msquic.hpp>
 #include <lsqpack.h>
@@ -70,6 +68,8 @@ enum H3SettingsType {
     H3SettingMaxHeaderListSize = 6,
     H3SettingQPackBlockedStreamsSize = 7,
     H3SettingNumPlaceholders = 9,
+    // https://datatracker.ietf.org/doc/html/rfc9297#section-2.1.1
+    H3SettingDatagrams = 0x33,
 };
 
 // Contiguous buffer for (non-null-terminated) header name and value strings.
@@ -126,6 +126,7 @@ enum H3FrameType {
 const H3Settings SettingsH3[] = {
     //{ H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
     { H3SettingQPackBlockedStreamsSize, H3_DEFAULT_QPACK_BLOCKED_STREAMS },
+    { H3SettingDatagrams, 1 }, // N.B. - The MsH3pUniDirStream constructor assumes this is always last.
 };
 
 // Copied from QuicVanIntDecode and changed to uint32_t offset/length
@@ -242,14 +243,14 @@ inline QUIC_STREAM_OPEN_FLAGS ToQuicOpenFlags(MSH3_REQUEST_FLAGS Flags) {
     return Flags & MSH3_REQUEST_FLAG_ALLOW_0_RTT ? QUIC_STREAM_OPEN_FLAG_0_RTT : QUIC_STREAM_OPEN_FLAG_NONE;
 }
 
-inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_FLAGS Flags) {
+inline QUIC_SEND_FLAGS ToQuicSendFlags(MSH3_REQUEST_SEND_FLAGS Flags) {
     QUIC_SEND_FLAGS QuicFlags = QUIC_SEND_FLAG_NONE;
-    if (Flags & MSH3_REQUEST_FLAG_ALLOW_0_RTT) {
+    if (Flags & MSH3_REQUEST_SEND_FLAG_ALLOW_0_RTT) {
         QuicFlags |= QUIC_SEND_FLAG_ALLOW_0_RTT;
     }
-    if (Flags & MSH3_REQUEST_FLAG_FIN) {
+    if (Flags & MSH3_REQUEST_SEND_FLAG_FIN) {
         QuicFlags |= QUIC_SEND_FLAG_START | QUIC_SEND_FLAG_FIN;
-    } else if (Flags & MSH3_REQUEST_FLAG_DELAY_SEND) {
+    } else if (Flags & MSH3_REQUEST_SEND_FLAG_DELAY_SEND) {
         QuicFlags |= QUIC_SEND_FLAG_DELAY_SEND; // TODO - Add support for a _START_DELAYED flag in MsQuic?
     } else {
         QuicFlags |= QUIC_SEND_FLAG_START;
@@ -272,12 +273,27 @@ inline QUIC_STREAM_SHUTDOWN_FLAGS ToQuicShutdownFlags(MSH3_REQUEST_SHUTDOWN_FLAG
     return QuicFlags;
 }
 
+struct MsH3pConfiguration : public MsQuicConfiguration {
+    bool DatagramEnabled {false};
+    QUIC_CREDENTIAL_CONFIG* SelfSign {nullptr};
+    MsH3pConfiguration(
+        const MsQuicRegistration& Registration,
+        const MSH3_SETTINGS* Settings,
+        uint32_t SettingsLength
+        );
+    ~MsH3pConfiguration();
+    MSH3_STATUS
+    LoadH3Credential(
+        const MSH3_CREDENTIAL_CONFIG* CredentialConfig
+        );
+};
+
 struct MsH3pUniDirStream;
 struct MsH3pBiDirStream;
 
 struct MsH3pConnection : public MsQuicConnection {
 
-    MSH3_CONNECTION_IF Callbacks {nullptr};
+    MSH3_CONNECTION_CALLBACK_HANDLER Callbacks {nullptr};
     void* Context {nullptr};
 
     struct lsqpack_enc Encoder;
@@ -305,41 +321,36 @@ struct MsH3pConnection : public MsQuicConnection {
 
     MsH3pConnection(
         const MsQuicRegistration& Registration,
-        const MSH3_CONNECTION_IF* Interface,
-        void* IfContext,
-        const char* ServerName,
-        const MSH3_ADDR* ServerAddress,
-        bool Unsecure
+        const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+        void* Context
         );
 
-#ifdef MSH3_SERVER_SUPPORT
     MsH3pConnection(
         HQUIC ServerHandle
         );
-#endif
 
     ~MsH3pConnection();
 
-#ifdef MSH3_SERVER_SUPPORT
     void
-    SetCallbackInterface(
-        const MSH3_CONNECTION_IF* Interface,
-        void* IfContext
+    SetCallbackHandler(
+        const MSH3_CONNECTION_CALLBACK_HANDLER Handler,
+        void* _Context
         )
     {
-        Callbacks = *Interface;
-        Context = IfContext;
+        Callbacks = Handler;
+        Context = _Context;
     }
-#endif // MSH3_SERVER_SUPPORT
 
-    MsH3pBiDirStream*
-    OpenRequest(
-        _In_ const MSH3_REQUEST_IF* Interface,
-        _In_ void* IfContext,
-        _In_reads_(HeadersCount)
-            const MSH3_HEADER* Headers,
-        _In_ size_t HeadersCount,
-        _In_ MSH3_REQUEST_FLAGS Flags
+    MSH3_STATUS
+    SetConfigurationH3(
+        const MsH3pConfiguration& Configuration
+        );
+
+    MSH3_STATUS
+    StartH3(
+        const MsH3pConfiguration& Configuration,
+        const char* ServerName,
+        const MSH3_ADDR* ServerAddress
         );
 
     void WaitOnShutdownComplete() {
@@ -348,6 +359,8 @@ struct MsH3pConnection : public MsQuicConnection {
     }
 
 private:
+
+    MSH3_STATUS InitializeConfig(const MsH3pConfiguration& Configuration);
 
     void SetShutdownComplete() {
         std::lock_guard Lock{ShutdownCompleteMutex};
@@ -389,7 +402,8 @@ struct MsH3pUniDirStream : public MsQuicStream {
     uint8_t RawBuffer[256];
     QUIC_BUFFER Buffer {0, RawBuffer}; // Working space
 
-    MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type, QUIC_STREAM_OPEN_FLAGS Flags = QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT);
+    MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type);
+    MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pConfiguration& Configuration); // Type == H3StreamTypeControl
     MsH3pUniDirStream(MsH3pConnection& Connection, const HQUIC StreamHandle);
 
     bool
@@ -471,13 +485,13 @@ struct MsH3pBiDirStream : public MsQuicStream {
 
     MsH3pConnection& H3;
 
-    MSH3_REQUEST_IF Callbacks;
+    MSH3_REQUEST_CALLBACK_HANDLER Callbacks;
     void* Context;
 
     uint8_t FrameHeaderBuffer[16];
     uint8_t PrefixBuffer[32];
     uint8_t HeadersBuffer[256];
-    QUIC_BUFFER Buffers[3] = {
+    QUIC_BUFFER Buffers[3] = { // TODO - Put in AppSend struct?
         {0, FrameHeaderBuffer},
         {0, PrefixBuffer},
         {0, HeadersBuffer}
@@ -502,58 +516,43 @@ struct MsH3pBiDirStream : public MsQuicStream {
 
     MsH3pBiDirStream(
         _In_ MsH3pConnection& Connection,
-        _In_ const MSH3_REQUEST_IF* Interface,
-        _In_ void* IfContext,
-        _In_reads_(HeadersCount)
-            const MSH3_HEADER* Headers,
-        _In_ size_t HeadersCount,
+        const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+        _In_ void* Context,
         _In_ MSH3_REQUEST_FLAGS Flags
-        );
+        ) : MsQuicStream(Connection, ToQuicOpenFlags(Flags), CleanUpManual, s_MsQuicCallback, this),
+            H3(Connection), Callbacks(Handler), Context(Context) { }
 
-#ifdef MSH3_SERVER_SUPPORT
     MsH3pBiDirStream(
         _In_ MsH3pConnection& Connection,
         _In_ HQUIC StreamHandle
-        );
-#endif
+        ) : MsQuicStream(StreamHandle, CleanUpManual, s_MsQuicCallback, this),
+            H3(Connection) { }
 
     void
     CompleteReceive(
         _In_ uint32_t Length
         );
 
-    void
-    SetReceiveEnabled(
-        _In_ bool Enabled
-        );
-
     bool
-    SendAppData(
-        _In_ MSH3_REQUEST_FLAGS Flags,
+    Send(
+        _In_ MSH3_REQUEST_SEND_FLAGS Flags,
+        _In_reads_(HeadersCount)
+            const MSH3_HEADER* Headers,
+        _In_ size_t HeadersCount,
         _In_reads_bytes_(DataLength) const void* Data,
         _In_ uint32_t DataLength,
         _In_opt_ void* AppContext
         );
 
-#ifdef MSH3_SERVER_SUPPORT
     void
-    SetCallbackInterface(
-        const MSH3_REQUEST_IF* Interface,
-        void* IfContext
+    SetCallbackHandler(
+        const MSH3_REQUEST_CALLBACK_HANDLER Handler,
+        void* _Context
         )
     {
-        Callbacks = *Interface;
-        Context = IfContext;
+        Callbacks = Handler;
+        Context = _Context;
     }
-
-    bool
-    SendHeaders(
-        _In_reads_(HeadersCount)
-            const MSH3_HEADER* Headers,
-        _In_ size_t HeadersCount,
-        _In_ MSH3_REQUEST_FLAGS Flags
-        );
-#endif // MSH3_SERVER_SUPPORT
 
 private:
 
@@ -617,31 +616,16 @@ private:
         );
 };
 
-#ifdef MSH3_SERVER_SUPPORT
-
-struct MsH3pCertificate : public MsQuicConfiguration {
-    QUIC_CREDENTIAL_CONFIG* SelfSign {nullptr};
-    MsH3pCertificate(
-        const MsQuicRegistration& Registration,
-        const MSH3_CERTIFICATE_CONFIG* Config
-        );
-    MsH3pCertificate(
-        const MsQuicRegistration& Registration,
-        QUIC_CREDENTIAL_CONFIG* SelfSign
-        );
-    ~MsH3pCertificate();
-};
-
 struct MsH3pListener : public MsQuicListener {
 
-    MSH3_LISTENER_IF Callbacks;
+    MSH3_LISTENER_CALLBACK_HANDLER Callbacks;
     void* Context;
 
     MsH3pListener(
         const MsQuicRegistration& Registration,
         const MSH3_ADDR* Address,
-        const MSH3_LISTENER_IF* Interface,
-        void* IfContext
+        const MSH3_LISTENER_CALLBACK_HANDLER Handler,
+        void* Context
         );
 
 private:
@@ -652,7 +636,7 @@ private:
     QUIC_STATUS
     QUIC_API
     s_MsQuicCallback(
-        _In_ HQUIC /* Listener */,
+        _In_ MsQuicListener* /* Listener */,
         _In_opt_ void* Context,
         _Inout_ QUIC_LISTENER_EVENT* Event
         )
@@ -665,5 +649,3 @@ private:
         _Inout_ QUIC_LISTENER_EVENT* Event
         );
 };
-
-#endif // MSH3_SERVER_SUPPORT
