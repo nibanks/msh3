@@ -17,7 +17,14 @@ struct TestFunc {
 #define DEF_TEST(X) bool Test##X()
 #define ADD_TEST(X) { Test##X, #X }
 #define VERIFY(X) if (!(X)) { fprintf(stderr, #X " Failed on %s:%d!\n", __FILE__, __LINE__); return false; }
-#define VERIFY_SUCCESS(X) VERIFY(!MSH3_FAILED(X))
+#define VERIFY_SUCCESS(X) \
+    do { \
+        auto _status = X; \
+        if (MSH3_FAILED(X)) { \
+            fprintf(stderr, #X " Failed with %u on %s:%d!\n", (uint32_t)_status, __FILE__, __LINE__); \
+            return false; \
+        } \
+    } while (0)
 
 const MSH3_HEADER RequestHeaders[] = {
     { ":method", 7, "GET", 3 },
