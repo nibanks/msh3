@@ -128,7 +128,7 @@ DEF_TEST(SimpleRequest) {
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
     MsH3Request Request(Client); VERIFY(Request.IsValid());
-    VERIFY_SUCCESS(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
@@ -169,7 +169,7 @@ bool ReceiveData(bool Async, bool Inline = true) {
     TestClient Client(Api); VERIFY(Client.IsValid());
     TestContext Context(Async, Inline);
     MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, TestContext::RequestCallback, &Context);
-    VERIFY_SUCCESS(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Request.IsValid());
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
