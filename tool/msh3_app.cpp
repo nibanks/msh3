@@ -33,9 +33,6 @@ MsH3RequestHandler(
     const uint32_t Index = (uint32_t)(size_t)Context;
     switch (Event->Type) {
     case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE:
-        if (Args.Print) printf("\n");
-        /*if (Aborted) printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)AbortError);
-        else*/         printf("Request %u complete\n", Index);
         if (++Args.CompletionCount == (int)Args.Count) {
             Args.Connection->Shutdown();
         }
@@ -53,6 +50,14 @@ MsH3RequestHandler(
         if (Args.Print) {
             fwrite(Event->DATA_RECEIVED.Data, 1, Event->DATA_RECEIVED.Length, stdout);
         }
+        break;
+    case MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN:
+        if (Args.Print) printf("\n");
+        printf("Request %u complete\n", Index);
+        break;
+    case MSH3_REQUEST_EVENT_PEER_SEND_ABORTED:
+        if (Args.Print) printf("\n");
+        printf("Request %u aborted: 0x%llx\n", Index, (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     default:
         break;
