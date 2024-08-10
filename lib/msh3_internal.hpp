@@ -481,6 +481,26 @@ struct MsH3pAppSend {
     }
 };
 
+struct MsH3pDatagramSend {
+    void* AppContext;
+    uint8_t HeaderBuffer[8];
+    QUIC_BUFFER Buffers[2] = {
+        0, HeaderBuffer,
+        0, NULL
+    };
+    MsH3pDatagramSend(
+        _In_ QUIC_UINT62 StreamID,
+        _In_reads_bytes_opt_(DataLength) const void* Data,
+        _In_ uint32_t DataLength,
+        _In_opt_ void* AppContext
+        ) : AppContext(AppContext)
+    {
+        Buffers[0].Length = QuicVarIntEncode(StreamID, HeaderBuffer) - HeaderBuffer;
+        Buffers[1].Length = DataLength;
+        Buffers[1].Buffer = (uint8_t*)Data;
+    }
+};
+
 struct MsH3pBiDirStream : public MsQuicStream {
 
     MsH3pConnection& H3;
@@ -500,6 +520,8 @@ struct MsH3pBiDirStream : public MsQuicStream {
     static struct lsqpack_dec_hset_if hset_if;
     struct lsxpack_header CurDecodeHeader;
     char DecodeBuffer[1024];
+
+    QUIC_UINT62 StreamID {0};
 
     QUIC_VAR_INT CurFrameType {0};
     QUIC_VAR_INT CurFrameLength {0};
@@ -539,6 +561,14 @@ struct MsH3pBiDirStream : public MsQuicStream {
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
         _In_ size_t HeadersCount,
+        _In_reads_bytes_(DataLength) const void* Data,
+        _In_ uint32_t DataLength,
+        _In_opt_ void* AppContext
+        );
+
+    bool
+    SendDatagram(
+        _In_ MSH3_REQUEST_SEND_FLAGS Flags,
         _In_reads_bytes_(DataLength) const void* Data,
         _In_ uint32_t DataLength,
         _In_opt_ void* AppContext

@@ -3,6 +3,7 @@
 [![Build](https://github.com/nibanks/msh3/actions/workflows/build.yml/badge.svg)](https://github.com/nibanks/msh3/actions/workflows/build.yml)
 [![](https://img.shields.io/static/v1?label=RFC&message=9114&color=brightgreen)](https://tools.ietf.org/html/rfc9114)
 [![](https://img.shields.io/static/v1?label=RFC&message=9204&color=brightgreen)](https://tools.ietf.org/html/rfc9204)
+[![](https://img.shields.io/static/v1?label=RFC&message=9297&color=brightgreen)](https://tools.ietf.org/html/rfc9297)
 
 Minimal HTTP/3 library on top of [microsoft/msquic](https://github.com/microsoft/msquic) and [litespeedtech/ls-qpack](https://github.com/litespeedtech/ls-qpack). Currently supports:
 

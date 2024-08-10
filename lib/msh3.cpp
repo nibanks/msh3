@@ -254,6 +254,20 @@ MsH3RequestSend(
 }
 
 extern "C"
+bool
+MSH3_CALL
+MsH3RequestSendDatagram(
+    MSH3_REQUEST* Handle,
+    MSH3_REQUEST_SEND_FLAGS Flags,
+    const void* Data,
+    uint32_t DataLength,
+    void* AppContext
+    )
+{
+    return ((MsH3pBiDirStream*)Handle)->SendDatagram(Flags, Data, DataLength, AppContext);
+}
+
+extern "C"
 void
 MSH3_CALL
 MsH3RequestShutdown(
@@ -834,6 +848,29 @@ MsH3pBiDirStream::Send(
             delete AppSend;
             return false;
         }
+    }
+    return true;
+}
+
+bool
+MsH3pBiDirStream::SendDatagram(
+    _In_ MSH3_REQUEST_SEND_FLAGS Flags,
+    _In_reads_bytes_(DataLength) const void* Data,
+    _In_ uint32_t DataLength,
+    _In_opt_ void* AppContext
+    )
+{
+    auto DatagramSend =
+        new(std::nothrow)
+        MsH3pDatagramSend(
+            StreamID >> 2, // TODO - Populate this with the real thing
+            Data,
+            DataLength,
+            AppContext); // TODO - Pool alloc
+    if (!DatagramSend ||
+        QUIC_FAILED(MsQuic->DatagramSend(Handle, DatagramSend->Buffers, 2, ToQuicSendFlags(Flags), DatagramSend))) {
+        delete DatagramSend;
+        return false;
     }
     return true;
 }

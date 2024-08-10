@@ -362,6 +362,7 @@ typedef enum MSH3_REQUEST_EVENT_TYPE {
     MSH3_REQUEST_EVENT_SEND_COMPLETE                     = 6,
     MSH3_REQUEST_EVENT_SEND_SHUTDOWN_COMPLETE            = 7,
     MSH3_REQUEST_EVENT_PEER_RECEIVE_ABORTED              = 8,
+    MSH3_REQUEST_EVENT_DATAGRAM_RECEIVED                 = 9,
     // Future events may be added. Existing code should
     // return NOT_SUPPORTED for any unknown event.
 } MSH3_REQUEST_EVENT_TYPE;
@@ -401,6 +402,11 @@ typedef struct MSH3_REQUEST_EVENT {
         struct {
             uint64_t ErrorCode;
         } PEER_RECEIVE_ABORTED;
+        struct {
+            const QUIC_BUFFER* Buffer;
+            uint8_t ZeroRtt : 1;
+            uint8_t RESERVED : 7;
+        } DATAGRAM_RECEIVED;
     };
 } MSH3_REQUEST_EVENT;
 
@@ -438,6 +444,16 @@ MsH3RequestSend(
     MSH3_REQUEST_SEND_FLAGS Flags,
     const MSH3_HEADER* Headers,
     size_t HeadersCount,
+    const void* Data,
+    uint32_t DataLength,
+    void* AppContext
+    );
+
+bool
+MSH3_CALL
+MsH3RequestSendDatagram(
+    MSH3_REQUEST* Request,
+    MSH3_REQUEST_SEND_FLAGS Flags,
     const void* Data,
     uint32_t DataLength,
     void* AppContext
