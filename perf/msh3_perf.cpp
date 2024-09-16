@@ -32,6 +32,11 @@ struct Arguments {
     bool TimedTransfer { false };
     bool RepeatConnection { false };
     bool RepeatRequest { false };
+    bool PrintConnection { false };
+    bool PrintStream { false };
+    bool PrintThroughput { false };
+    bool PrintRate { false };
+    bool PrintLatency { false };
     uint64_t Time { 0 };
 } Args;
 
@@ -98,8 +103,13 @@ void ParseArgs(int argc, char **argv) {
             " -C, --rconn              Repeat the scenario at the connection level.\n"
             " -R, --rrequest           Repeat the scenario at the request level.\n"
             " -t, --time <#>[unit]     The total runtime, with an optional unit (def unit is us). Only relevant for repeat scenarios. (def:0)\n"
+            "   , --pconn              Print connection statistics.\n"
+            "   , --pstream            Print stream statistics.\n"
+            "   , --ptput              Print throughput information.\n"
+            "   , --prate              Print IO rate information.\n"
+            "   , --platency           Print latency information.\n"
             "\n",
-            argv[0]);
+            argv[0], argv[0], argv[0]);
         exit(-1);
     }
 
@@ -146,6 +156,19 @@ void ParseArgs(int argc, char **argv) {
             if (++i >= argc) { printf("Missing time value\n"); exit(-1); }
             bool isTimed;
             ParseValueWithUnit(argv[i], &Args.Time, &isTimed);
+        } else if (!strcmp(argv[i], "--pconn")) {
+            Args.PrintConnection = true;
+        } else if (!strcmp(argv[i], "--pstream")) {
+            Args.PrintStream = true;
+        } else if (!strcmp(argv[i], "--ptput")) {
+            Args.PrintThroughput = true;
+        } else if (!strcmp(argv[i], "--prate")) {
+            Args.PrintRate = true;
+        } else if (!strcmp(argv[i], "--platency")) {
+            Args.PrintLatency = true;
+        } else {
+            printf("Unknown option: %s\n", argv[i]);
+            exit(-1);
         }
     }
 
@@ -207,9 +230,9 @@ void SendResponse(ServerRequest* PerfRequest, MsH3Request* Request) {
         PerfRequest->OutstandingBytes += Length;
 
         if (SendHeaders) {
-            Request->Send(Headers, HeadersCount, ResponseBuffer, Length, Flags, (void*)Length);
+            Request->Send(Headers, HeadersCount, ResponseBuffer, Length, Flags, (void*)(size_t)Length);
         } else {
-            Request->Send(nullptr, 0, ResponseBuffer, Length, Flags, (void*)Length);
+            Request->Send(nullptr, 0, ResponseBuffer, Length, Flags, (void*)(size_t)Length);
         }
     }
 }
@@ -253,7 +276,7 @@ ServerRequestCallback(
         }
         break;
     case MSH3_REQUEST_EVENT_SEND_COMPLETE:
-        PerfRequest->OutstandingBytes -= (uint32_t)Event->SEND_COMPLETE.ClientContext;
+        PerfRequest->OutstandingBytes -= (uint32_t)(size_t)Event->SEND_COMPLETE.ClientContext;
         if (!Event->SEND_COMPLETE.Canceled) {
             SendResponse(PerfRequest, Request);
         }
@@ -266,7 +289,7 @@ ServerRequestCallback(
 
 MSH3_STATUS
 ServerConnectionCallback(
-    MsH3Connection* Connection,
+    MsH3Connection* /* Connection */,
     void*,
     MSH3_CONNECTION_EVENT* Event
     )
@@ -310,21 +333,44 @@ void RunServer() {
 // Client
 //
 
+struct PerfClientWorker {
+    uint64_t ConnectionsQueued {0};
+    uint64_t ConnectionsCreated {0};
+    uint64_t ConnectionsConnected {0};
+    uint64_t ConnectionsActive {0};
+    uint64_t ConnectionsCompleted {0};
+    uint64_t RequestsStarted {0};
+    uint64_t RequestsCompleted {0};
+    thread Thread;
+    mutex WakeMutex;
+    condition_variable WakeEvent;
+    PerfClientWorker() { }
+    void Start() { Thread = thread(&PerfClientWorker::Run, this); }
+    void Wait() { Thread.join(); }
+    void Run();
+    void QueueNewConnection() {
+        InterlockedIncrement64((int64_t*)&ConnectionsQueued);
+        lock_guard Lock{WakeMutex};
+        WakeEvent.notify_all();
+    }
+    void StartNewConnection();
+    void OnConnectionComplete();
+};
+
 struct PerfClient {
     bool IsRunning {true};
     const uint32_t WorkerCount {thread::hardware_concurrency()};
-    vector<PerfClientWorker> Workers;
+    vector<PerfClientWorker> Workers {WorkerCount};
+    mutex CompleteMutex;
+    condition_variable CompleteEvent;
     MsH3Api Api;
+    MsH3Configuration Configuration {Api};
     PerfClient() {
-        if (!Api.IsValid()) exit(-1);
-        MsH3Configuration Configuration(Api);
-        if (!Configuration.IsValid()) exit(-1);
+        if (!Api.IsValid() || !Configuration.IsValid()) exit(-1);
         if (MSH3_FAILED(Configuration.LoadConfiguration({MSH3_CREDENTIAL_TYPE_NONE, MSH3_CREDENTIAL_FLAG_CLIENT, 0}))) exit(-1);
     }
     void Start() {
         // Create and start workers
-        uint32_t WorkerCount = thread::hardware_concurrency();
-        vector<PerfClientWorker> Workers(WorkerCount);
         for (uint32_t i = 0; i < WorkerCount; ++i) {
             // Calculate how many connections this worker will be responsible for.
             Workers[i].ConnectionsQueued = Args.ConnectionCount / WorkerCount;
@@ -335,19 +381,37 @@ struct PerfClient {
             Workers[i].Start(); // TODO - Set ideal processor
         }
     }
-} *Client;
-
-
-void OnClientConnectionsComplete() { // Called when a worker has completed its set of connections
-    if (GetConnectionsCompleted() == ConnectionCount) {
-        CxPlatEventSet(*CompletionEvent);
+    void OnConnectionsComplete() { // Called when a worker has completed its set of connections
+        if (GetConnectionsCompleted() == (uint64_t)Args.ConnectionCount) {
+            lock_guard Lock{CompleteMutex};
+            CompleteEvent.notify_all();
+        }
     }
-}
+    void WaitOnComplete() {
+        unique_lock Lock{CompleteMutex};
+        CompleteEvent.wait(Lock);
+    }
+    uint64_t GetConnectionsCompleted() const {
+        uint64_t ConnectionsComplete = 0;
+        for (uint64_t i = 0; i < WorkerCount; ++i) {
+            ConnectionsComplete += Workers[i].ConnectionsCompleted;
+        }
+        return ConnectionsComplete;
+    }
+    uint64_t GetConnectedConnections() const {
+        uint64_t ConnectedConnections = 0;
+        for (uint64_t i = 0; i < WorkerCount; ++i) {
+            ConnectedConnections += Workers[i].ConnectionsConnected;
+        }
+        return ConnectedConnections;
+    }
+} *Client;
 
 struct PerfClientConnection {
     struct PerfClientWorker& Worker;
     MsH3Connection* Connection {nullptr};
-    PerfClientConnection(PerfClientWorker* Worker) : Worker(*Worker) {
+    PerfClientConnection(PerfClientWorker* Worker, const MsH3Configuration& Configuration)
+        : Worker(*Worker) {
         Connection = new MsH3Connection(Client->Api);
         if (!Connection->IsValid()) {
             Worker->OnConnectionComplete();
@@ -361,50 +425,33 @@ struct PerfClientConnection {
     }
 };
 
-struct PerfClientWorker {
-    uint64_t ConnectionsQueued {0};
-    uint64_t ConnectionsCreated {0};
-    uint64_t ConnectionsConnected {0};
-    uint64_t ConnectionsActive {0};
-    uint64_t ConnectionsCompleted {0};
-    uint64_t RequestsStarted {0};
-    uint64_t RequestsCompleted {0};
-    thread Thread;
-    mutex WakeMutex;
-    condition_variable WakeEvent;
-    void Start() { Thread = thread(&PerfClientWorker::Run, this); }
-    void Wait() { Thread.join(); }
-    void Run() {
-        while (Client->IsRunning) {
-            while (Client->IsRunning && ConnectionsCreated < ConnectionsQueued) {
-                StartNewConnection();
-            }
-            unique_lock Lock{WakeMutex};
-            WakeEvent.wait(Lock);
+void PerfClientWorker::Run() {
+    while (Client->IsRunning) {
+        while (Client->IsRunning && ConnectionsCreated < ConnectionsQueued) {
+            StartNewConnection();
+        }
+        unique_lock Lock{WakeMutex};
+        WakeEvent.wait(Lock);
+    }
+}
+
+void PerfClientWorker::StartNewConnection() {
+    InterlockedIncrement64((int64_t*)&ConnectionsCreated);
+    InterlockedIncrement64((int64_t*)&ConnectionsActive);
+    new PerfClientConnection(this, Client->Configuration);
+}
+
+void PerfClientWorker::OnConnectionComplete() {
+    InterlockedIncrement64((int64_t*)&ConnectionsCompleted);
+    InterlockedDecrement64((int64_t*)&ConnectionsActive);
+    if (Args.RepeatConnection) {
+        QueueNewConnection();
+    } else {
+        if (!ConnectionsActive && ConnectionsCreated == ConnectionsQueued) {
+            Client->OnConnectionsComplete();
         }
     }
-    void QueueNewConnection() {
-        InterlockedIncrement64((int64_t*)&ConnectionsQueued);
-        lock_guard Lock{WakeMutex};
-        WakeEvent.notify_all();
-    }
-    void StartNewConnection() {
-        InterlockedIncrement64((int64_t*)&ConnectionsCreated);
-        InterlockedIncrement64((int64_t*)&ConnectionsActive);
-        new PerfClientConnection(this);
-    }
-    void OnConnectionComplete() {
-        InterlockedIncrement64((int64_t*)&ConnectionsCompleted);
-        InterlockedDecrement64((int64_t*)&ConnectionsActive);
-        if (Args.RepeatConnection) {
-            QueueNewConnection();
-        } else {
-            if (!ConnectionsActive && ConnectionsCreated == ConnectionsQueued) {
-                OnClientConnectionsComplete();
-            }
-        }
-    }
-};
+}
 
 void RunClient() {
     MSH3_HEADER ClientHeaders[] = {
@@ -419,40 +466,42 @@ void RunClient() {
     HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
     *(uint64_t*)(ResponseBuffer) = Args.TimedTransfer ? byteswap_uint64(Args.Download) : UINT64_MAX;
 
+    // TODO - Pre-resolve target address
+
     Client = new PerfClient();
 
+    Client->Start();
 
-    // Run to completion
-    getchar(); // TODO fix
+    Client->WaitOnComplete();
 
-    /*if (GetConnectedConnections() == 0) {
-        WriteOutput("Error: No Successful Connections!\n");
+    if (Client->GetConnectedConnections() == 0) {
+        printf("Error: No Successful Connections!\n");
         return;
     }
 
-    unsigned long long CompletedConnections = GetConnectionsCompleted();
-    unsigned long long CompletedStreams = GetStreamsCompleted();
+    unsigned long long CompletedConnections = Client->GetConnectionsCompleted();
+    unsigned long long CompletedStreams = Client->GetStreamsCompleted();
 
-    if (PrintIoRate) {
+    if (Args.PrintRate) {
         if (CompletedConnections) {
-            unsigned long long HPS = CompletedConnections * 1000 * 1000 / RunTime;
-            WriteOutput("Result: %llu HPS\n", HPS);
+            unsigned long long HPS = CompletedConnections * 1000 * 1000 / Args.Time;
+            printf("Result: %llu HPS\n", HPS);
         }
         if (CompletedStreams) {
-            unsigned long long RPS = CompletedStreams * 1000 * 1000 / RunTime;
-            WriteOutput("Result: %llu RPS\n", RPS);
+            unsigned long long RPS = CompletedStreams * 1000 * 1000 / Args.Time;
+            printf("Result: %llu RPS\n", RPS);
         }
-    } else if (!PrintThroughput && !PrintLatency) {
+    } else if (!Args.PrintThroughput && !Args.PrintLatency) {
         if (CompletedConnections && CompletedStreams) {
-            WriteOutput(
+            printf(
                 "Completed %llu connections and %llu streams!\n",
                 CompletedConnections, CompletedStreams);
         } else if (CompletedConnections) {
-            WriteOutput("Completed %llu connections!\n", CompletedConnections);
+            printf("Completed %llu connections!\n", CompletedConnections);
         } else if (CompletedStreams) {
-            WriteOutput("Completed %llu streams!\n", CompletedStreams);
+            printf("Completed %llu streams!\n", CompletedStreams);
         } else {
-            WriteOutput("No connections or streams completed!\n");
+            printf("No connections or streams completed!\n");
         }
-    }*/
+    }
 }
