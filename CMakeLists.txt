@@ -80,9 +80,10 @@ set(CMAKE_BUILD_TYPE "Release")
 add_subdirectory(msquic)
 target_compile_features(inc INTERFACE cxx_std_20)
 
-# Build msh3 library (and cmd line tool).
+# Build msh3 library and (optionally) tools and tests.
 add_subdirectory(lib)
 if (MSH3_TOOL)
+    add_subdirectory(perf)
     add_subdirectory(tool)
 endif()
 if (MSH3_TEST)
