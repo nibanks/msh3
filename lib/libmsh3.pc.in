@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-prefix=/usr/local
+prefix=@prefix@
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${exec_prefix}/include
