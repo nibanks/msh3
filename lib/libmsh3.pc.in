@@ -10,4 +10,4 @@ Name: libmsh3
 Description: Minimal HTTP/3 client on top of MsQuic
 Version: 0.1.0
 Libs: -L${libdir} -lmsh3
-Cflags: -I${includedir}/libmsh3
+Cflags: -I${includedir}
