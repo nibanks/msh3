@@ -1,7 +1,7 @@
 [submodule "msquic"]
 	path = msquic
 	url = https://github.com/microsoft/msquic
-	branch = release/2.3
+	branch = release/2.4
 [submodule "ls-qpack"]
 	path = ls-qpack
 	url = https://github.com/litespeedtech/ls-qpack
