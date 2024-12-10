@@ -11,7 +11,7 @@ target_link_libraries(msh3 PRIVATE inc warnings msquic ls-qpack msh3_headers)
 if (NOT BUILD_SHARED_LIBS)
     target_link_libraries(msh3 PRIVATE base_link)
 endif()
-target_link_libraries(msh3 PRIVATE platform) # For selfsign APIs
+target_link_libraries(msh3 PRIVATE msquic_platform) # For selfsign APIs
 
 if(WIN32)
     SET_TARGET_PROPERTIES(msh3
