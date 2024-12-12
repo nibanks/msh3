@@ -78,7 +78,7 @@ set(QUIC_BUILD_SHARED ON CACHE BOOL "Builds MsQuic as a dynamic library")
 set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
 set(CMAKE_BUILD_TYPE "Release")
 add_subdirectory(msquic)
-target_compile_features(inc INTERFACE cxx_std_20)
+target_compile_features(msh3_headers INTERFACE cxx_std_20)
 
 # Build msh3 library (and cmd line tool).
 add_subdirectory(lib)
