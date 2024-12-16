@@ -7,11 +7,10 @@ else()
     set(SOURCES msh3.cpp)
 endif()
 add_library(msh3 SHARED ${SOURCES})
-target_link_libraries(msh3 PRIVATE inc warnings msquic ls-qpack msh3_headers)
+target_link_libraries(msh3 PRIVATE msquic msquic_platform ls-qpack msh3_headers)
 if (NOT BUILD_SHARED_LIBS)
     target_link_libraries(msh3 PRIVATE base_link)
 endif()
-target_link_libraries(msh3 PRIVATE msquic_platform) # For selfsign APIs
 
 if(WIN32)
     SET_TARGET_PROPERTIES(msh3
@@ -24,7 +23,11 @@ elseif (CX_PLATFORM STREQUAL "darwin")
         PROPERTIES LINK_FLAGS "-exported_symbols_list \"${CMAKE_CURRENT_SOURCE_DIR}/darwin/exports.txt\"")
 endif()
 
-install(TARGETS msh3 EXPORT msh3 DESTINATION lib)
+install(TARGETS msh3 EXPORT msh3
+    RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+)
 install(FILES ../msh3.h DESTINATION include)
 configure_file(msh3-config.cmake.in ${CMAKE_BINARY_DIR}/msh3-config.cmake)
 install(FILES ${CMAKE_BINARY_DIR}/msh3-config.cmake DESTINATION share/msh3)
