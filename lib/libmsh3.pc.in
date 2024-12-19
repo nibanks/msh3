@@ -8,6 +8,6 @@ includedir=${prefix}/include
 
 Name: libmsh3
 Description: Minimal HTTP/3 client on top of MsQuic
-Version: 0.1.0
+Version: @PROJECT_VERSION@
 Libs: -L${libdir} -lmsh3
 Cflags: -I${includedir}

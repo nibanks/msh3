@@ -3,8 +3,14 @@
 
 cmake_minimum_required(VERSION 3.16)
 
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/lib/msh3.ver" msh3_ver)
+if(NOT msh3_ver MATCHES ".*#define VER_MAJOR ([0-9]+).*#define VER_MINOR ([0-9]+).*#define VER_PATCH ([0-9]+).*")
+    message(FATAL_ERROR "Cannot parse version from lib/msh3.ver")
+endif()
+set(msh3_ver "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
+
 message(STATUS "msh3: Configuration start...")
-project(msh3)
+project(msh3 VERSION "${msh3_ver}")
 
 option(MSH3_TOOL "Build tool" OFF)
 option(MSH3_TEST "Build tests" OFF)
