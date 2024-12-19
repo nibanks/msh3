@@ -1,4 +1,4 @@
 include(CMakeFindDependencyMacro)
 @FILENAME_DEP_REPLACE@
 
-include(${SELF_DIR}/msh3.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/msh3.cmake")

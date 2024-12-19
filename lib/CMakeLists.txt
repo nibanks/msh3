@@ -29,7 +29,7 @@ install(TARGETS msh3 EXPORT msh3
     LIBRARY DESTINATION lib
 )
 install(FILES ../msh3.h DESTINATION include)
-configure_file(msh3-config.cmake.in ${CMAKE_BINARY_DIR}/msh3-config.cmake)
+configure_file(msh3-config.cmake.in ${CMAKE_BINARY_DIR}/msh3-config.cmake @ONLY)
 install(FILES ${CMAKE_BINARY_DIR}/msh3-config.cmake DESTINATION share/msh3)
 install(EXPORT msh3 DESTINATION share/msh3)
 set(prefix ${CMAKE_INSTALL_PREFIX})
