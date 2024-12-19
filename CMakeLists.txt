@@ -6,6 +6,8 @@ cmake_minimum_required(VERSION 3.16)
 message(STATUS "msh3: Configuration start...")
 project(msh3)
 
+set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type on single-configuration generators")
+
 option(MSH3_TOOL "Build tool" OFF)
 option(MSH3_TEST "Build tests" OFF)
 
@@ -76,7 +78,6 @@ else()
 endif()
 set(QUIC_BUILD_SHARED ON CACHE BOOL "Builds MsQuic as a dynamic library")
 set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
-set(CMAKE_BUILD_TYPE "Release")
 add_subdirectory(msquic)
 target_compile_features(msh3_headers INTERFACE cxx_std_20)
 
