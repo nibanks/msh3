@@ -4,7 +4,7 @@
 prefix=@prefix@
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
-includedir=${exec_prefix}/include
+includedir=${prefix}/include
 
 Name: libmsh3
 Description: Minimal HTTP/3 client on top of MsQuic
