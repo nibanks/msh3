@@ -63,7 +63,6 @@ target_compile_definitions(msh3_headers INTERFACE ${MSH3_COMMON_DEFINES})
 target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Configure and build ls-qpack dependency.
-set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 option(LSQPACK_TESTS "Build tests" OFF)
 option(LSQPACK_BIN "Build binaries" OFF)
 add_subdirectory(ls-qpack)
