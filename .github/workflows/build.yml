@@ -72,7 +72,7 @@ jobs:
       run: ./artifacts/msh3test
       timeout-minutes: 1
   dependabot-merge:
-    name: Merge Depdendabot
+    name: Merge Dependabot
     runs-on: ubuntu-latest
     needs: build
     steps:
