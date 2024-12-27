@@ -18,6 +18,12 @@ jobs:
   build:
     name: Build
     permissions:
+      # required for all workflows
+      security-events: write
+      # required to fetch internal or private CodeQL packs
+      packages: read
+      # only required for workflows in private repositories
+      actions: read
       contents: read
     strategy:
       fail-fast: false
@@ -48,6 +54,9 @@ jobs:
     - name: Install NASM
       if: runner.os == 'Windows'
       uses: ilammy/setup-nasm@13cbeb366c45c4379d3478cdcbadd8295feb5028
+    - name: Install libnuma-dev
+      if: runner.os == 'Ubuntu'
+      run: sudo apt-get install -y libnuma-dev
     - name: Initialize CodeQL
       if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
       uses: github/codeql-action/init@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169
