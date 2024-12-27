@@ -80,7 +80,7 @@ jobs:
       if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
       uses: advanced-security/filter-sarif@f3b8118a9349d88f7b1c0c488476411145b6270d
       with:
-        patterns:
+        patterns: |
           -build/**/*
           -ls-qpack/**/*
           -msquic/**/*
