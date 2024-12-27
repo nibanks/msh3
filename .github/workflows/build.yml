@@ -63,6 +63,9 @@ jobs:
       with:
         languages: c-cpp
         build-mode: manual
+        config: |
+          queries:
+           - uses: security-and-quality # (very verbose)
     - name: Build
       shell: pwsh
       run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
