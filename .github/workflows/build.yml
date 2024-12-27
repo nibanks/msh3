@@ -63,9 +63,6 @@ jobs:
       with:
         languages: c-cpp
         build-mode: manual
-        config: |
-          paths-ignore:
-            - msquic
     - name: Build
       shell: pwsh
       run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
@@ -74,6 +71,26 @@ jobs:
       uses: github/codeql-action/analyze@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169
       with:
         category: "/language:c-cpp"
+        output: sarif-results
+        upload: failure-only
+    - name: Filter SARIF
+      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
+      uses: advanced-security/filter-sarif@f3b8118a9349d88f7b1c0c488476411145b6270d
+      with:
+        patterns: -msquic/submodules/**/*
+        input: sarif-results/cpp.sarif
+        output: sarif-results/cpp.sarif
+    - name: Upload SARIF
+      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
+      uses: github/codeql-action/upload-sarif@48ab28a6f5dbc2a99bf1e0131198dd8f1df78169
+      with:
+        sarif_file: sarif-results/cpp.sarif
+    - name: Upload SARIF to Artifacts
+      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
+      uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b
+      with:
+        name: sarif-results
+        path: sarif-results
     - name: Upload
       uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b
       with:
