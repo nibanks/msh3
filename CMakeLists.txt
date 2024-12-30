@@ -67,6 +67,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${MSH3_OUTPUT_DIR})
 
 # Public include header.
 add_library(msh3_headers INTERFACE)
+target_compile_features(msh3_headers INTERFACE cxx_std_20)
 target_compile_definitions(msh3_headers INTERFACE ${MSH3_COMMON_DEFINES})
 target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -85,7 +86,6 @@ endif()
 set(QUIC_BUILD_SHARED ON CACHE BOOL "Builds MsQuic as a dynamic library")
 set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
 add_subdirectory(msquic)
-target_compile_features(msh3_headers INTERFACE cxx_std_20)
 
 # Build msh3 library (and cmd line tool).
 add_subdirectory(lib)
