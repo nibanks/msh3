@@ -71,11 +71,17 @@ target_compile_features(msh3_headers INTERFACE cxx_std_20)
 target_compile_definitions(msh3_headers INTERFACE ${MSH3_COMMON_DEFINES})
 target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Configure and build ls-qpack dependency.
-set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
-option(LSQPACK_TESTS "Build tests" OFF)
-option(LSQPACK_BIN "Build binaries" OFF)
-add_subdirectory(ls-qpack)
+# ls-qpack dependency
+option(MSH3_USE_EXTERNAL_LSQPACK "Use an external ls-qpack installation")
+if(MSH3_USE_EXTERNAL_LSQPACK)
+    find_package(ls-qpack CONFIG REQUIRED)
+else()
+    # Configure and build
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    option(LSQPACK_TESTS "Build tests" OFF)
+    option(LSQPACK_BIN "Build binaries" OFF)
+    add_subdirectory(ls-qpack)
+endif()
 
 # Configure and build msquic dependency.
 if (WIN32)
