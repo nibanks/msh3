@@ -1088,8 +1088,7 @@ MsH3pListener::MsQuicCallback(
     _Inout_ QUIC_LISTENER_EVENT* Event
     )
 {
-    switch (Event->Type) {
-    case QUIC_LISTENER_EVENT_NEW_CONNECTION: {
+    if (Event->Type == QUIC_LISTENER_EVENT_NEW_CONNECTION) {
         auto Connection = new(std::nothrow) MsH3pConnection(Event->NEW_CONNECTION.Connection);
         if (!Connection) return QUIC_STATUS_OUT_OF_MEMORY;
         MSH3_LISTENER_EVENT h3Event = {};
@@ -1098,9 +1097,6 @@ MsH3pListener::MsQuicCallback(
         h3Event.NEW_CONNECTION.ServerName = Event->NEW_CONNECTION.Info->ServerName;
         h3Event.NEW_CONNECTION.ServerNameLength = Event->NEW_CONNECTION.Info->ServerNameLength;
         Callbacks((MSH3_LISTENER*)this, Context, &h3Event);
-        break;
-    }
-    default: break;
     }
     return QUIC_STATUS_SUCCESS;
 }
