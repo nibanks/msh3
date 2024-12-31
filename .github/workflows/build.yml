@@ -87,6 +87,7 @@ jobs:
       with:
         patterns: |
           -build/**/*
+          -ls-qpack/**/*
           -msquic/**/*
           -test/**/*
         input: sarif-results/cpp.sarif
