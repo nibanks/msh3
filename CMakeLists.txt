@@ -39,20 +39,16 @@ if (WIN32)
     # Statically link the OS included part of the runtime.
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /NODEFAULTLIB:libucrt.lib /DEFAULTLIB:ucrt.lib")
-    set(QUIC_COMMON_DEFINES WIN32_LEAN_AND_MEAN SECURITY_WIN32)
-    # TODO - Get these to work on Linux
-    list(APPEND MSH3_COMMON_DEFINES VER_BUILD_ID=${MSH3_VER_BUILD_ID})
-    list(APPEND MSH3_COMMON_DEFINES VER_SUFFIX=${MSH3_VER_SUFFIX})
+
+    add_compile_definitions(WIN32_LEAN_AND_MEAN)
     if(HAS_SPECTRE)
-        list(APPEND QUIC_COMMON_FLAGS /Qspectre)
+        add_compile_options(/Qspectre)
     endif()
     # Compile/link flags
     set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /GL /Zi")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GL /Zi")
     set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /LTCG /IGNORE:4075 /DEBUG /OPT:REF /OPT:ICF")
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /IGNORE:4075 /DEBUG /OPT:REF /OPT:ICF")
-else()
-    set(QUIC_COMMON_DEFINES _GNU_SOURCE)
 endif()
 
 set(MSH3_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/bin CACHE STRING "Output directory for build artifacts")
@@ -64,12 +60,6 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE ${MSH3_OUTPUT_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${MSH3_OUTPUT_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_DEBUG ${MSH3_OUTPUT_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${MSH3_OUTPUT_DIR})
-
-# Public include header.
-add_library(msh3_headers INTERFACE)
-target_compile_features(msh3_headers INTERFACE cxx_std_20)
-target_compile_definitions(msh3_headers INTERFACE ${MSH3_COMMON_DEFINES})
-target_include_directories(msh3_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # ls-qpack dependency
 option(MSH3_USE_EXTERNAL_LSQPACK "Use an external ls-qpack installation")
