@@ -65,7 +65,12 @@ jobs:
         build-mode: manual
         config: |
           queries:
-           - uses: security-and-quality # (very verbose)
+            - uses: security-and-quality # (very verbose)
+          query-filters:
+            - exclude:
+                id: cpp/loop-variable-changed
+            - exclude:
+                id: cpp/include-non-header
     - name: Build
       shell: pwsh
       run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
@@ -82,8 +87,8 @@ jobs:
       with:
         patterns: |
           -build/**/*
-          -ls-qpack/**/*
           -msquic/**/*
+          -test/**/*
         input: sarif-results/cpp.sarif
         output: sarif-results/cpp.sarif
     - name: Upload SARIF
