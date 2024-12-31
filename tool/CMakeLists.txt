@@ -4,4 +4,4 @@
 set(SOURCES msh3_app.cpp)
 add_executable(msh3app ${SOURCES})
 target_link_libraries(msh3app msh3 msh3_headers)
-install(TARGETS msh3app EXPORT msh3 DESTINATION lib)
+install(TARGETS msh3app EXPORT msh3 RUNTIME DESTINATION bin)
