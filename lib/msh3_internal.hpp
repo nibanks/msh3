@@ -102,20 +102,20 @@ struct H3Settings {
 enum H3StreamType {
     H3StreamTypeUnknown = 0xFF,
     H3StreamTypeControl = 0,
-    H3StreamTypePush,
-    H3StreamTypeEncoder,
-    H3StreamTypeDecoder,
+    H3StreamTypePush    = 1,
+    H3StreamTypeEncoder = 2,
+    H3StreamTypeDecoder = 3,
 };
 
 enum H3FrameType {
-    H3FrameData,
-    H3FrameHeaders,
-    H3FramePriority,
-    H3FrameCancelPush,
-    H3FrameSettings,
-    H3FramePushPromise,
-    H3FrameGoaway = 7,
-    H3FrameUnknown = 0xFF
+    H3FrameData         = 0,
+    H3FrameHeaders      = 1,
+    H3FramePriority     = 2,
+    H3FrameCancelPush   = 3,
+    H3FrameSettings     = 4,
+    H3FramePushPromise  = 5,
+    H3FrameGoaway       = 7,
+    H3FrameUnknown      = 0xFF
 };
 
 #define H3_RFC_DEFAULT_HEADER_TABLE_SIZE    0
