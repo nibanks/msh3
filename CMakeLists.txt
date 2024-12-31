@@ -83,15 +83,21 @@ else()
     add_subdirectory(ls-qpack)
 endif()
 
-# Configure and build msquic dependency.
-if (WIN32)
-    set(QUIC_TLS "schannel" CACHE STRING "TLS Library to use")
+# msquic dependency
+option(MSH3_USE_EXTERNAL_MSQUIC "Use an external msquic installation")
+if(MSH3_USE_EXTERNAL_MSQUIC)
+    find_package(msquic CONFIG REQUIRED)
 else()
-    set(QUIC_TLS "openssl" CACHE STRING "TLS Library to use")
+    # Configure and build
+    if (WIN32)
+        set(QUIC_TLS "schannel" CACHE STRING "TLS Library to use")
+    else()
+        set(QUIC_TLS "openssl" CACHE STRING "TLS Library to use")
+    endif()
+    set(QUIC_BUILD_SHARED ON CACHE BOOL "Builds MsQuic as a dynamic library")
+    set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
+    add_subdirectory(msquic)
 endif()
-set(QUIC_BUILD_SHARED ON CACHE BOOL "Builds MsQuic as a dynamic library")
-set(QUIC_ENABLE_LOGGING ON CACHE BOOL "Enable MsQuic logging")
-add_subdirectory(msquic)
 
 # Build msh3 library (and cmd line tool).
 add_subdirectory(lib)
