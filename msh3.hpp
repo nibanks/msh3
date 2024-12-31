@@ -5,6 +5,8 @@
 
 --*/
 
+#pragma once
+
 #include "msh3.h"
 #include <thread>
 #include <mutex>
