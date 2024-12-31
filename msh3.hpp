@@ -33,20 +33,20 @@ template<typename T>
 struct MsH3Waitable {
     T Get() const { return State; }
     void Set(T state) {
-        std::lock_guard Lock{Mutex};
+        std::lock_guard<std::mutex> Lock{Mutex};
         State = state;
         Event.notify_all();
     }
     T Wait() {
         if (!State) {
-            std::unique_lock Lock{Mutex};
+            std::unique_lock<std::mutex> Lock{Mutex};
             Event.wait(Lock, [&]{return State;});
         }
         return State;
     }
     bool WaitFor(uint32_t milliseconds TEST_DEF(250)) {
         if (!State) {
-            std::unique_lock Lock{Mutex};
+            std::unique_lock<std::mutex> Lock{Mutex};
             return Event.wait_for(Lock, milliseconds*1ms, [&]{return State;});
         }
         return true;
