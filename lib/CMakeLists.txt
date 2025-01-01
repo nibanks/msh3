@@ -7,8 +7,16 @@ else()
     set(SOURCES msh3.cpp)
 endif()
 add_library(msh3 SHARED ${SOURCES})
-target_include_directories(msh3 PUBLIC $<INSTALL_INTERFACE:include>)
-target_link_libraries(msh3 PRIVATE msquic msquic_platform ls-qpack::ls-qpack msh3_headers)
+target_compile_features(msh3 PRIVATE cxx_std_20)
+target_compile_definitions(msh3 PRIVATE
+    "VER_BUILD_ID=${MSH3_VER_BUILD_ID}"
+    "VER_SUFFIX=${MSH3_VER_SUFFIX}"
+)
+target_include_directories(msh3 PUBLIC
+    $<BUILD_INTERFACE:${msh3_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(msh3 PRIVATE msquic msquic_platform ls-qpack::ls-qpack)
 if (NOT BUILD_SHARED_LIBS)
     target_link_libraries(msh3 PRIVATE base_link)
 endif()
