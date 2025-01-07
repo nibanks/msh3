@@ -35,7 +35,7 @@
 #define MSH3_VERSION_ONLY 1
 #include "msh3.ver"
 
-#if _WIN32
+#ifdef _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
 #define CxPlatByteSwapUint32 _byteswap_ulong
 #define CxPlatByteSwapUint64 _byteswap_uint64

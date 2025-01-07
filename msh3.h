@@ -198,7 +198,7 @@ typedef union MSH3_ADDR {
     struct sockaddr_in6 Ipv6;
 } MSH3_ADDR;
 
-#if _WIN32
+#ifdef _WIN32
 #define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = _byteswap_ushort(port)
 #else
 #define MSH3_SET_PORT(addr, port) (addr)->Ipv4.sin_port = __builtin_bswap16(port)
