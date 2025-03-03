@@ -10,6 +10,7 @@
 #include "msh3.h"
 #include <thread>
 #include <mutex>
+#include <chrono>
 #include <condition_variable>
 #include <atomic>
 
