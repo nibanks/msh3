@@ -23,6 +23,10 @@ using namespace std::chrono_literals;
 #define TEST_DEF(x)
 #endif
 
+#ifndef ARRAYSIZE
+#define ARRAYSIZE(A) (sizeof(A)/sizeof((A)[0]))
+#endif
+
 struct MsH3Request;
 
 enum MsH3CleanUpMode {
@@ -97,11 +101,9 @@ struct MsH3EventQueue {
     ~MsH3EventQueue() { close(EpollFd); }
     bool IsValid() const noexcept { return EpollFd >= 0; }
     bool Enqueue(
-        _In_ MSH3_SQE* Sqe,
-        _In_ uint32_t dwNumberOfBytesTransferred = 0,
-        _In_ ULONG_PTR dwCompletionKey = 0
+        MSH3_SQE* Sqe
         ) noexcept {
-        return epoll_ctl(EpollFd, EPOLL_CTL_ADD, Sqe->fd, nullptr) == 0;
+        return eventfd_write(Sqe->fd, 1) == 0;
     }
     bool Dequeue(
         MSH3_CQE* lpCompletionPortEntries,
@@ -112,7 +114,7 @@ struct MsH3EventQueue {
         return epoll_wait(EpollFd, lpCompletionPortEntries, ulCount, dwMilliseconds) > 0;
     }
     static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
-        return CONTAINING_RECORD(Cqe, MSH3_SQE, fd);
+        return (MSH3_SQE*)Cqe->data.ptr;
     }
 #elif __APPLE__ || __FreeBSD__
     // macOS or FreeBSD-specific implementation
@@ -122,11 +124,10 @@ struct MsH3EventQueue {
     ~MsH3EventQueue() { close(KqueueFd); }
     bool IsValid() const noexcept { return KqueueFd >= 0; }
     bool Enqueue(
-        _In_ MSH3_SQE* Sqe,
-        _In_ uint32_t dwNumberOfBytesTransferred = 0,
-        _In_ ULONG_PTR dwCompletionKey = 0
+        MSH3_SQE* Sqe
         ) noexcept {
-        return kevent(KqueueFd, nullptr, 0, nullptr, 0, nullptr) == 0;
+        struct kevent event = {.ident = Sqe->Handle, .filter = EVFILT_USER, .flags = EV_ADD | EV_ONESHOT, .fflags = NOTE_TRIGGER, .data = 0, .udata = Sqe};
+        return kevent(KqueueFd, &event, 1, NULL, 0, NULL) == 0;
     }
     bool Dequeue(
         MSH3_CQE* lpCompletionPortEntries,
