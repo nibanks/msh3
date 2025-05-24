@@ -8,8 +8,8 @@ param (
     [string]$Arch = "x64",
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet("schannel", "openssl", "openssl3")]
-    [string]$Tls = "openssl",
+    [ValidateSet("schannel", "quictls")]
+    [string]$Tls = "quictls",
 
     [Parameter(Mandatory = $false)]
     [ValidateSet("static", "shared")]
