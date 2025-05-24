@@ -6,6 +6,8 @@
 
 Minimal HTTP/3 library on top of [microsoft/msquic](https://github.com/microsoft/msquic) and [litespeedtech/ls-qpack](https://github.com/litespeedtech/ls-qpack).
 
+## Features
+
 - Complete HTTP/3 ([RFC 9114](https://tools.ietf.org/html/rfc9114)) implementation
 - QPACK header compression ([RFC 9204](https://tools.ietf.org/html/rfc9204))
 - Client and server support
