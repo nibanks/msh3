@@ -1059,10 +1059,6 @@ MsH3pBiDirStream::Receive(
                     // LQRHS_BLOCKED is also expected - it means we need more encoder stream data
                     if (rhs == LQRHS_ERROR) {
                         printf("lsqpack_dec_header_in error\n");
-                    } else if (rhs == LQRHS_BLOCKED) {
-                        // This is normal when using dynamic table references
-                        // We'll wait for the encoder stream data and the decoder will call
-                        // the unblocked callback when ready
                     }
                 } else { // Continued from a previous partial read
                     auto rhs =
