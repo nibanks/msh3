@@ -139,6 +139,9 @@ typedef struct MSH3_SETTINGS {
             uint64_t InitialRttMs                           : 1;
             uint64_t PeerRequestCount                       : 1;
             uint64_t DatagramEnabled                        : 1;
+#ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
+            uint64_t XdpEnabled                             : 1;
+#endif
         } IsSet;
     };
     uint64_t IdleTimeoutMs;
@@ -147,7 +150,12 @@ typedef struct MSH3_SETTINGS {
     uint32_t InitialRttMs;
     uint16_t PeerRequestCount;
     uint8_t DatagramEnabled : 1; // TODO - Add flags instead?
+#ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
+    uint8_t XdpEnabled : 1;
+    uint8_t RESERVED : 6;
+#else
     uint8_t RESERVED : 7;
+#endif
 } MSH3_SETTINGS;
 
 typedef struct MSH3_CERTIFICATE_HASH {
