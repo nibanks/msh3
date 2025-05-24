@@ -9,7 +9,7 @@ Minimal HTTP/3 library on top of [microsoft/msquic](https://github.com/microsoft
 ## Features
 
 - Complete HTTP/3 ([RFC 9114](https://tools.ietf.org/html/rfc9114)) implementation
-- QPACK header compression ([RFC 9204](https://tools.ietf.org/html/rfc9204))
+- QPACK header compression ([RFC 9204](https://tools.ietf.org/html/rfc9204)) with dynamic table support
 - Client and server support
 - Sending and receiving request headers and payload
 - Various TLS certificate authentication options
