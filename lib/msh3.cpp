@@ -5,6 +5,9 @@
 
 --*/
 
+#define MSH3_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
+#define QUIC_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
+
 #include "msh3_internal.hpp"
 
 const MsQuicApi* MsQuic;
@@ -341,6 +344,9 @@ struct MsH3pSettings : public MsQuicSettings {
             if (Settings->IsSet.DatagramEnabled) {
                 SetDatagramReceiveEnabled(Settings->DatagramEnabled);
             }
+            if (Settings->IsSet.XdpEnabled) {
+                SetXdpEnabled(Settings->XdpEnabled);
+            }
         }
     }
 };
@@ -354,10 +360,10 @@ MsH3pConfiguration::MsH3pConfiguration(
             "h3",
             MsH3pSettings(Settings, SettingsLength))
 {
-    if (Settings &&
-        Settings->IsSet.DatagramEnabled &&
-        Settings->DatagramEnabled) {
-        DatagramEnabled = Settings->DatagramEnabled;
+    if (Settings) {
+        if (Settings->IsSet.DatagramEnabled) {
+            DatagramEnabled = Settings->DatagramEnabled;
+        }
     }
 }
 
