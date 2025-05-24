@@ -12,6 +12,8 @@ Minimal HTTP/3 library on top of [microsoft/msquic](https://github.com/microsoft
 
 # API
 
+For full docs see [here](docs/README.md).
+
 ## Client
 
 ```c
