@@ -30,7 +30,7 @@ HTTP/3 is the latest version of the HTTP protocol, designed to use QUIC as its t
 
 1. **Multiplexed Streams**: HTTP/3 requests and responses are sent over QUIC streams, eliminating head-of-line blocking issues present in HTTP/2.
 
-2. **Header Compression**: HTTP/3 uses QPACK (RFC 9204) for header compression, which is designed to work efficiently with QUIC's out-of-order delivery.
+2. **Header Compression**: HTTP/3 uses QPACK (RFC 9204) for header compression, which is designed to work efficiently with QUIC's out-of-order delivery. QPACK supports both static and dynamic table compression, allowing for efficient compression of repeated headers across requests.
 
 3. **Server Push**: Like HTTP/2, HTTP/3 supports server push, allowing servers to proactively send resources to clients.
 

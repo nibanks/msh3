@@ -749,8 +749,6 @@ MsH3pUniDirStream::EncoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Encoder receive %llu\n", (long long unsigned)Event->RECEIVE.TotalBufferLength);
-        
         // Process encoder stream data for dynamic table updates
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
@@ -763,9 +761,6 @@ MsH3pUniDirStream::EncoderStreamCallback(
                                            
                 if (ret != 0) {
                     printf("[QPACK] lsqpack_dec_enc_in failed: %d\n", ret);
-                } else {
-                    printf("[QPACK] Successfully processed %u bytes from encoder stream\n", 
-                          (unsigned)Buffer->Length);
                 }
             }
         }
@@ -791,8 +786,6 @@ MsH3pUniDirStream::DecoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        printf("Decoder receive %llu\n", (long long unsigned)Event->RECEIVE.TotalBufferLength);
-        
         // Process decoder stream data
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
@@ -805,9 +798,6 @@ MsH3pUniDirStream::DecoderStreamCallback(
                                                
                 if (ret != 0) {
                     printf("[QPACK] lsqpack_enc_decoder_in failed: %d\n", ret);
-                } else {
-                    printf("[QPACK] Successfully processed %u bytes from decoder stream\n", 
-                          (unsigned)Buffer->Length);
                 }
             }
         }
@@ -1073,7 +1063,6 @@ MsH3pBiDirStream::Receive(
                         // This is normal when using dynamic table references
                         // We'll wait for the encoder stream data and the decoder will call
                         // the unblocked callback when ready
-                        printf("lsqpack_dec_header_in blocked on encoder stream data\n");
                     }
                 } else { // Continued from a previous partial read
                     auto rhs =
