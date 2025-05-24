@@ -7,7 +7,7 @@
 Minimal HTTP/3 library on top of [microsoft/msquic](https://github.com/microsoft/msquic) and [litespeedtech/ls-qpack](https://github.com/litespeedtech/ls-qpack). Currently supports:
 
 - Sending and receiving request headers and payload.
-- Static qpack encoding.
+- Dynamic and static QPACK encoding for header compression.
 - Server validation can be optionally disabled ("unsecure" mode).
 
 # API
