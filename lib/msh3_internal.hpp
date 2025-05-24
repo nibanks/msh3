@@ -499,7 +499,7 @@ struct MsH3pBiDirStream : public MsQuicStream {
 
     static struct lsqpack_dec_hset_if hset_if;
     struct lsxpack_header CurDecodeHeader;
-    char DecodeBuffer[1024];
+    char DecodeBuffer[4096]; // Increased to handle larger header values
 
     QUIC_VAR_INT CurFrameType {0};
     QUIC_VAR_INT CurFrameLength {0};
@@ -578,10 +578,15 @@ private:
 
     static void
     s_DecodeUnblocked(
-        void* /* Context */
+        void* Context
         )
     {
-        /* no-op currently */
+        if (Context) {
+            MsH3pBiDirStream* stream = (MsH3pBiDirStream*)Context;
+            printf("QPACK header unblocked for stream %llu\n", (unsigned long long)stream->ID());
+            // When a header block gets unblocked, QPACK can now process it
+            // No need to do anything here as the decoder will process headers automatically
+        }
     }
 
     static struct lsxpack_header*

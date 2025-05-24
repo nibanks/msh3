@@ -428,11 +428,12 @@ MsH3pConnection::MsH3pConnection(
     
     // Initialize the decoder with dynamic table support
     // The QPACK decoder will use our local max table size and blocked streams
+    // Use LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL for better performance
     lsqpack_dec_init(&Decoder, nullptr, 
                     H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY, 
                     H3_DEFAULT_QPACK_BLOCKED_STREAMS, 
                     &MsH3pBiDirStream::hset_if, 
-                    (lsqpack_dec_opts)0);
+                    (lsqpack_dec_opts)(LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL));
                     
     if (!IsValid()) return;
     LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
@@ -761,7 +762,10 @@ MsH3pUniDirStream::EncoderStreamCallback(
                                            Buffer->Length);
                                            
                 if (ret != 0) {
-                    printf("lsqpack_dec_enc_in failed: %d\n", ret);
+                    printf("[QPACK] lsqpack_dec_enc_in failed: %d\n", ret);
+                } else {
+                    printf("[QPACK] Successfully processed %u bytes from encoder stream\n", 
+                          (unsigned)Buffer->Length);
                 }
             }
         }
@@ -800,7 +804,10 @@ MsH3pUniDirStream::DecoderStreamCallback(
                                                Buffer->Length);
                                                
                 if (ret != 0) {
-                    printf("lsqpack_enc_decoder_in failed: %d\n", ret);
+                    printf("[QPACK] lsqpack_enc_decoder_in failed: %d\n", ret);
+                } else {
+                    printf("[QPACK] Successfully processed %u bytes from decoder stream\n", 
+                          (unsigned)Buffer->Length);
                 }
             }
         }
@@ -1058,16 +1065,25 @@ MsH3pBiDirStream::Receive(
                         lsqpack_dec_header_in(
                             &H3.Decoder, this, ID(), (size_t)CurFrameLength, &Frame,
                             AvailFrameLength, nullptr, nullptr);
-                    if (rhs != LQRHS_DONE && rhs != LQRHS_NEED) {
-                        printf("lsqpack_dec_header_in failure res=%u\n", rhs);
+                    // LQRHS_NEED is expected - it means we need more header block data
+                    // LQRHS_BLOCKED is also expected - it means we need more encoder stream data
+                    if (rhs == LQRHS_ERROR) {
+                        printf("lsqpack_dec_header_in error\n");
+                    } else if (rhs == LQRHS_BLOCKED) {
+                        // This is normal when using dynamic table references
+                        // We'll wait for the encoder stream data and the decoder will call
+                        // the unblocked callback when ready
+                        printf("lsqpack_dec_header_in blocked on encoder stream data\n");
                     }
                 } else { // Continued from a previous partial read
                     auto rhs =
                         lsqpack_dec_header_read(
                             &H3.Decoder, this, &Frame, AvailFrameLength, nullptr,
                             nullptr);
-                    if (rhs != LQRHS_DONE && rhs != LQRHS_NEED) {
-                        printf("lsqpack_dec_header_read failure res=%u\n", rhs);
+                    // LQRHS_NEED is expected - it means we need more header block data
+                    // LQRHS_BLOCKED is also expected - it means we need more encoder stream data
+                    if (rhs == LQRHS_ERROR) {
+                        printf("lsqpack_dec_header_read error\n");
                     }
                 }
             }
@@ -1108,9 +1124,11 @@ MsH3pBiDirStream::DecodePrepare(
     )
 {
     if (Space > sizeof(DecodeBuffer)) {
-        printf("Header too big, %zu\n", Space);
-        return nullptr;
+        printf("[QPACK] Warning: Header too big (%zu bytes), truncating to %zu bytes\n", 
+              Space, (size_t)sizeof(DecodeBuffer));
+        Space = sizeof(DecodeBuffer);
     }
+    
     if (Header) {
         Header->buf = DecodeBuffer;
         Header->val_len = (lsxpack_strlen_t)Space;
