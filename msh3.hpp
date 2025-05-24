@@ -23,6 +23,10 @@ using namespace std::chrono_literals;
 #define TEST_DEF(x)
 #endif
 
+#ifndef ARRAYSIZE
+#define ARRAYSIZE(A) (sizeof(A)/sizeof((A)[0]))
+#endif
+
 struct MsH3Request;
 
 enum MsH3CleanUpMode {
@@ -33,6 +37,12 @@ enum MsH3CleanUpMode {
 template<typename T>
 struct MsH3Waitable {
     T Get() const { return State; }
+    T GetAndReset() {
+        std::lock_guard<std::mutex> Lock{Mutex};
+        auto StateCopy = State;
+        State = (T)0;
+        return StateCopy;
+    }
     void Set(T state) {
         std::lock_guard<std::mutex> Lock{Mutex};
         State = state;
@@ -58,8 +68,105 @@ private:
     T State { (T)0 };
 };
 
+struct MsH3EventQueue {
+#if _WIN32
+    HANDLE IOCP;
+    operator MSH3_EVENTQ* () noexcept { return &IOCP; }
+    MsH3EventQueue() : IOCP(CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 1)) { }
+    ~MsH3EventQueue() { CloseHandle(IOCP); }
+    bool IsValid() const noexcept { return IOCP != nullptr; }
+    bool Enqueue(
+        _In_ LPOVERLAPPED lpOverlapped,
+        _In_ uint32_t dwNumberOfBytesTransferred = 0,
+        _In_ ULONG_PTR dwCompletionKey = 0
+        ) noexcept {
+        return PostQueuedCompletionStatus(IOCP, dwNumberOfBytesTransferred, dwCompletionKey, lpOverlapped);
+    }
+    bool Dequeue(
+        _Out_writes_to_(ulCount,*ulNumEntriesRemoved) MSH3_CQE* lpCompletionPortEntries,
+        _In_ uint32_t ulCount,
+        _Out_ uint32_t* ulNumEntriesRemoved,
+        _In_ uint32_t dwMilliseconds
+        ) noexcept {
+        return GetQueuedCompletionStatusEx(IOCP, lpCompletionPortEntries, ulCount, (ULONG*)ulNumEntriesRemoved, dwMilliseconds, FALSE);
+    }
+    static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
+        return CONTAINING_RECORD(Cqe->lpOverlapped, MSH3_SQE, Overlapped);
+    }
+#elif __linux__
+    // Linux-specific implementation
+    int EpollFd;
+    operator MSH3_EVENTQ* () noexcept { return &EpollFd; }
+    MsH3EventQueue() : EpollFd(epoll_create1(0)) { }
+    ~MsH3EventQueue() { close(EpollFd); }
+    bool IsValid() const noexcept { return EpollFd >= 0; }
+    bool Enqueue(
+        MSH3_SQE* Sqe
+        ) noexcept {
+        return eventfd_write(Sqe->fd, 1) == 0;
+    }
+    bool Dequeue(
+        MSH3_CQE* lpCompletionPortEntries,
+        uint32_t ulCount,
+        uint32_t* ulNumEntriesRemoved,
+        uint32_t dwMilliseconds
+        ) noexcept {
+        return epoll_wait(EpollFd, lpCompletionPortEntries, ulCount, dwMilliseconds) > 0;
+    }
+    static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
+        return (MSH3_SQE*)Cqe->data.ptr;
+    }
+#elif __APPLE__ || __FreeBSD__
+    // macOS or FreeBSD-specific implementation
+    int KqueueFd;
+    operator MSH3_EVENTQ* () noexcept { return &KqueueFd; }
+    MsH3EventQueue() : KqueueFd(kqueue()) { }
+    ~MsH3EventQueue() { close(KqueueFd); }
+    bool IsValid() const noexcept { return KqueueFd >= 0; }
+    bool Enqueue(
+        MSH3_SQE* Sqe
+        ) noexcept {
+        struct kevent event = {.ident = Sqe->Handle, .filter = EVFILT_USER, .flags = EV_ADD | EV_ONESHOT, .fflags = NOTE_TRIGGER, .data = 0, .udata = Sqe};
+        return kevent(KqueueFd, &event, 1, NULL, 0, NULL) == 0;
+    }
+    bool Dequeue(
+        MSH3_CQE* lpCompletionPortEntries,
+        uint32_t ulCount,
+        uint32_t* ulNumEntriesRemoved,
+        uint32_t dwMilliseconds
+        ) noexcept {
+        return kevent(KqueueFd, nullptr, 0, lpCompletionPortEntries, ulCount, nullptr) > 0;
+    }
+    static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
+        return CONTAINING_RECORD(Cqe, MSH3_SQE, Handle);
+    }
+#endif // _WIN32
+    void CompleteEvents(uint32_t WaitTime) noexcept {
+        uint32_t EventCount = 0;
+        MSH3_CQE Events[8];
+        if (Dequeue(Events, ARRAYSIZE(Events), &EventCount, WaitTime)) {
+            for (uint32_t i = 0; i < EventCount; ++i) {
+                MSH3_SQE* Sqe = GetSqe(&Events[i]);
+                Sqe->Completion(&Events[i]);
+            }
+        }
+    }
+};
+
 struct MsH3Api {
-    MSH3_API* Handle { MsH3ApiOpen() };
+    MSH3_API* Handle { nullptr };
+    MsH3Api() noexcept : Handle(MsH3ApiOpen()) { }
+#ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
+    MsH3Api(
+        uint32_t ExecutionConfigCount,
+        MSH3_EXECUTION_CONFIG* ExecutionConfigs,
+        MSH3_EXECUTION** Executions
+        ) noexcept : Handle(MsH3ApiOpenWithExecution(ExecutionConfigCount, ExecutionConfigs, Executions)) {
+    }
+    uint32_t Poll(MSH3_EXECUTION* Execution) noexcept {
+        return MsH3ApiPoll(Execution);
+    }
+#endif
     ~MsH3Api() noexcept { if (Handle) { MsH3ApiClose(Handle); } }
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_API* () const noexcept { return Handle; }
