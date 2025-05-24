@@ -133,7 +133,6 @@ DEF_TEST(Handshake) {
     return true;
 }
 
-#if _WIN32
 DEF_TEST(HandshakeSingleThread) {
     MsH3EventQueue EventQueue; VERIFY(EventQueue.IsValid());
     MSH3_EXECUTION_CONFIG ExecutionConfig = { 0, EventQueue };
@@ -143,15 +142,8 @@ DEF_TEST(HandshakeSingleThread) {
     TestClient Client(Api, true); VERIFY(Client.IsValid());
     VERIFY_SUCCESS(Client.Start());
     while (!TestAllDone) {
-        ULONG EventCount = 0;
-        MSH3_CQE Events[8];
         uint32_t WaitTime = Api.Poll(Execution);
-        if (EventQueue.Dequeue(Events, ARRAYSIZE(Events), &EventCount, WaitTime)) {
-            for (ULONG i = 0; i < EventCount; ++i) {
-                MSH3_SQE* Sqe = MsH3EventQueue::GetSqe(&Events[i]);
-                Sqe->Completion(&Events[i]);
-            }
-        }
+        EventQueue.CompleteEvents(WaitTime);
 
         auto ServerConnection = Server.NewConnection.GetAndReset();
         if (ServerConnection) {
@@ -160,7 +152,6 @@ DEF_TEST(HandshakeSingleThread) {
     }
     return true;
 }
-#endif
 
 DEF_TEST(HandshakeFail) {
     MsH3Api Api; VERIFY(Api.IsValid());
@@ -261,9 +252,7 @@ DEF_TEST(ReceiveDataAsyncInline) {
 
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
-#if _WIN32
     //ADD_TEST(HandshakeSingleThread),
-#endif
     ADD_TEST(HandshakeFail),
     ADD_TEST(HandshakeSetCertTimeout),
     ADD_TEST(SimpleRequest),
