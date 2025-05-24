@@ -8,8 +8,8 @@ param (
     [string]$Arch = "x64",
 
     [Parameter(Mandatory = $false)]
-    [ValidateSet("schannel", "openssl", "openssl3")]
-    [string]$Tls = "openssl",
+    [ValidateSet("schannel", "quictls")]
+    [string]$Tls = "quictls",
 
     [Parameter(Mandatory = $false)]
     [ValidateSet("static", "shared")]
@@ -73,13 +73,13 @@ if ($IsWindows) {
 
     $_Arch = $Arch
     if ($_Arch -eq "x86") { $_Arch = "Win32" }
-    Execute "cmake" "-G ""Visual Studio 17 2022"" -A $_Arch -DMSH3_OUTPUT_DIR=$Artifacts -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools -DMSH3_VER_BUILD_ID=$BuildId -DMSH3_VER_SUFFIX=$Suffix .."
+    Execute "cmake" "-G ""Visual Studio 17 2022"" -A $_Arch -DMSH3_OUTPUT_DIR=$Artifacts -DQUIC_TLS_LIB=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools -DMSH3_VER_BUILD_ID=$BuildId -DMSH3_VER_SUFFIX=$Suffix .."
     Execute "cmake" "--build . --config $Config"
 
 } else {
 
     $BuildType = $Config
     if ($BuildType -eq "Release") { $BuildType = "RelWithDebInfo" }
-    Execute "cmake" "-G ""Unix Makefiles"" -DCMAKE_BUILD_TYPE=$BuildType -DMSH3_OUTPUT_DIR=$Artifacts -DQUIC_TLS=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools .."
+    Execute "cmake" "-G ""Unix Makefiles"" -DCMAKE_BUILD_TYPE=$BuildType -DMSH3_OUTPUT_DIR=$Artifacts -DQUIC_TLS_LIB=$Tls -DQUIC_BUILD_SHARED=$Shared -DMSH3_TEST=$Tests -DMSH3_TOOL=$Tools .."
     Execute "cmake" "--build ."
 }

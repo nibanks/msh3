@@ -29,7 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu, windows]
-        tls: [schannel, openssl, openssl3]
+        tls: [schannel, quictls]
         link: [static, shared]
         config: [Debug, Release]
         exclude:
@@ -58,7 +58,7 @@ jobs:
       if: runner.os == 'Ubuntu'
       run: sudo apt-get install -y libnuma-dev
     - name: Initialize CodeQL
-      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
+      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'quictls') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
       uses: github/codeql-action/init@ff0a06e83cb2de871e5a09832bc6a81e7276941f
       with:
         languages: c-cpp
@@ -75,14 +75,14 @@ jobs:
       shell: pwsh
       run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
     - name: Perform CodeQL Analysis
-      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
+      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'quictls') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
       uses: github/codeql-action/analyze@ff0a06e83cb2de871e5a09832bc6a81e7276941f
       with:
         category: "/language:c-cpp"
         output: sarif-results
         upload: failure-only
     - name: Filter SARIF
-      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
+      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'quictls') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
       uses: advanced-security/filter-sarif@f3b8118a9349d88f7b1c0c488476411145b6270d
       with:
         patterns: |
@@ -93,12 +93,12 @@ jobs:
         input: sarif-results/cpp.sarif
         output: sarif-results/cpp.sarif
     - name: Upload SARIF
-      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
+      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'quictls') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
       uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f
       with:
         sarif_file: sarif-results/cpp.sarif
     - name: Upload SARIF to Artifacts
-      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'openssl') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
+      if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'quictls') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:
         name: sarif-results
