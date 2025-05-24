@@ -1,5 +1,7 @@
 _MsH3Version
 _MsH3ApiOpen
+_MsH3ApiOpenWithExecution
+_MsH3ApiPoll
 _MsH3ApiClose
 _MsH3ConfigurationOpen
 _MsH3ConfigurationLoadCredential

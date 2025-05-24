@@ -24,6 +24,22 @@
 #define MSH3_STATUS_PENDING         SUCCESS_HRESULT_FROM_WIN32(ERROR_IO_PENDING)
 #define MSH3_STATUS_INVALID_STATE   E_NOT_VALID_STATE
 #define MSH3_FAILED(X) FAILED(X)
+typedef HANDLE MSH3_EVENTQ;
+typedef OVERLAPPED_ENTRY MSH3_CQE;
+typedef
+_IRQL_requires_max_(PASSIVE_LEVEL)
+void
+(MSH3_EVENT_COMPLETION)(
+    _In_ MSH3_CQE* Cqe
+    );
+typedef MSH3_EVENT_COMPLETION *MSH3_EVENT_COMPLETION_HANDLER;
+typedef struct MSH3_SQE {
+    OVERLAPPED Overlapped;
+    MSH3_EVENT_COMPLETION_HANDLER Completion;
+#if DEBUG
+    BOOLEAN IsQueued; // Debug flag to catch double queueing.
+#endif
+} MSH3_SQE;
 #else
 #include <netinet/ip.h>
 #include <sys/socket.h>
@@ -34,6 +50,37 @@
 #define MSH3_STATUS_PENDING         ((MSH3_STATUS)-2)
 #define MSH3_STATUS_INVALID_STATE   ((MSH3_STATUS)EPERM)
 #define MSH3_FAILED(X) ((int)(X) > 0)
+#if __linux__ // epoll
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+typedef int MSH3_EVENTQ;
+typedef struct epoll_event MSH3_CQE;
+typedef
+void
+(MSH3_EVENT_COMPLETION)(
+    _In_ MSH3_CQE* Cqe
+    );
+typedef MSH3_EVENT_COMPLETION *MSH3_EVENT_COMPLETION_HANDLER;
+typedef struct MSH3_SQE {
+    int fd;
+    MSH3_EVENT_COMPLETION_HANDLER Completion;
+} MSH3_SQE;
+#elif __APPLE__ || __FreeBSD__ // kqueue
+#include <sys/event.h>
+#include <fcntl.h>
+typedef int MSH3_EVENTQ;
+typedef struct kevent MSH3_CQE;
+typedef
+void
+(MSH3_EVENT_COMPLETION)(
+    _In_ MSH3_CQE* Cqe
+    );
+typedef MSH3_EVENT_COMPLETION *MSH3_EVENT_COMPLETION_HANDLER;
+typedef struct MSH3_SQE {
+    uintptr_t Handle;
+    MSH3_EVENT_COMPLETION_HANDLER Completion;
+} MSH3_SQE;
+#endif // __linux__
 #ifndef DEFINE_ENUM_FLAG_OPERATORS
 #ifdef __cplusplus
 extern "C++" {
@@ -128,6 +175,13 @@ typedef enum MSH3_REQUEST_SHUTDOWN_FLAGS {
 } MSH3_REQUEST_SHUTDOWN_FLAGS;
 
 DEFINE_ENUM_FLAG_OPERATORS(MSH3_REQUEST_SHUTDOWN_FLAGS)
+
+typedef struct MSH3_EXECUTION_CONFIG {
+    uint32_t IdealProcessor;
+    MSH3_EVENTQ* EventQ;
+} MSH3_EXECUTION_CONFIG;
+
+typedef struct MSH3_EXECUTION MSH3_EXECUTION;
 
 typedef struct MSH3_SETTINGS {
     union {
@@ -234,6 +288,22 @@ MSH3_CALL
 MsH3ApiOpen(
     void
     );
+
+#ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
+MSH3_API*
+MSH3_CALL
+MsH3ApiOpenWithExecution(
+    uint32_t ExecutionConfigCount,
+    MSH3_EXECUTION_CONFIG* ExecutionConfigs,
+    MSH3_EXECUTION** Executions
+    );
+
+uint32_t
+MSH3_CALL
+MsH3ApiPoll(
+    _In_ MSH3_EXECUTION* Execution
+    );
+#endif
 
 void
 MSH3_CALL

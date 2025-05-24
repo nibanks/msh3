@@ -6,6 +6,7 @@
 --*/
 
 #define MSH3_TEST_MODE 1
+#define MSH3_API_ENABLE_PREVIEW_FEATURES 1
 
 #include "msh3.hpp"
 #include <stdio.h>
@@ -22,6 +23,7 @@ struct TestFunc {
         auto _status = X; \
         if (MSH3_FAILED(_status)) { \
             fprintf(stderr, #X " Failed with %u on %s:%d!\n", (uint32_t)_status, __FILE__, __LINE__); \
+            TestAllDone = true; \
             return false; \
         } \
     } while (0)
@@ -43,11 +45,14 @@ const size_t ResponseHeadersCount = sizeof(ResponseHeaders)/sizeof(MSH3_HEADER);
 
 const char ResponseData[] = "HELLO WORLD!\n";
 
+bool TestAllDone = false;
+
 struct TestServer : public MsH3AutoAcceptListener {
+    bool SingleThreaded;
     MsH3Configuration Config;
     MsH3Waitable<MsH3Request*> NewRequest;
-    TestServer(MsH3Api& Api)
-     : MsH3AutoAcceptListener(Api, MsH3Addr(), ConnectionCallback, this), Config(Api) {
+    TestServer(MsH3Api& Api, bool SingleThread = false)
+     : MsH3AutoAcceptListener(Api, MsH3Addr(), ConnectionCallback, this), Config(Api), SingleThreaded(SingleThread) {
         if (Handle && MSH3_FAILED(Config.LoadConfiguration())) {
             MsH3ListenerClose(Handle); Handle = nullptr;
         }
@@ -82,13 +87,38 @@ const MSH3_CREDENTIAL_CONFIG ClientCredConfig = {
 };
 
 struct TestClient : public MsH3Connection {
+    bool SingleThreaded;
     MsH3Configuration Config;
-    TestClient(MsH3Api& Api) : MsH3Connection(Api), Config(Api) {
+    TestClient(MsH3Api& Api, bool SingleThread = false) : MsH3Connection(Api, CleanUpManual, Callbacks), Config(Api), SingleThreaded(SingleThread) {
         if (Handle && MSH3_FAILED(Config.LoadConfiguration(ClientCredConfig))) {
             MsH3ConnectionClose(Handle); Handle = nullptr;
         }
     }
     MSH3_STATUS Start() noexcept { return MsH3Connection::Start(Config); }
+    static
+    MSH3_STATUS
+    Callbacks(
+        MsH3Connection* Connection,
+        void* /* Context */,
+        MSH3_CONNECTION_EVENT* Event
+        ) noexcept {
+        if (Event->Type == MSH3_CONNECTION_EVENT_NEW_REQUEST) {
+            //
+            // Not great beacuse it doesn't provide an application specific
+            // error code. If you expect to get streams, you should not no-op
+            // the callbacks.
+            //
+            MsH3RequestClose(Event->NEW_REQUEST.Request);
+        } else if (Event->Type == MSH3_CONNECTION_EVENT_CONNECTED) {
+            if (((TestClient*)Connection)->SingleThreaded) {
+                TestAllDone = true;
+                Connection->Shutdown();
+            }
+        } else if (Event->Type == MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE) {
+            TestAllDone = true;
+        }
+        return MSH3_STATUS_SUCCESS;
+    }
 };
 
 DEF_TEST(Handshake) {
@@ -102,6 +132,35 @@ DEF_TEST(Handshake) {
     VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
 }
+
+#if _WIN32
+DEF_TEST(HandshakeSingleThread) {
+    MsH3EventQueue EventQueue; VERIFY(EventQueue.IsValid());
+    MSH3_EXECUTION_CONFIG ExecutionConfig = { 0, EventQueue };
+    MSH3_EXECUTION* Execution;
+    MsH3Api Api(1, &ExecutionConfig, &Execution); VERIFY(Api.IsValid());
+    TestServer Server(Api, true); VERIFY(Server.IsValid());
+    TestClient Client(Api, true); VERIFY(Client.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    while (!TestAllDone) {
+        ULONG EventCount = 0;
+        MSH3_CQE Events[8];
+        uint32_t WaitTime = Api.Poll(Execution);
+        if (EventQueue.Dequeue(Events, ARRAYSIZE(Events), &EventCount, WaitTime)) {
+            for (ULONG i = 0; i < EventCount; ++i) {
+                MSH3_SQE* Sqe = MsH3EventQueue::GetSqe(&Events[i]);
+                Sqe->Completion(&Events[i]);
+            }
+        }
+
+        auto ServerConnection = Server.NewConnection.GetAndReset();
+        if (ServerConnection) {
+            VERIFY_SUCCESS(ServerConnection->SetConfiguration(Server.Config));
+        }
+    }
+    return true;
+}
+#endif
 
 DEF_TEST(HandshakeFail) {
     MsH3Api Api; VERIFY(Api.IsValid());
@@ -202,6 +261,9 @@ DEF_TEST(ReceiveDataAsyncInline) {
 
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
+#if _WIN32
+    //ADD_TEST(HandshakeSingleThread),
+#endif
     ADD_TEST(HandshakeFail),
     ADD_TEST(HandshakeSetCertTimeout),
     ADD_TEST(SimpleRequest),
@@ -217,6 +279,7 @@ int MSH3_CALL main(int , char**) {
     for (uint32_t i = 0; i < TestCount; ++i) {
         printf("  %s\n", TestFunctions[i].Name);
         fflush(stdout);
+        TestAllDone = false;
         if (!TestFunctions[i].Func()) FailCount++;
     }
     printf("Complete! %u tests failed\n", FailCount);

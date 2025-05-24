@@ -3,6 +3,8 @@ LIBRARY MSH3
 EXPORTS
     MsH3Version
     MsH3ApiOpen
+    MsH3ApiOpenWithExecution
+    MsH3ApiPoll
     MsH3ApiClose
     MsH3ConfigurationOpen
     MsH3ConfigurationLoadCredential

@@ -33,6 +33,12 @@ enum MsH3CleanUpMode {
 template<typename T>
 struct MsH3Waitable {
     T Get() const { return State; }
+    T GetAndReset() {
+        std::lock_guard<std::mutex> Lock{Mutex};
+        auto StateCopy = State;
+        State = (T)0;
+        return StateCopy;
+    }
     void Set(T state) {
         std::lock_guard<std::mutex> Lock{Mutex};
         State = state;
@@ -58,8 +64,48 @@ private:
     T State { (T)0 };
 };
 
+#if _WIN32
+struct MsH3EventQueue {
+    HANDLE IOCP;
+    operator MSH3_EVENTQ* () noexcept { return &IOCP; }
+    MsH3EventQueue() : IOCP(CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 1)) { }
+    ~MsH3EventQueue() { CloseHandle(IOCP); }
+    bool IsValid() const noexcept { return IOCP != nullptr; }
+    bool Enqueue(
+        _In_ LPOVERLAPPED lpOverlapped,
+        _In_ DWORD dwNumberOfBytesTransferred = 0,
+        _In_ ULONG_PTR dwCompletionKey = 0
+        ) noexcept {
+        return PostQueuedCompletionStatus(IOCP, dwNumberOfBytesTransferred, dwCompletionKey, lpOverlapped);
+    }
+    bool Dequeue(
+        _Out_writes_to_(ulCount,*ulNumEntriesRemoved) LPOVERLAPPED_ENTRY lpCompletionPortEntries,
+        _In_ ULONG ulCount,
+        _Out_ PULONG ulNumEntriesRemoved,
+        _In_ DWORD dwMilliseconds
+        ) noexcept {
+        return GetQueuedCompletionStatusEx(IOCP, lpCompletionPortEntries, ulCount, ulNumEntriesRemoved, dwMilliseconds, FALSE);
+    }
+    static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
+        return CONTAINING_RECORD(Cqe->lpOverlapped, MSH3_SQE, Overlapped);
+    }
+};
+#endif // _WIN32
+
 struct MsH3Api {
-    MSH3_API* Handle { MsH3ApiOpen() };
+    MSH3_API* Handle { nullptr };
+    MsH3Api() noexcept : Handle(MsH3ApiOpen()) { }
+#ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
+    MsH3Api(
+        uint32_t ExecutionConfigCount,
+        MSH3_EXECUTION_CONFIG* ExecutionConfigs,
+        MSH3_EXECUTION** Executions
+        ) noexcept : Handle(MsH3ApiOpenWithExecution(ExecutionConfigCount, ExecutionConfigs, Executions)) {
+    }
+    uint32_t Poll(MSH3_EXECUTION* Execution) noexcept {
+        return MsH3ApiPoll(Execution);
+    }
+#endif
     ~MsH3Api() noexcept { if (Handle) { MsH3ApiClose(Handle); } }
     bool IsValid() const noexcept { return Handle != nullptr; }
     operator MSH3_API* () const noexcept { return Handle; }
