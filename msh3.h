@@ -58,7 +58,7 @@ typedef struct epoll_event MSH3_CQE;
 typedef
 void
 (MSH3_EVENT_COMPLETION)(
-    _In_ MSH3_CQE* Cqe
+    MSH3_CQE* Cqe
     );
 typedef MSH3_EVENT_COMPLETION *MSH3_EVENT_COMPLETION_HANDLER;
 typedef struct MSH3_SQE {
@@ -73,7 +73,7 @@ typedef struct kevent MSH3_CQE;
 typedef
 void
 (MSH3_EVENT_COMPLETION)(
-    _In_ MSH3_CQE* Cqe
+    MSH3_CQE* Cqe
     );
 typedef MSH3_EVENT_COMPLETION *MSH3_EVENT_COMPLETION_HANDLER;
 typedef struct MSH3_SQE {
