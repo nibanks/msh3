@@ -11,6 +11,8 @@
 #include "msh3_internal.hpp"
 
 const MsQuicApi* MsQuic;
+QUIC_EXECUTION** MsQuicExecutions;
+uint32_t MsQuicExecutionCount;
 static std::atomic_int MsH3pRefCount{0};
 
 //
@@ -58,6 +60,68 @@ MsH3ApiOpen(
 }
 
 extern "C"
+MSH3_API*
+MSH3_CALL
+MsH3ApiOpenWithExecution(
+    uint32_t ExecutionConfigCount,
+    MSH3_EXECUTION_CONFIG* ExecutionConfigs,
+    MSH3_EXECUTION** Executions
+    )
+{
+    if (ExecutionConfigCount == 0 || ExecutionConfigs == nullptr || Executions == nullptr) {
+        return nullptr;
+    }
+    if (MsH3pRefCount.fetch_add(1) == 0) {
+        MsQuic = new(std::nothrow) MsQuicApi();
+        if (!MsQuic || QUIC_FAILED(MsQuic->GetInitStatus())) {
+            printf("MsQuicApi failed\n");
+            delete MsQuic;
+            MsQuic = nullptr;
+            return nullptr;
+        }
+        auto Status =
+            MsQuic->ExecutionCreate(
+                QUIC_GLOBAL_EXECUTION_CONFIG_FLAG_NONE,
+                0,
+                ExecutionConfigCount,
+                (QUIC_EXECUTION_CONFIG*)ExecutionConfigs,
+                (QUIC_EXECUTION**)Executions);
+        if (QUIC_FAILED(Status)) {
+            printf("MsQuicExecutionCreate failed\n");
+            delete MsQuic;
+            MsQuic = nullptr;
+            return nullptr;
+        }
+        MsQuicExecutions = (QUIC_EXECUTION**)Executions;
+        MsQuicExecutionCount = ExecutionConfigCount;
+    } else {
+        return nullptr; // Already opened
+    }
+    auto Reg = new(std::nothrow) MsQuicRegistration("h3", QUIC_EXECUTION_PROFILE_LOW_LATENCY, true);
+    if (!Reg || QUIC_FAILED(Reg->GetInitStatus())) {
+        printf("MsQuicRegistration failed\n");
+        delete Reg;
+        MsQuic->ExecutionDelete(MsQuicExecutionCount, MsQuicExecutions);
+        MsQuicExecutions = nullptr;
+        MsQuicExecutionCount = 0;
+        delete MsQuic;
+        MsQuic = nullptr;
+        return nullptr;
+    }
+    return (MSH3_API*)Reg;
+}
+
+extern "C"
+uint32_t
+MSH3_CALL
+MsH3ApiPoll(
+    _In_ MSH3_EXECUTION* Execution
+    )
+{
+    return MsQuic->ExecutionPoll((QUIC_EXECUTION*)Execution);
+}
+
+extern "C"
 void
 MSH3_CALL
 MsH3ApiClose(
@@ -68,6 +132,11 @@ MsH3ApiClose(
     Reg->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0);
     delete Reg;
     if (MsH3pRefCount.fetch_sub(1) == 1) {
+        if (MsQuicExecutions != nullptr) {
+            MsQuic->ExecutionDelete(MsQuicExecutionCount, MsQuicExecutions);
+            MsQuicExecutions = nullptr;
+            MsQuicExecutionCount = 0;
+        }
         delete MsQuic;
         MsQuic = nullptr;
     }
@@ -185,9 +254,7 @@ MsH3ConnectionClose(
     MSH3_CONNECTION* Handle
     )
 {
-    auto H3 = (MsH3pConnection*)Handle;
-    H3->WaitOnShutdownComplete();
-    delete H3;
+    delete (MsH3pConnection*)Handle;
 }
 
 extern "C"
