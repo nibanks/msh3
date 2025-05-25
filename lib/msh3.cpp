@@ -254,9 +254,7 @@ MsH3ConnectionClose(
     MSH3_CONNECTION* Handle
     )
 {
-    auto H3 = (MsH3pConnection*)Handle;
-    //H3->WaitOnShutdownComplete();
-    delete H3;
+    delete (MsH3pConnection*)Handle;
 }
 
 extern "C"
