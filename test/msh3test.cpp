@@ -757,10 +757,15 @@ const TestFunc TestFunctions[] = {
 };
 const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
 
+// Helper function to check if a character is a quote (single, double, or backtick)
+static inline bool IsQuoteChar(char c) {
+    return c == '"' || c == '\'' || c == '`';
+}
+
 void PrintUsage(const char* programName) {
     printf("Usage: %s [options]\n", programName);
     printf("Options:\n");
-    printf("  --filter=<pattern>  Run only tests matching pattern (wildcards * supported)\n");
+    printf("  --filter=<pattern>  Run only tests matching pattern (wildcards * supported, optional quotes)\n");
     printf("  -v, --verbose       Print detailed test information\n");
     printf("  --help              Print this help message\n");
 }
@@ -771,7 +776,20 @@ int MSH3_CALL main(int argc, char** argv) {
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
             g_Verbose = true;
         } else if (strncmp(argv[i], "--filter=", 9) == 0) {
-            g_TestFilter = argv[i] + 9;
+            const char* filterValue = argv[i] + 9;
+            // If the filter value starts with a quote, remove the quotes
+            if (filterValue[0] != '\0' && IsQuoteChar(filterValue[0])) {
+                char quoteChar = filterValue[0];
+                size_t len = strlen(filterValue);
+                // Check if it ends with the same quote
+                if (len > 1 && filterValue[len-1] == quoteChar) {
+                    // Skip the first quote and null-terminate before the last quote
+                    // We're modifying argv directly which is allowed
+                    ((char*)filterValue)[len-1] = '\0';
+                    filterValue++;
+                }
+            }
+            g_TestFilter = filterValue;
         } else if (strcmp(argv[i], "--help") == 0) {
             PrintUsage(argv[0]);
             return 0;
