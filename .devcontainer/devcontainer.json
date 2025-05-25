@@ -1,4 +1,5 @@
 {
   "image": "mcr.microsoft.com/devcontainers/universal:2",
-  "onCreateCommand": "git submodule update --init --recursive"
+  "onCreateCommand": "git submodule update --init --recursive",
+  "postCreateCommand": "mkdir -p build && cd build && cmake -DMSH3_TEST=ON .. && cmake --build . --config Debug"
 }
