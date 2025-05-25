@@ -172,16 +172,48 @@ const size_t Response500HeadersCount = sizeof(Response500Headers)/sizeof(MSH3_HE
 const char JsonRequestData[] = "{\"test\":\"data\"}";
 const char TextRequestData[] = "Hello World";
 
+// Maximum number of headers we'll store
+#define MAX_STORED_HEADERS 10
+
 struct HeaderValidator {
     MsH3Waitable<bool> HeaderReceived;
     MsH3Waitable<uint32_t> HeaderCount;
+    MsH3Waitable<bool> AllHeadersReceived;  // Signal when headers are complete (data received)
     uint32_t CurrentHeaderCount = 0;
     
-    // Store copies of header data instead of pointers
-    char HeaderName[64];
-    size_t HeaderNameLength;
-    char HeaderValue[128];
-    size_t HeaderValueLength;
+    // Store multiple headers instead of just one
+    struct StoredHeader {
+        char Name[64];
+        size_t NameLength;
+        char Value[128];
+        size_t ValueLength;
+        bool Used;
+    };
+    
+    StoredHeader Headers[MAX_STORED_HEADERS];
+    
+    // Constructor initializes all headers as unused
+    HeaderValidator() {
+        for (int i = 0; i < MAX_STORED_HEADERS; i++) {
+            Headers[i].Used = false;
+        }
+    }
+    
+    // Helper to get the first header by name
+    StoredHeader* GetHeaderByName(const char* name, size_t nameLength) {
+        for (int i = 0; i < MAX_STORED_HEADERS; i++) {
+            if (Headers[i].Used && Headers[i].NameLength == nameLength && 
+                memcmp(Headers[i].Name, name, nameLength) == 0) {
+                return &Headers[i];
+            }
+        }
+        return nullptr;
+    }
+    
+    // Check if we have a specific number of headers
+    bool HasExpectedHeaderCount(uint32_t expected) {
+        return CurrentHeaderCount == expected;
+    }
     
     static MSH3_STATUS RequestCallback(
         struct MsH3Request* Request,
@@ -190,26 +222,45 @@ struct HeaderValidator {
     ) {
         auto ctx = (HeaderValidator*)Context;
         if (Event->Type == MSH3_REQUEST_EVENT_HEADER_RECEIVED) {
-            // Copy header data instead of storing the pointer
-            const MSH3_HEADER* header = Event->HEADER_RECEIVED.Header;
-            size_t nameLenToCopy = header->NameLength < sizeof(ctx->HeaderName) ? 
-                                  header->NameLength : sizeof(ctx->HeaderName) - 1;
-            size_t valueLenToCopy = header->ValueLength < sizeof(ctx->HeaderValue) ? 
-                                   header->ValueLength : sizeof(ctx->HeaderValue) - 1;
+            // Find an unused header slot
+            int slot = -1;
+            for (int i = 0; i < MAX_STORED_HEADERS; i++) {
+                if (!ctx->Headers[i].Used) {
+                    slot = i;
+                    break;
+                }
+            }
             
-            memcpy(ctx->HeaderName, header->Name, nameLenToCopy);
-            ctx->HeaderName[nameLenToCopy] = '\0';
-            ctx->HeaderNameLength = nameLenToCopy;
-            
-            memcpy(ctx->HeaderValue, header->Value, valueLenToCopy);
-            ctx->HeaderValue[valueLenToCopy] = '\0';
-            ctx->HeaderValueLength = valueLenToCopy;
-            
-            ctx->HeaderReceived.Set(true);
-            ctx->CurrentHeaderCount++;
-            ctx->HeaderCount.Set(ctx->CurrentHeaderCount);
+            // If we found a slot, store the header
+            if (slot != -1) {
+                const MSH3_HEADER* header = Event->HEADER_RECEIVED.Header;
+                StoredHeader* storedHeader = &ctx->Headers[slot];
+                
+                size_t nameLenToCopy = header->NameLength < sizeof(storedHeader->Name) ? 
+                                      header->NameLength : sizeof(storedHeader->Name) - 1;
+                size_t valueLenToCopy = header->ValueLength < sizeof(storedHeader->Value) ? 
+                                       header->ValueLength : sizeof(storedHeader->Value) - 1;
+                
+                memcpy(storedHeader->Name, header->Name, nameLenToCopy);
+                storedHeader->Name[nameLenToCopy] = '\0';
+                storedHeader->NameLength = nameLenToCopy;
+                
+                memcpy(storedHeader->Value, header->Value, valueLenToCopy);
+                storedHeader->Value[valueLenToCopy] = '\0';
+                storedHeader->ValueLength = valueLenToCopy;
+                storedHeader->Used = true;
+                
+                ctx->HeaderReceived.Set(true);
+                ctx->CurrentHeaderCount++;
+                ctx->HeaderCount.Set(ctx->CurrentHeaderCount);
+            }
         } else if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
+            // Signal that all headers have been received (since data always comes after headers)
+            ctx->AllHeadersReceived.Set(true);
             Request->CompleteReceive(Event->DATA_RECEIVED.Length);
+        } else if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN) {
+            // Handle case where request completes without data
+            ctx->AllHeadersReceived.Set(true);
         }
         return MSH3_STATUS_SUCCESS;
     }
@@ -451,17 +502,26 @@ DEF_TEST(HeaderValidation) {
     LOG("Waiting for header receipt\n");
     VERIFY(validator.HeaderReceived.WaitFor(3000));
     LOG("Header received\n");
-    VERIFY(validator.HeaderCount.WaitFor(3000));
+    
+    // Wait for all headers to be received (signaled by data event or completion)
+    LOG("Waiting for all headers to be received\n");
+    VERIFY(validator.AllHeadersReceived.WaitFor(3000));
+    LOG("All headers received\n");
+    
     LOG("Header count received: %u\n", validator.HeaderCount.GetSafe());
     VERIFY(validator.HeaderCount.GetSafe() == ResponseHeadersCount);
     
     // Verify the header data we copied
     LOG("Verifying header data\n");
-    VERIFY(validator.HeaderNameLength == 7);
-    VERIFY(memcmp(validator.HeaderName, ":status", 7) == 0);
+    
+    // Get the status header
+    auto statusHeader = validator.GetHeaderByName(":status", 7);
+    VERIFY(statusHeader != nullptr);
+    VERIFY(statusHeader->NameLength == 7);
+    VERIFY(memcmp(statusHeader->Name, ":status", 7) == 0);
     LOG("Header name verified\n");
-    VERIFY(validator.HeaderValueLength == 3);
-    VERIFY(memcmp(validator.HeaderValue, "200", 3) == 0);
+    VERIFY(statusHeader->ValueLength == 3);
+    VERIFY(memcmp(statusHeader->Value, "200", 3) == 0);
     LOG("Header value verified\n");
     
     // Clean up safely
@@ -473,6 +533,7 @@ struct ResponseCodeValidator {
     MsH3Waitable<uint32_t> StatusCode;
     MsH3Waitable<bool> DataReceived;
     MsH3Waitable<uint32_t> DataLength;
+    MsH3Waitable<bool> AllHeadersReceived;  // Signal when headers are complete
     
     static MSH3_STATUS RequestCallback(
         struct MsH3Request* Request,
@@ -491,9 +552,14 @@ struct ResponseCodeValidator {
                 ctx->StatusCode.Set(atoi(statusStr));
             }
         } else if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
+            // Signal that all headers have been received
+            ctx->AllHeadersReceived.Set(true);
             ctx->DataReceived.Set(true);
             ctx->DataLength.Set(Event->DATA_RECEIVED.Length);
             Request->CompleteReceive(Event->DATA_RECEIVED.Length);
+        } else if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN) {
+            // Handle case where request completes without data
+            ctx->AllHeadersReceived.Set(true);
         }
         return MSH3_STATUS_SUCCESS;
     }
@@ -536,6 +602,12 @@ DEF_TEST(DifferentResponseCodes) {
         LOG("Waiting for status code\n");
         VERIFY(validator.StatusCode.WaitFor(3000));
         LOG("Status code received: %u\n", validator.StatusCode.GetSafe());
+        
+        // Wait for all headers to be processed
+        LOG("Waiting for all headers\n");
+        VERIFY(validator.AllHeadersReceived.WaitFor(3000));
+        LOG("All headers received\n");
+        
         VERIFY(validator.StatusCode.GetSafe() == 201);
         LOG("201 Created test passed\n");
     }
@@ -642,6 +714,7 @@ struct MultipleRequestContext {
     MsH3Waitable<uint32_t> StatusCode;
     MsH3Waitable<bool> DataReceived;
     MsH3Waitable<uint32_t> DataLength;
+    MsH3Waitable<bool> AllHeadersReceived;  // Signal when headers are complete
     
     MultipleRequestContext(int num) : RequestNumber(num) {}
     
@@ -660,9 +733,14 @@ struct MultipleRequestContext {
                 ctx->StatusCode.Set(atoi(statusStr));
             }
         } else if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
+            // Signal that all headers have been received
+            ctx->AllHeadersReceived.Set(true);
             ctx->DataReceived.Set(true);
             ctx->DataLength.Set(Event->DATA_RECEIVED.Length);
             Request->CompleteReceive(Event->DATA_RECEIVED.Length);
+        } else if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN) {
+            // Handle case where request completes without data
+            ctx->AllHeadersReceived.Set(true);
         }
         return MSH3_STATUS_SUCCESS;
     }
