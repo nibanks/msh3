@@ -48,6 +48,15 @@ struct MsH3Waitable {
         State = state;
         Event.notify_all();
     }
+    void Reset() {
+        std::lock_guard<std::mutex> Lock{Mutex};
+        State = (T)0;
+    }
+    // Enhanced safety: get current state with lock
+    T GetSafe() { 
+        std::lock_guard<std::mutex> Lock{Mutex};
+        return State;
+    }
     T Wait() {
         if (!State) {
             std::unique_lock<std::mutex> Lock{Mutex};
