@@ -10,6 +10,57 @@
 
 #include "msh3.hpp"
 #include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+// Global flags for command line options
+bool g_Verbose = false;
+const char* g_TestFilter = nullptr;
+
+// Helper function to print logs when in verbose mode
+#define LOG(...) if (g_Verbose) { printf(__VA_ARGS__); fflush(stdout); }
+
+// Helper function to check if a string matches a pattern with wildcard (*)
+bool WildcardMatch(const char* pattern, const char* str) {
+    // Case insensitive matching with * wildcard support
+    if (!pattern || !str) return false;
+
+    // Empty pattern matches only empty string
+    if (*pattern == '\0') return *str == '\0';
+
+    // Special case: '*' matches everything
+    if (*pattern == '*' && *(pattern+1) == '\0') return true;
+
+    while (*pattern && *str) {
+        if (*pattern == '*') {
+            // Skip consecutive wildcards
+            while (*(pattern+1) == '*') pattern++;
+
+            // If this is the last character in pattern, we match
+            if (*(pattern+1) == '\0') return true;
+
+            // Try to match the rest of the pattern with different positions of str
+            pattern++;
+            while (*str) {
+                if (WildcardMatch(pattern, str)) return true;
+                str++;
+            }
+            return false;
+        } else if (tolower(*pattern) == tolower(*str)) {
+            // Characters match (case insensitive)
+            pattern++;
+            str++;
+        } else {
+            // No match
+            return false;
+        }
+    }
+
+    // Check if remaining pattern consists only of wildcards
+    while (*pattern == '*') pattern++;
+
+    return (*pattern == '\0' && *str == '\0');
+}
 
 struct TestFunc {
     bool (*Func)(void);
@@ -17,10 +68,25 @@ struct TestFunc {
 };
 #define DEF_TEST(X) bool Test##X()
 #define ADD_TEST(X) { Test##X, #X }
-#define VERIFY(X) if (!(X)) { fprintf(stderr, #X " Failed on %s:%d!\n", __FILE__, __LINE__); return false; }
+#define VERIFY(X) \
+    do { \
+        bool _result = (X); \
+        if (g_Verbose) { \
+            printf("%s: %s on %s:%d\n", _result ? "PASS" : "FAIL", #X, __FILE__, __LINE__); \
+            fflush(stdout); \
+        } \
+        if (!_result) { \
+            fprintf(stderr, #X " Failed on %s:%d!\n", __FILE__, __LINE__); \
+            return false; \
+        } \
+    } while (0)
 #define VERIFY_SUCCESS(X) \
     do { \
         auto _status = X; \
+        if (g_Verbose) { \
+            printf("%s: %s on %s:%d\n", MSH3_FAILED(_status) ? "FAIL" : "PASS", #X, __FILE__, __LINE__); \
+            fflush(stdout); \
+        } \
         if (MSH3_FAILED(_status)) { \
             fprintf(stderr, #X " Failed with %u on %s:%d!\n", (uint32_t)_status, __FILE__, __LINE__); \
             TestAllDone = true; \
@@ -262,15 +328,70 @@ const TestFunc TestFunctions[] = {
 };
 const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
 
-int MSH3_CALL main(int , char**) {
-    printf("Running %u tests\n", TestCount);
+void PrintUsage(const char* programName) {
+    printf("Usage: %s [options]\n", programName);
+    printf("Options:\n");
+    printf("  --filter=<pattern>  Run only tests matching pattern (wildcards * supported)\n");
+    printf("  -v, --verbose       Print detailed test information\n");
+    printf("  --help              Print this help message\n");
+}
+
+int MSH3_CALL main(int argc, char** argv) {
+    // Parse command line options
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+            g_Verbose = true;
+        } else if (strncmp(argv[i], "--filter=", 9) == 0) {
+            g_TestFilter = argv[i] + 9;
+        } else if (strcmp(argv[i], "--help") == 0) {
+            PrintUsage(argv[0]);
+            return 0;
+        } else {
+            printf("Unknown option: %s\n", argv[i]);
+            PrintUsage(argv[0]);
+            return 1;
+        }
+    }
+
+    // Calculate how many tests will run with filter
+    uint32_t runCount = 0;
+    if (g_TestFilter) {
+        for (uint32_t i = 0; i < TestCount; ++i) {
+            if (WildcardMatch(g_TestFilter, TestFunctions[i].Name)) {
+                runCount++;
+            }
+        }
+        printf("Running %u/%u tests matching filter: '%s'\n", runCount, TestCount, g_TestFilter);
+    } else {
+        runCount = TestCount;
+        printf("Running %u tests\n", TestCount);
+    }
+
+    // If no tests match the filter, return early
+    if (runCount == 0) {
+        printf("No tests match the specified filter\n");
+        return 1;
+    }
+
+    // Run the tests
     uint32_t FailCount = 0;
     for (uint32_t i = 0; i < TestCount; ++i) {
+        // Skip tests that don't match the filter
+        if (g_TestFilter && !WildcardMatch(g_TestFilter, TestFunctions[i].Name)) {
+            continue;
+        }
+
         printf("  %s\n", TestFunctions[i].Name);
         fflush(stdout);
         TestAllDone = false;
-        if (!TestFunctions[i].Func()) FailCount++;
+
+        LOG("Starting test: %s\n", TestFunctions[i].Name);
+        bool result = TestFunctions[i].Func();
+        LOG("Completed test: %s - %s\n", TestFunctions[i].Name, result ? "PASSED" : "FAILED");
+
+        if (!result) FailCount++;
     }
-    printf("Complete! %u tests failed\n", FailCount);
+
+    printf("Complete! %u test%s failed\n", FailCount, FailCount == 1 ? "" : "s");
     return FailCount ? 1 : 0;
 }
