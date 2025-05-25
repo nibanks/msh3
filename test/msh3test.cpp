@@ -521,7 +521,6 @@ DEF_TEST(ReceiveDataAsyncInline) {
 }
 
 DEF_TEST(HeaderValidation) {
-    LOG("Starting HeaderValidation test\n");
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
@@ -593,10 +592,7 @@ DEF_TEST(HeaderValidation) {
     return true;
 }
 
-// No need for ResponseCodeValidator, we'll use HeaderValidator instead
-
 DEF_TEST(DifferentResponseCodes) {
-    LOG("Starting DifferentResponseCodes test\n");
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
@@ -734,10 +730,7 @@ DEF_TEST(DifferentResponseCodes) {
     return true;
 }
 
-// MultipleRequestContext no longer needed - we'll use HeaderValidator instead
-
 DEF_TEST(MultipleRequests) {
-    LOG("Starting MultipleRequests test\n");
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
