@@ -108,6 +108,7 @@ const size_t RequestHeadersCount = sizeof(RequestHeaders)/sizeof(MSH3_HEADER);
 
 const MSH3_HEADER ResponseHeaders[] = {
     { ":status", 7, "200", 3 },
+    { "content-type", 12, "application/json", 16 },
 };
 const size_t ResponseHeadersCount = sizeof(ResponseHeaders)/sizeof(MSH3_HEADER);
 
@@ -164,7 +165,6 @@ const char TextRequestData[] = "Hello World";
 #define MAX_STORED_HEADERS 10
 
 struct HeaderValidator {
-    MsH3Waitable<bool> HeaderReceived;
     MsH3Waitable<uint32_t> HeaderCount;
     MsH3Waitable<bool> AllHeadersReceived;  // Signal when headers are complete (data received)
     uint32_t CurrentHeaderCount = 0;
@@ -201,6 +201,19 @@ struct HeaderValidator {
     // Check if we have a specific number of headers
     bool HasExpectedHeaderCount(uint32_t expected) {
         return CurrentHeaderCount == expected;
+    }
+    
+    // Helper to get the status code from headers
+    uint32_t GetStatusCode() {
+        auto statusHeader = GetHeaderByName(":status", 7);
+        if (statusHeader && statusHeader->ValueLength > 0) {
+            // Convert status code string to integer
+            char statusStr[4] = {0};
+            size_t valueLenToCopy = statusHeader->ValueLength < 3 ? statusHeader->ValueLength : 3;
+            memcpy(statusStr, statusHeader->Value, valueLenToCopy);
+            return atoi(statusStr);
+        }
+        return 0; // Return 0 if status header not found or invalid
     }
     
     static MSH3_STATUS RequestCallback(
@@ -277,7 +290,6 @@ struct HeaderValidator {
             storedHeader->Used = true;
             ctx->CurrentHeaderCount++;
             ctx->HeaderCount.Set(ctx->CurrentHeaderCount);
-            ctx->HeaderReceived.Set(true);
             LOG("Successfully processed header: %s\n", storedHeader->Name);
 
         } else if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
@@ -537,14 +549,6 @@ DEF_TEST(HeaderValidation) {
     VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
     LOG("Response sent\n");
     
-    // No helper variable needed since VERIFY will return on failure
-    
-    // Validate the received headers with extended timeout
-    LOG("Waiting for header receipt\n");
-    VERIFY(validator.HeaderReceived.WaitFor(5000));
-    
-    LOG("Header received\n");
-    
     // Wait for all headers to be received (signaled by data event or completion)
     LOG("Waiting for all headers to be received\n");
     VERIFY(validator.AllHeadersReceived.WaitFor(5000)); // Extended timeout
@@ -589,40 +593,7 @@ DEF_TEST(HeaderValidation) {
     return true;
 }
 
-struct ResponseCodeValidator {
-    MsH3Waitable<uint32_t> StatusCode;
-    MsH3Waitable<bool> DataReceived;
-    MsH3Waitable<uint32_t> DataLength;
-    MsH3Waitable<bool> AllHeadersReceived;  // Signal when headers are complete
-    
-    static MSH3_STATUS RequestCallback(
-        struct MsH3Request* Request,
-        void* Context,
-        MSH3_REQUEST_EVENT* Event
-    ) {
-        auto ctx = (ResponseCodeValidator*)Context;
-        if (Event->Type == MSH3_REQUEST_EVENT_HEADER_RECEIVED) {
-            const MSH3_HEADER* header = Event->HEADER_RECEIVED.Header;
-            // Process headers safely during the callback
-            if (header->NameLength == 7 && memcmp(header->Name, ":status", 7) == 0) {
-                // Extract status code with bounds checking
-                char statusStr[4] = {0};
-                size_t valueLenToCopy = header->ValueLength < 3 ? header->ValueLength : 3;
-                memcpy(statusStr, header->Value, valueLenToCopy);
-                ctx->StatusCode.Set(atoi(statusStr));
-            }
-        } else if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
-            // Signal that all headers have been received
-            ctx->AllHeadersReceived.Set(true);
-            ctx->DataLength.Set(Event->DATA_RECEIVED.Length);
-            ctx->DataReceived.Set(true);
-        } else if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN) {
-            // Handle case where request completes without data
-            ctx->AllHeadersReceived.Set(true);
-        }
-        return MSH3_STATUS_SUCCESS;
-    }
-};
+// No need for ResponseCodeValidator, we'll use HeaderValidator instead
 
 DEF_TEST(DifferentResponseCodes) {
     LOG("Starting DifferentResponseCodes test\n");
@@ -637,13 +608,9 @@ DEF_TEST(DifferentResponseCodes) {
     // Test 201 Created response
     {
         LOG("Testing 201 Created response\n");
-        ResponseCodeValidator validator;
-        // Reset the validator state to ensure clean starting point
-        validator.StatusCode.Reset();
-        validator.DataReceived.Reset();
-        validator.DataLength.Reset();
+        HeaderValidator validator;
         
-        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, ResponseCodeValidator::RequestCallback, &validator);
+        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator);
         
         LOG("Sending PUT request\n");
         VERIFY(Request.Send(PutRequestHeaders, PutRequestHeadersCount, TextRequestData, sizeof(TextRequestData) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
@@ -657,12 +624,22 @@ DEF_TEST(DifferentResponseCodes) {
         VERIFY(ServerRequest->Send(Response201Headers, Response201HeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
         LOG("Response sent\n");
         
-        // Validate the received status code
-        LOG("Waiting for status code and headers\n");
-        VERIFY(validator.StatusCode.WaitFor(3000));
+        // Validate the received headers
+        LOG("Waiting for all headers\n");
         VERIFY(validator.AllHeadersReceived.WaitFor(3000));
-        LOG("Status code received: %u\n", validator.StatusCode.GetSafe());
-        VERIFY(validator.StatusCode.GetSafe() == 201);
+        
+        // Verify status code
+        LOG("Verifying status code\n");
+        uint32_t statusCode = validator.GetStatusCode();
+        LOG("Status code received: %u\n", statusCode);
+        VERIFY(statusCode == 201);
+        
+        // Verify location header
+        auto locationHeader = validator.GetHeaderByName("location", 8);
+        VERIFY(locationHeader != nullptr);
+        VERIFY(locationHeader->ValueLength == 13);
+        VERIFY(memcmp(locationHeader->Value, "/resource/123", 13) == 0);
+        
         LOG("201 Created test passed\n");
     }
     
@@ -672,13 +649,9 @@ DEF_TEST(DifferentResponseCodes) {
         // Reset the server's NewRequest waitable
         Server.NewRequest.Reset();
         
-        ResponseCodeValidator validator;
-        // Reset the validator state to ensure clean starting point
-        validator.StatusCode.Reset();
-        validator.DataReceived.Reset();
-        validator.DataLength.Reset();
+        HeaderValidator validator;
         
-        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, ResponseCodeValidator::RequestCallback, &validator);
+        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator);
         
         LOG("Sending GET request for 404\n");
         VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
@@ -694,34 +667,33 @@ DEF_TEST(DifferentResponseCodes) {
         VERIFY(ServerRequest->Send(Response404Headers, Response404HeadersCount, notFoundBody, sizeof(notFoundBody) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
         LOG("404 Response sent\n");
         
-        // Validate the received status code and body
-        LOG("Waiting for 404 status code\n");
-        VERIFY(validator.StatusCode.WaitFor(3000));
-        LOG("404 Status code received: %u\n", validator.StatusCode.GetSafe());
-        VERIFY(validator.StatusCode.GetSafe() == 404);
+        // Validate the received status code
+        LOG("Waiting for all headers\n");
+        VERIFY(validator.AllHeadersReceived.WaitFor(3000));
         
-        // Log if data is received but don't require it
-        if (validator.DataReceived.WaitFor(1000)) {
-            LOG("404 Data received: Length=%u\n", validator.DataLength.GetSafe());
-        }
+        // Verify status code
+        uint32_t statusCode = validator.GetStatusCode();
+        LOG("Status code received: %u\n", statusCode);
+        VERIFY(statusCode == 404);
+        
+        // Verify content-type header
+        auto contentTypeHeader = validator.GetHeaderByName("content-type", 12);
+        VERIFY(contentTypeHeader != nullptr);
+        VERIFY(contentTypeHeader->ValueLength == 10);
+        VERIFY(memcmp(contentTypeHeader->Value, "text/plain", 10) == 0);
+        
         LOG("404 Not Found test passed\n");
     }
     
-    // Only run first two tests for now until we can debug further
-    /*
     // Test 500 Internal Server Error response
     {
         LOG("Testing 500 Internal Server Error response\n");
         // Reset the server's NewRequest waitable
         Server.NewRequest.Reset();
         
-        ResponseCodeValidator validator;
-        // Reset the validator state to ensure clean starting point
-        validator.StatusCode.Reset();
-        validator.DataReceived.Reset();
-        validator.DataLength.Reset();
+        HeaderValidator validator;
         
-        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, ResponseCodeValidator::RequestCallback, &validator);
+        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator);
         
         LOG("Sending request for 500\n");
         VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
@@ -738,18 +710,22 @@ DEF_TEST(DifferentResponseCodes) {
         LOG("500 Response sent\n");
         
         // Validate the received status code
-        LOG("Waiting for 500 status code\n");
-        VERIFY(validator.StatusCode.WaitFor(3000));
-        LOG("500 Status code received: %u\n", validator.StatusCode.GetSafe());
-        VERIFY(validator.StatusCode.GetSafe() == 500);
+        LOG("Waiting for all headers\n");
+        VERIFY(validator.AllHeadersReceived.WaitFor(3000));
         
-        // Log if data is received but don't require it
-        if (validator.DataReceived.WaitFor(1000)) {
-            LOG("500 Data received: Length=%u\n", validator.DataLength.GetSafe());
-        }
+        // Verify status code
+        uint32_t statusCode = validator.GetStatusCode();
+        LOG("Status code received: %u\n", statusCode);
+        VERIFY(statusCode == 500);
+        
+        // Verify content-type header
+        auto contentTypeHeader = validator.GetHeaderByName("content-type", 12);
+        VERIFY(contentTypeHeader != nullptr);
+        VERIFY(contentTypeHeader->ValueLength == 10);
+        VERIFY(memcmp(contentTypeHeader->Value, "text/plain", 10) == 0);
+        
         LOG("500 Internal Server Error test passed\n");
     }
-    */
     
     // Clean up safely
     LOG("Test complete, shutting down client\n");
@@ -758,41 +734,7 @@ DEF_TEST(DifferentResponseCodes) {
     return true;
 }
 
-struct MultipleRequestContext {
-    int RequestNumber;
-    MsH3Waitable<uint32_t> StatusCode;
-    MsH3Waitable<bool> DataReceived;
-    MsH3Waitable<uint32_t> DataLength;
-    MsH3Waitable<bool> AllHeadersReceived;  // Signal when headers are complete
-    
-    MultipleRequestContext(int num) : RequestNumber(num) {}
-    
-    static MSH3_STATUS RequestCallback(
-        struct MsH3Request* Request,
-        void* Context,
-        MSH3_REQUEST_EVENT* Event
-    ) {
-        auto ctx = (MultipleRequestContext*)Context;
-        if (Event->Type == MSH3_REQUEST_EVENT_HEADER_RECEIVED) {
-            const MSH3_HEADER* header = Event->HEADER_RECEIVED.Header;
-            if (header->NameLength == 7 && memcmp(header->Name, ":status", 7) == 0) {
-                char statusStr[4] = {0};
-                size_t valueLenToCopy = header->ValueLength < 3 ? header->ValueLength : 3;
-                memcpy(statusStr, header->Value, valueLenToCopy);
-                ctx->StatusCode.Set(atoi(statusStr));
-            }
-        } else if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
-            // Signal that all headers have been received
-            ctx->AllHeadersReceived.Set(true);
-            ctx->DataLength.Set(Event->DATA_RECEIVED.Length);
-            ctx->DataReceived.Set(true);
-        } else if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN) {
-            // Handle case where request completes without data
-            ctx->AllHeadersReceived.Set(true);
-        }
-        return MSH3_STATUS_SUCCESS;
-    }
-};
+// MultipleRequestContext no longer needed - we'll use HeaderValidator instead
 
 DEF_TEST(MultipleRequests) {
     LOG("Starting MultipleRequests test\n");
@@ -808,8 +750,8 @@ DEF_TEST(MultipleRequests) {
 
     // Send first request (GET)
     LOG("Sending first request (GET)\n");
-    MultipleRequestContext ctx1(1);
-    MsH3Request Request1(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, MultipleRequestContext::RequestCallback, &ctx1);
+    HeaderValidator validator1;
+    MsH3Request Request1(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator1);
     VERIFY(Request1.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Server.NewRequest.WaitFor(3000));
     auto ServerRequest1 = Server.NewRequest.Get();
@@ -818,19 +760,24 @@ DEF_TEST(MultipleRequests) {
     VERIFY(ServerRequest1->Send(ResponseHeaders, ResponseHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
     LOG("First response sent\n");
     
-    VERIFY(ctx1.StatusCode.WaitFor(2000));
-    LOG("First status code received: %u\n", ctx1.StatusCode.GetSafe());
-    VERIFY(ctx1.StatusCode.Get() == 200);
-    // Log if data is received but don't require it
-    if (ctx1.DataReceived.WaitFor(1000)) {
-        LOG("First request data received: Length=%u\n", ctx1.DataLength.GetSafe());
-    }
+    // Wait for headers and validate status code
+    VERIFY(validator1.AllHeadersReceived.WaitFor(3000));
+    uint32_t statusCode1 = validator1.GetStatusCode();
+    LOG("First status code received: %u\n", statusCode1);
+    VERIFY(statusCode1 == 200);
+    
+    // Verify content-type header
+    auto contentType1 = validator1.GetHeaderByName("content-type", 12);
+    VERIFY(contentType1 != nullptr);
+    VERIFY(contentType1->ValueLength == 16);
+    VERIFY(memcmp(contentType1->Value, "application/json", 16) == 0);
+    LOG("First request headers validated\n");
     
     // Send second request (POST)
     LOG("Sending second request (POST)\n");
     Server.NewRequest.Reset();
-    MultipleRequestContext ctx2(2);
-    MsH3Request Request2(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, MultipleRequestContext::RequestCallback, &ctx2);
+    HeaderValidator validator2;
+    MsH3Request Request2(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator2);
     VERIFY(Request2.Send(PostRequestHeaders, PostRequestHeadersCount, JsonRequestData, sizeof(JsonRequestData) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Server.NewRequest.WaitFor(3000));
     auto ServerRequest2 = Server.NewRequest.Get();
@@ -839,15 +786,24 @@ DEF_TEST(MultipleRequests) {
     VERIFY(ServerRequest2->Send(Response201Headers, Response201HeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     LOG("Second response sent\n");
     
-    VERIFY(ctx2.StatusCode.WaitFor(2000));
-    LOG("Second status code received: %u\n", ctx2.StatusCode.GetSafe());
-    VERIFY(ctx2.StatusCode.Get() == 201);
+    // Wait for headers and validate status code
+    VERIFY(validator2.AllHeadersReceived.WaitFor(3000));
+    uint32_t statusCode2 = validator2.GetStatusCode();
+    LOG("Second status code received: %u\n", statusCode2);
+    VERIFY(statusCode2 == 201);
+    
+    // Verify location header
+    auto locationHeader = validator2.GetHeaderByName("location", 8);
+    VERIFY(locationHeader != nullptr);
+    VERIFY(locationHeader->ValueLength == 13);
+    VERIFY(memcmp(locationHeader->Value, "/resource/123", 13) == 0);
+    LOG("Second request headers validated\n");
     
     // Send third request (PUT)
     LOG("Sending third request (PUT)\n");
     Server.NewRequest.Reset();
-    MultipleRequestContext ctx3(3);
-    MsH3Request Request3(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, MultipleRequestContext::RequestCallback, &ctx3);
+    HeaderValidator validator3;
+    MsH3Request Request3(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator3);
     VERIFY(Request3.Send(PutRequestHeaders, PutRequestHeadersCount, TextRequestData, sizeof(TextRequestData) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Server.NewRequest.WaitFor(3000));
     auto ServerRequest3 = Server.NewRequest.Get();
@@ -856,13 +812,18 @@ DEF_TEST(MultipleRequests) {
     VERIFY(ServerRequest3->Send(ResponseHeaders, ResponseHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
     LOG("Third response sent\n");
     
-    VERIFY(ctx3.StatusCode.WaitFor(2000));
-    LOG("Third status code received: %u\n", ctx3.StatusCode.GetSafe());
-    VERIFY(ctx3.StatusCode.Get() == 200);
-    // Log if data is received but don't require it
-    if (ctx3.DataReceived.WaitFor(1000)) {
-        LOG("Third request data received: Length=%u\n", ctx3.DataLength.GetSafe());
-    }
+    // Wait for headers and validate status code
+    VERIFY(validator3.AllHeadersReceived.WaitFor(3000));
+    uint32_t statusCode3 = validator3.GetStatusCode();
+    LOG("Third status code received: %u\n", statusCode3);
+    VERIFY(statusCode3 == 200);
+    
+    // Verify content-type header for third request
+    auto contentType3 = validator3.GetHeaderByName("content-type", 12);
+    VERIFY(contentType3 != nullptr);
+    VERIFY(contentType3->ValueLength == 16);
+    VERIFY(memcmp(contentType3->Value, "application/json", 16) == 0);
+    LOG("Third request headers validated\n");
     
     LOG("Test complete, shutting down client\n");
     Client.Shutdown();
