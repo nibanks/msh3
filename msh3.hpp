@@ -153,15 +153,14 @@ struct MsH3EventQueue {
         return (uint32_t)result;
     }
     static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
-        return CONTAINING_RECORD(Cqe, MSH3_SQE, Handle);
+        return (MSH3_SQE*)Cqe->udata;
     }
 #endif // _WIN32
     void CompleteEvents(uint32_t WaitTime) noexcept {
         MSH3_CQE Events[8];
         uint32_t EventCount = Dequeue(Events, ARRAYSIZE(Events), WaitTime);
         for (uint32_t i = 0; i < EventCount; ++i) {
-            MSH3_SQE* Sqe = GetSqe(&Events[i]);
-            Sqe->Completion(&Events[i]);
+            GetSqe(&Events[i])->Completion(&Events[i]);
         }
     }
 };
