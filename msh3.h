@@ -53,6 +53,7 @@ typedef struct MSH3_SQE {
 #if __linux__ // epoll
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <unistd.h>
 typedef int MSH3_EVENTQ;
 typedef struct epoll_event MSH3_CQE;
 typedef
