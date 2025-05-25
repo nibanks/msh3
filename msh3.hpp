@@ -82,13 +82,16 @@ struct MsH3EventQueue {
         ) noexcept {
         return PostQueuedCompletionStatus(IOCP, dwNumberOfBytesTransferred, dwCompletionKey, lpOverlapped);
     }
-    bool Dequeue(
-        _Out_writes_to_(ulCount,*ulNumEntriesRemoved) MSH3_CQE* lpCompletionPortEntries,
-        _In_ uint32_t ulCount,
-        _Out_ uint32_t* ulNumEntriesRemoved,
-        _In_ uint32_t dwMilliseconds
+    uint32_t Dequeue(
+        _Out_writes_to_(count, return) MSH3_CQE* events,
+        _In_ uint32_t count,
+        _In_ uint32_t waitTime
         ) noexcept {
-        return GetQueuedCompletionStatusEx(IOCP, lpCompletionPortEntries, ulCount, (ULONG*)ulNumEntriesRemoved, dwMilliseconds, FALSE);
+        uint32_t result;
+        if (!GetQueuedCompletionStatusEx(IOCP, events, count, (ULONG*)&result, waitTime, FALSE)) {
+            return 0;
+        }
+        return result;
     }
     static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
         return CONTAINING_RECORD(Cqe->lpOverlapped, MSH3_SQE, Overlapped);
@@ -105,13 +108,17 @@ struct MsH3EventQueue {
         ) noexcept {
         return eventfd_write(Sqe->fd, 1) == 0;
     }
-    bool Dequeue(
-        MSH3_CQE* lpCompletionPortEntries,
-        uint32_t ulCount,
-        uint32_t* ulNumEntriesRemoved,
-        uint32_t dwMilliseconds
+    uint32_t Dequeue(
+        MSH3_CQE* events,
+        uint32_t count,
+        uint32_t waitTime
         ) noexcept {
-        return epoll_wait(EpollFd, lpCompletionPortEntries, ulCount, dwMilliseconds) > 0;
+        const int timeout = waitTime == UINT32_MAX ? -1 : (int)waitTime;
+        int result;
+        do {
+            result = epoll_wait(EpollFd, events, count, timeout);
+        } while ((result == -1L) && (errno == EINTR));
+        return (uint32_t)result;
     }
     static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
         return (MSH3_SQE*)Cqe->data.ptr;
@@ -129,26 +136,32 @@ struct MsH3EventQueue {
         struct kevent event = {.ident = Sqe->Handle, .filter = EVFILT_USER, .flags = EV_ADD | EV_ONESHOT, .fflags = NOTE_TRIGGER, .data = 0, .udata = Sqe};
         return kevent(KqueueFd, &event, 1, NULL, 0, NULL) == 0;
     }
-    bool Dequeue(
-        MSH3_CQE* lpCompletionPortEntries,
-        uint32_t ulCount,
-        uint32_t* ulNumEntriesRemoved,
-        uint32_t dwMilliseconds
+    uint32_t Dequeue(
+        MSH3_CQE* events,
+        uint32_t count,
+        uint32_t waitTime
         ) noexcept {
-        return kevent(KqueueFd, nullptr, 0, lpCompletionPortEntries, ulCount, nullptr) > 0;
+        struct timespec timeout = {0, 0};
+        if (waitTime != UINT32_MAX) {
+            timeout.tv_sec = (waitTime / 1000);
+            timeout.tv_nsec = ((waitTime % 1000) * 1000000);
+        }
+        int result;
+        do {
+            result = kevent(KqueueFd, NULL, 0, events, count, waitTime == UINT32_MAX ? NULL : &timeout);
+        } while ((result == -1L) && (errno == EINTR));
+        return (uint32_t)result;
     }
     static MSH3_SQE* GetSqe(MSH3_CQE* Cqe) noexcept {
         return CONTAINING_RECORD(Cqe, MSH3_SQE, Handle);
     }
 #endif // _WIN32
     void CompleteEvents(uint32_t WaitTime) noexcept {
-        uint32_t EventCount = 0;
         MSH3_CQE Events[8];
-        if (Dequeue(Events, ARRAYSIZE(Events), &EventCount, WaitTime)) {
-            for (uint32_t i = 0; i < EventCount; ++i) {
-                MSH3_SQE* Sqe = GetSqe(&Events[i]);
-                Sqe->Completion(&Events[i]);
-            }
+        uint32_t EventCount = Dequeue(Events, ARRAYSIZE(Events), WaitTime);
+        for (uint32_t i = 0; i < EventCount; ++i) {
+            MSH3_SQE* Sqe = GetSqe(&Events[i]);
+            Sqe->Completion(&Events[i]);
         }
     }
 };
