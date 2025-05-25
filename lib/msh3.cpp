@@ -832,15 +832,12 @@ MsH3pUniDirStream::EncoderStreamCallback(
             }
         }
         break;
-        
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         printf("Encoder peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
-        
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Encoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
-        
     default: break;
     }
     return QUIC_STATUS_SUCCESS;
@@ -869,15 +866,12 @@ MsH3pUniDirStream::DecoderStreamCallback(
             }
         }
         break;
-        
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         printf("Decoder peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
-        
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
         printf("Decoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
-        
     default: break;
     }
     return QUIC_STATUS_SUCCESS;
@@ -1176,9 +1170,8 @@ MsH3pBiDirStream::DecodePrepare(
     )
 {
     if (Space > sizeof(DecodeBuffer)) {
-        printf("[QPACK] Warning: Header too big (%zu bytes), truncating to %zu bytes\n", 
-              Space, (size_t)sizeof(DecodeBuffer));
-        Space = sizeof(DecodeBuffer);
+        printf("Header too big, %zu\n", Space);
+        return nullptr;
     }
     
     if (Header) {
