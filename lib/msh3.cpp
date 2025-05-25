@@ -1173,7 +1173,6 @@ MsH3pBiDirStream::DecodePrepare(
         printf("Header too big, %zu\n", Space);
         return nullptr;
     }
-    
     if (Header) {
         Header->buf = DecodeBuffer;
         Header->val_len = (lsxpack_strlen_t)Space;
