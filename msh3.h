@@ -30,7 +30,7 @@ typedef
 _IRQL_requires_max_(PASSIVE_LEVEL)
 void
 (MSH3_EVENT_COMPLETION)(
-    _In_ MSH3_CQE* Cqe
+    MSH3_CQE* Cqe
     );
 typedef MSH3_EVENT_COMPLETION *MSH3_EVENT_COMPLETION_HANDLER;
 typedef struct MSH3_SQE {
