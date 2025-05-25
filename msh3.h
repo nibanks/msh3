@@ -302,7 +302,7 @@ MsH3ApiOpenWithExecution(
 uint32_t
 MSH3_CALL
 MsH3ApiPoll(
-    _In_ MSH3_EXECUTION* Execution
+    MSH3_EXECUTION* Execution
     );
 #endif
 
