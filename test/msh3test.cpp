@@ -161,38 +161,40 @@ const size_t Response500HeadersCount = sizeof(Response500Headers)/sizeof(MSH3_HE
 const char JsonRequestData[] = "{\"test\":\"data\"}";
 const char TextRequestData[] = "Hello World";
 
-// Maximum number of headers we'll store
-#define MAX_STORED_HEADERS 10
+#include <vector>
+#include <string>
 
 struct HeaderValidator {
     MsH3Waitable<uint32_t> HeaderCount;
     MsH3Waitable<bool> AllHeadersReceived;  // Signal when headers are complete (data received)
     uint32_t CurrentHeaderCount = 0;
     
-    // Store multiple headers instead of just one
+    // Store multiple headers using a more C++ friendly approach
     struct StoredHeader {
-        char Name[64];
+        std::string Name;
         size_t NameLength;
-        char Value[128];
+        std::string Value;
         size_t ValueLength;
-        bool Used;
+        
+        // Constructor for easier creation
+        StoredHeader(const char* name, size_t nameLen, const char* value, size_t valueLen)
+            : Name(name, nameLen), 
+              NameLength(nameLen), 
+              Value(value, valueLen),
+              ValueLength(valueLen) {}
     };
     
-    StoredHeader Headers[MAX_STORED_HEADERS];
+    // Use a vector instead of fixed-size array
+    std::vector<StoredHeader> Headers;
     
-    // Constructor initializes all headers as unused
-    HeaderValidator() {
-        for (int i = 0; i < MAX_STORED_HEADERS; i++) {
-            Headers[i].Used = false;
-        }
-    }
+    // No need for a constructor that initializes unused headers
     
     // Helper to get the first header by name
     StoredHeader* GetHeaderByName(const char* name, size_t nameLength) {
-        for (int i = 0; i < MAX_STORED_HEADERS; i++) {
-            if (Headers[i].Used && Headers[i].NameLength == nameLength && 
-                memcmp(Headers[i].Name, name, nameLength) == 0) {
-                return &Headers[i];
+        for (auto& header : Headers) {
+            if (header.NameLength == nameLength && 
+                memcmp(header.Name.c_str(), name, nameLength) == 0) {
+                return &header;
             }
         }
         return nullptr;
@@ -207,11 +209,8 @@ struct HeaderValidator {
     uint32_t GetStatusCode() {
         auto statusHeader = GetHeaderByName(":status", 7);
         if (statusHeader && statusHeader->ValueLength > 0) {
-            // Convert status code string to integer
-            char statusStr[4] = {0};
-            size_t valueLenToCopy = statusHeader->ValueLength < 3 ? statusHeader->ValueLength : 3;
-            memcpy(statusStr, statusHeader->Value, valueLenToCopy);
-            return atoi(statusStr);
+            // Convert status code string to integer - now we can just use the string directly
+            return atoi(statusHeader->Value.c_str());
         }
         return 0; // Return 0 if status header not found or invalid
     }
@@ -230,25 +229,8 @@ struct HeaderValidator {
         auto ctx = (HeaderValidator*)Context;
         
         if (Event->Type == MSH3_REQUEST_EVENT_HEADER_RECEIVED) {
-            // Find an unused header slot
-            int slot = -1;
-            for (int i = 0; i < MAX_STORED_HEADERS; i++) {
-                if (!ctx->Headers[i].Used) {
-                    slot = i;
-                    break;
-                }
-            }
-            
-            // If slot not found, log and exit early
-            if (slot == -1) {
-                LOG("Warning: No available header slots\n");
-                return MSH3_STATUS_SUCCESS;
-            }
-            
-            StoredHeader* storedHeader = &ctx->Headers[slot];
-            // No need to check storedHeader - it's always valid as it's a reference to an array element
-            
             const MSH3_HEADER* header = Event->HEADER_RECEIVED.Header;
+            
             // Validate the header pointer before dereferencing
             if (!header || !header->Name || !header->Value) {
                 LOG("Warning: Received invalid header\n");
@@ -259,38 +241,24 @@ struct HeaderValidator {
                 return MSH3_STATUS_SUCCESS;
             }
             
-            // Initialize values in case Value is null - needed for debug builds
-            storedHeader->Name[0] = '\0';
-            storedHeader->Value[0] = '\0';
-            storedHeader->NameLength = 0;
-            storedHeader->ValueLength = 0;
-            
-            // Safe copy of name with explicit bounds checking
-            size_t nameLenToCopy = header->NameLength < (sizeof(storedHeader->Name) - 1) ? 
-                                  header->NameLength : (sizeof(storedHeader->Name) - 1);
-            
-            // Copy name safely
-            memcpy(storedHeader->Name, header->Name, nameLenToCopy);
-            storedHeader->Name[nameLenToCopy] = '\0';
-            storedHeader->NameLength = nameLenToCopy;
-            
-            // Check valid value length
-            if (header->ValueLength > 1024) {
-                LOG("Warning: Invalid header value length: %zu\n", header->ValueLength);
-                // We'll still process the name but truncate the value
+            // Check valid value length and cap it if needed
+            size_t valueLength = header->ValueLength;
+            if (valueLength > 1024) {
+                LOG("Warning: Truncating header value length: %zu\n", header->ValueLength);
+                valueLength = 1024;
             }
             
-            size_t valueLenToCopy = header->ValueLength < (sizeof(storedHeader->Value) - 1) ? 
-                                    header->ValueLength : (sizeof(storedHeader->Value) - 1);
+            // With std::vector and StoredHeader constructor, we can just add a new header
+            ctx->Headers.emplace_back(
+                header->Name, 
+                header->NameLength,
+                header->Value, 
+                valueLength
+            );
             
-            memcpy(storedHeader->Value, header->Value, valueLenToCopy);
-            storedHeader->Value[valueLenToCopy] = '\0';
-            storedHeader->ValueLength = valueLenToCopy;
-            
-            storedHeader->Used = true;
             ctx->CurrentHeaderCount++;
             ctx->HeaderCount.Set(ctx->CurrentHeaderCount);
-            LOG("Successfully processed header: %s\n", storedHeader->Name);
+            LOG("Successfully processed header: %s\n", header->Name);
 
         } else if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
             // Signal that all headers have been received (since data always comes after headers)
@@ -562,12 +530,10 @@ DEF_TEST(HeaderValidation) {
     
     // Log how many headers we received
     LOG("Received %u headers\n", validator.CurrentHeaderCount);
-    for (int i = 0; i < MAX_STORED_HEADERS; i++) {
-        if (validator.Headers[i].Used) {
-            LOG("  Header[%d]: %s = %s\n", i, 
-                validator.Headers[i].Name, 
-                validator.Headers[i].Value);
-        }
+    for (size_t i = 0; i < validator.Headers.size(); i++) {
+        LOG("  Header[%zu]: %s = %s\n", i, 
+            validator.Headers[i].Name.c_str(), 
+            validator.Headers[i].Value.c_str());
     }
     
     // Check for the status header and verify it
@@ -576,12 +542,12 @@ DEF_TEST(HeaderValidation) {
     
     // Verify header name and length
     VERIFY(statusHeader->NameLength == 7);
-    VERIFY(memcmp(statusHeader->Name, ":status", 7) == 0);
+    VERIFY(statusHeader->Name == ":status");
     LOG("Header name verified\n");
     
     // Verify header value and length
     VERIFY(statusHeader->ValueLength == 3);
-    VERIFY(memcmp(statusHeader->Value, "200", 3) == 0);
+    VERIFY(statusHeader->Value == "200");
     LOG("Header value verified\n");
 
     // Clean up safely
@@ -634,7 +600,7 @@ DEF_TEST(DifferentResponseCodes) {
         auto locationHeader = validator.GetHeaderByName("location", 8);
         VERIFY(locationHeader != nullptr);
         VERIFY(locationHeader->ValueLength == 13);
-        VERIFY(memcmp(locationHeader->Value, "/resource/123", 13) == 0);
+        VERIFY(locationHeader->Value == "/resource/123");
         
         LOG("201 Created test passed\n");
     }
@@ -676,7 +642,7 @@ DEF_TEST(DifferentResponseCodes) {
         auto contentTypeHeader = validator.GetHeaderByName("content-type", 12);
         VERIFY(contentTypeHeader != nullptr);
         VERIFY(contentTypeHeader->ValueLength == 10);
-        VERIFY(memcmp(contentTypeHeader->Value, "text/plain", 10) == 0);
+        VERIFY(contentTypeHeader->Value == "text/plain");
         
         LOG("404 Not Found test passed\n");
     }
@@ -718,7 +684,7 @@ DEF_TEST(DifferentResponseCodes) {
         auto contentTypeHeader = validator.GetHeaderByName("content-type", 12);
         VERIFY(contentTypeHeader != nullptr);
         VERIFY(contentTypeHeader->ValueLength == 10);
-        VERIFY(memcmp(contentTypeHeader->Value, "text/plain", 10) == 0);
+        VERIFY(contentTypeHeader->Value == "text/plain");
         
         LOG("500 Internal Server Error test passed\n");
     }
@@ -763,7 +729,7 @@ DEF_TEST(MultipleRequests) {
     auto contentType1 = validator1.GetHeaderByName("content-type", 12);
     VERIFY(contentType1 != nullptr);
     VERIFY(contentType1->ValueLength == 16);
-    VERIFY(memcmp(contentType1->Value, "application/json", 16) == 0);
+    VERIFY(contentType1->Value == "application/json");
     LOG("First request headers validated\n");
     
     // Send second request (POST)
@@ -789,7 +755,7 @@ DEF_TEST(MultipleRequests) {
     auto locationHeader = validator2.GetHeaderByName("location", 8);
     VERIFY(locationHeader != nullptr);
     VERIFY(locationHeader->ValueLength == 13);
-    VERIFY(memcmp(locationHeader->Value, "/resource/123", 13) == 0);
+    VERIFY(locationHeader->Value == "/resource/123");
     LOG("Second request headers validated\n");
     
     // Send third request (PUT)
@@ -815,7 +781,7 @@ DEF_TEST(MultipleRequests) {
     auto contentType3 = validator3.GetHeaderByName("content-type", 12);
     VERIFY(contentType3 != nullptr);
     VERIFY(contentType3->ValueLength == 16);
-    VERIFY(memcmp(contentType3->Value, "application/json", 16) == 0);
+    VERIFY(contentType3->Value == "application/json");
     LOG("Third request headers validated\n");
     
     LOG("Test complete, shutting down client\n");
