@@ -16,10 +16,16 @@
 #include <vector>
 #include <string>
 #include <stdlib.h> // For atoi
+#include <algorithm> // For std::min
+#include <thread> // For watchdog timer thread
+#include <chrono> // For timing
+#include <atomic> // For thread communication
 
 // Global flags for command line options
 bool g_Verbose = false;
 const char* g_TestFilter = nullptr;
+uint32_t g_WatchdogTimeoutMs = 5000; // Default to 5 seconds
+MsH3Waitable<bool> g_TestAllDone;
 
 // Helper function to print logs when in verbose mode
 #define LOG(...) if (g_Verbose) { printf(__VA_ARGS__); fflush(stdout); }
@@ -93,7 +99,6 @@ struct TestFunc {
         } \
         if (MSH3_FAILED(_status)) { \
             fprintf(stderr, #X " Failed with %u on %s:%d!\n", (uint32_t)_status, __FILE__, __LINE__); \
-            TestAllDone = true; \
             return false; \
         } \
     } while (0)
@@ -116,7 +121,6 @@ const size_t ResponseHeadersCount = sizeof(ResponseHeaders)/sizeof(MSH3_HEADER);
 
 const char ResponseData[] = "HELLO WORLD!\n";
 
-bool TestAllDone = false;
 
 // Add more types of request headers for testing
 const MSH3_HEADER PostRequestHeaders[] = {
@@ -313,11 +317,13 @@ struct TestClient : public MsH3Connection {
             MsH3RequestClose(Event->NEW_REQUEST.Request);
         } else if (Event->Type == MSH3_CONNECTION_EVENT_CONNECTED) {
             if (((TestClient*)Connection)->SingleThreaded) {
-                TestAllDone = true;
+                g_TestAllDone.Set(true);
                 Connection->Shutdown();
             }
         } else if (Event->Type == MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE) {
-            TestAllDone = true;
+            if (((TestClient*)Connection)->SingleThreaded) {
+                g_TestAllDone.Set(true);
+            }
         }
         return MSH3_STATUS_SUCCESS;
     }
@@ -343,7 +349,7 @@ DEF_TEST(HandshakeSingleThread) {
     TestServer Server(Api, true); VERIFY(Server.IsValid());
     TestClient Client(Api, true); VERIFY(Client.IsValid());
     VERIFY_SUCCESS(Client.Start());
-    while (!TestAllDone) {
+    while (!g_TestAllDone.Get()) {
         uint32_t WaitTime = Api.Poll(Execution);
         EventQueue.CompleteEvents(WaitTime);
 
@@ -746,6 +752,260 @@ DEF_TEST(MultipleRequests) {
     return true;
 }
 
+// Throughput test sizes
+#define LARGE_TEST_SIZE_1MB (1024 * 1024)
+#define LARGE_TEST_SIZE_10MB (10 * 1024 * 1024)
+#define LARGE_TEST_SIZE_50MB (50 * 1024 * 1024)
+#define LARGE_TEST_SIZE_100MB (100 * 1024 * 1024)
+
+struct LargeDataContext {
+    size_t TotalReceived = 0;
+    size_t ExpectedSize = 0;
+    MsH3Waitable<bool> Done;
+    LargeDataContext(size_t expected) : ExpectedSize(expected) {}
+    static MSH3_STATUS RequestCallback(
+        struct MsH3Request* /*Request*/,
+        void* Context,
+        MSH3_REQUEST_EVENT* Event
+    ) {
+        auto ctx = (LargeDataContext*)Context;
+        if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
+            ctx->TotalReceived += Event->DATA_RECEIVED.Length;
+            if (ctx->TotalReceived >= ctx->ExpectedSize) {
+                ctx->Done.Set(true);
+            }
+        }
+        if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE) {
+            ctx->Done.Set(true);
+        }
+        return MSH3_STATUS_SUCCESS;
+    }
+};
+
+// Large download (server to client) 1MB
+DEF_TEST(LargeDownload1MB) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    LargeDataContext ctx(LARGE_TEST_SIZE_1MB);
+    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, LargeDataContext::RequestCallback, &ctx);
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(Request.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    VERIFY(Server.NewRequest.WaitFor());
+    auto ServerRequest = Server.NewRequest.Get();
+    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_1MB, 0xAB);
+    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(ctx.Done.WaitFor());
+    VERIFY(ctx.TotalReceived == LARGE_TEST_SIZE_1MB);
+    Client.Shutdown();
+    VERIFY(Client.ShutdownComplete.WaitFor());
+    return true;
+}
+
+// Large download (server to client) 10MB
+DEF_TEST(LargeDownload10MB) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    LargeDataContext ctx(LARGE_TEST_SIZE_10MB);
+    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, LargeDataContext::RequestCallback, &ctx);
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(Request.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    VERIFY(Server.NewRequest.WaitFor());
+    auto ServerRequest = Server.NewRequest.Get();
+    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_10MB, 0xCD);
+    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(ctx.Done.WaitFor());
+    VERIFY(ctx.TotalReceived == LARGE_TEST_SIZE_10MB);
+    Client.Shutdown();
+    VERIFY(Client.ShutdownComplete.WaitFor());
+    return true;
+}
+
+// Large download (server to client) 50MB
+DEF_TEST(LargeDownload50MB) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    LargeDataContext ctx(LARGE_TEST_SIZE_50MB);
+    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, LargeDataContext::RequestCallback, &ctx);
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(Request.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    VERIFY(Server.NewRequest.WaitFor());
+    auto ServerRequest = Server.NewRequest.Get();
+    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_50MB, 0xA5);
+    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(ctx.Done.WaitFor());
+    VERIFY(ctx.TotalReceived == LARGE_TEST_SIZE_50MB);
+    Client.Shutdown();
+    VERIFY(Client.ShutdownComplete.WaitFor());
+    return true;
+}
+
+// Large upload (client to server) 1MB
+DEF_TEST(LargeUpload1MB) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    MsH3Waitable<size_t> serverReceived;
+    struct UploadContext {
+        MsH3Waitable<size_t>* Received;
+        size_t Total = 0;
+        static MSH3_STATUS RequestCallback(
+            struct MsH3Request* /*Request*/,
+            void* Context,
+            MSH3_REQUEST_EVENT* Event
+        ) {
+            auto ctx = (UploadContext*)Context;
+            if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
+                ctx->Total += Event->DATA_RECEIVED.Length;
+            }
+            if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN) {
+                LOG("Peer send shutdown received, total data length: %zu\n", ctx->Total);
+                ctx->Received->Set(ctx->Total);
+            }
+            return MSH3_STATUS_SUCCESS;
+        }
+    } uploadCtx{&serverReceived};
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    MsH3Request Request(Client);
+    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_1MB, 0xEF);
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    
+    LOG("Waiting for server request with timeout\n");
+    VERIFY(Server.NewRequest.WaitFor());
+    
+    auto ServerRequest = Server.NewRequest.Get();
+    MsH3RequestSetCallbackHandler(ServerRequest->Handle, (MSH3_REQUEST_CALLBACK_HANDLER)UploadContext::RequestCallback, &uploadCtx);
+    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    
+    LOG("Waiting for server to receive data with timeout\n");
+    VERIFY(serverReceived.WaitFor(2000));
+    
+    VERIFY(serverReceived.Get() == LARGE_TEST_SIZE_1MB);
+    Client.Shutdown();
+    
+    LOG("Waiting for client shutdown with timeout\n");
+    VERIFY(Client.ShutdownComplete.WaitFor(1000));
+    return true;
+}
+
+// Large upload (client to server) 10MB
+DEF_TEST(LargeUpload10MB) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    MsH3Waitable<size_t> serverReceived;
+    struct UploadContext {
+        MsH3Waitable<size_t>* Received;
+        size_t Total = 0;
+        static MSH3_STATUS RequestCallback(
+            struct MsH3Request* /*Request*/,
+            void* Context,
+            MSH3_REQUEST_EVENT* Event
+        ) {
+            auto ctx = (UploadContext*)Context;
+            if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
+                ctx->Total += Event->DATA_RECEIVED.Length;
+            }
+            if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE) {
+                ctx->Received->Set(ctx->Total);
+            }
+            return MSH3_STATUS_SUCCESS;
+        }
+    } uploadCtx{&serverReceived};
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    MsH3Request Request(Client);
+    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_10MB, 0xBC);
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    
+    LOG("Waiting for server request with timeout (10MB)\n");
+    VERIFY(Server.NewRequest.WaitFor(1000));
+    
+    auto ServerRequest = Server.NewRequest.Get();
+    MsH3RequestSetCallbackHandler(ServerRequest->Handle, (MSH3_REQUEST_CALLBACK_HANDLER)UploadContext::RequestCallback, &uploadCtx);
+    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    
+    LOG("Waiting for server to receive data with timeout (10MB)\n");
+    VERIFY(serverReceived.WaitFor(8000)); // Longer timeout for larger data
+    
+    VERIFY(serverReceived.Get() == LARGE_TEST_SIZE_10MB);
+    Client.Shutdown();
+    
+    LOG("Waiting for client shutdown with timeout (10MB)\n");
+    VERIFY(Client.ShutdownComplete.WaitFor(1000));
+    return true;
+}
+
+// Bidirectional large transfer (client uploads, server responds with large download)
+DEF_TEST(LargeBidirectional10MB) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    MsH3Waitable<size_t> serverReceived;
+    struct UploadContext {
+        MsH3Waitable<size_t>* Received;
+        size_t Total = 0;
+        static MSH3_STATUS RequestCallback(
+            struct MsH3Request* /*Request*/,
+            void* Context,
+            MSH3_REQUEST_EVENT* Event
+        ) {
+            auto ctx = (UploadContext*)Context;
+            if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
+                ctx->Total += Event->DATA_RECEIVED.Length;
+            }
+            if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE) {
+                ctx->Received->Set(ctx->Total);
+            }
+            return MSH3_STATUS_SUCCESS;
+        }
+    } uploadCtx{&serverReceived};
+    LargeDataContext downloadCtx(LARGE_TEST_SIZE_10MB);
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, LargeDataContext::RequestCallback, &downloadCtx);
+    std::vector<uint8_t> uploadBuffer(LARGE_TEST_SIZE_10MB, 0xDE);
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, (const char*)uploadBuffer.data(), uploadBuffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    
+    LOG("Waiting for server request with timeout (bidirectional)\n");
+    VERIFY(Server.NewRequest.WaitFor(1000));
+    
+    auto ServerRequest = Server.NewRequest.Get();
+    MsH3RequestSetCallbackHandler(ServerRequest->Handle, (MSH3_REQUEST_CALLBACK_HANDLER)UploadContext::RequestCallback, &uploadCtx);
+    std::vector<uint8_t> downloadBuffer(LARGE_TEST_SIZE_10MB, 0xAD);
+    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)downloadBuffer.data(), downloadBuffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    
+    LOG("Waiting for server to receive data with timeout (bidirectional)\n");
+    VERIFY(serverReceived.WaitFor(8000)); // Longer timeout for larger data
+    
+    VERIFY(serverReceived.Get() == LARGE_TEST_SIZE_10MB);
+    
+    LOG("Waiting for client to receive data with timeout (bidirectional)\n");
+    VERIFY(downloadCtx.Done.WaitFor(8000)); // Longer timeout for larger data
+    
+    VERIFY(downloadCtx.TotalReceived == LARGE_TEST_SIZE_10MB);
+    Client.Shutdown();
+    
+    LOG("Waiting for client shutdown with timeout (bidirectional)\n");
+    VERIFY(Client.ShutdownComplete.WaitFor(1000));
+    return true;
+}
+
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
     //ADD_TEST(HandshakeSingleThread),
@@ -758,18 +1018,34 @@ const TestFunc TestFunctions[] = {
     ADD_TEST(HeaderValidation),
     ADD_TEST(DifferentResponseCodes),
     ADD_TEST(MultipleRequests),
+    ADD_TEST(LargeDownload1MB),
+    ADD_TEST(LargeDownload10MB),
+    ADD_TEST(LargeDownload50MB),
+    ADD_TEST(LargeUpload1MB),
+    ADD_TEST(LargeUpload10MB),
+    ADD_TEST(LargeBidirectional10MB),
 };
 const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
 
-// Helper function to check if a character is a quote (single, double, or backtick)
-static inline bool IsQuoteChar(char c) {
-    return c == '"' || c == '\'' || c == '`';
+// Simple watchdog function: wait for test completion or exit on timeout
+void WatchdogFunction() {
+    LOG("Watchdog started with timeout %u ms\n", g_WatchdogTimeoutMs);
+    if (!g_TestAllDone.WaitFor(g_WatchdogTimeoutMs)) {
+        printf("WATCHDOG TIMEOUT!\n"); fflush(stdout);
+        exit(1); // Exit if test takes too long
+    }
+    LOG("Watchdog completed successfully\n");
 }
 
-void PrintUsage(const char* programName) {
-    printf("Usage: %s [options]\n", programName);
+// Helper function to check if a character is a quote (single, double, or backtick)
+static inline bool IsQuoteChar(char c) {
+    return c == '"' || c == '\'';
+}
+
+void PrintUsage(const char* program) {
+    printf("Usage: %s [options]\n", program);
     printf("Options:\n");
-    printf("  --filter=<pattern>  Run only tests matching pattern (wildcards * supported, optional quotes)\n");
+    printf("  --filter=PATTERN   Only run tests matching pattern (supports * wildcard)\n");
     printf("  -v, --verbose       Print detailed test information\n");
     printf("  --help              Print this help message\n");
 }
@@ -834,10 +1110,19 @@ int MSH3_CALL main(int argc, char** argv) {
 
         printf("  %s\n", TestFunctions[i].Name);
         fflush(stdout);
-        TestAllDone = false;
+        
+        // Start watchdog thread for this test
+        g_TestAllDone.Reset();
+        std::thread watchdogThread(WatchdogFunction);
 
-        LOG("Starting test: %s\n", TestFunctions[i].Name);
-        bool result = TestFunctions[i].Func();
+        auto result = TestFunctions[i].Func();
+        g_TestAllDone.Set(true);
+        
+        // Wait for watchdog thread to finish
+        if (watchdogThread.joinable()) {
+            watchdogThread.join();
+        }
+        
         LOG("Completed test: %s - %s\n", TestFunctions[i].Name, result ? "PASSED" : "FAILED");
 
         if (!result) FailCount++;
