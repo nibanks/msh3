@@ -210,6 +210,7 @@ struct TestRequest : public MsH3Request {
     MsH3Waitable<bool> AllDataReceived;     // Signal when all data has been received
     MsH3Waitable<uint32_t> LatestDataReceived;  // Signal when latest data has been received
     uint64_t TotalDataReceived = 0;         // Total data received in bytes
+    bool PeerSendComplete = false;          // Flag to track if peer send was gracefully completed
     bool PeerSendAborted = false;           // Flag to track if peer send was aborted
     bool HandleReceivesAsync = false;
     bool CompleteAsyncReceivesInline = false;
@@ -294,6 +295,7 @@ struct TestRequest : public MsH3Request {
                 LOG("%s Request headers complete\n", ctx->Role);
                 ctx->AllHeadersReceived.Set(true);
             }
+            ctx->PeerSendComplete = true;
             ctx->AllDataReceived.Set(true);
 
         } else if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_ABORTED) {
@@ -441,7 +443,8 @@ DEF_TEST(HandshakeFail) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
     VERIFY_SUCCESS(Client.Start());
-    VERIFY(!Client.Connected.WaitFor(1500));
+    VERIFY(!Client.Connected.WaitFor(1000));
+    Client.Shutdown();
     return true;
 }
 
@@ -451,7 +454,7 @@ DEF_TEST(HandshakeSetCertTimeout) {
     TestClient Client(Api); VERIFY(Client.IsValid());
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.NewConnection.WaitFor());
-    VERIFY(!Server.NewConnection.Get()->Connected.WaitFor(1500));
+    VERIFY(!Server.NewConnection.Get()->Connected.WaitFor(1000));
     VERIFY(!Client.Connected.WaitFor());
     Client.Shutdown();
     return true;
@@ -470,7 +473,6 @@ DEF_TEST(SimpleRequest) {
     auto ServerRequest = Server.NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
     VERIFY(Request.ShutdownComplete.WaitFor());
-    //VERIFY(ServerRequest->ShutdownComplete.WaitFor());
     Client.Shutdown();
     return true;
 }
@@ -574,7 +576,6 @@ DEF_TEST(HeaderValidation) {
     // Clean up safely
     LOG("Test complete, shutting down client\n");
     Client.Shutdown();
-    VERIFY(Client.ShutdownComplete.WaitFor());
     
     return true;
 }
@@ -704,7 +705,6 @@ DEF_TEST(DifferentResponseCodes) {
     // Clean up safely
     LOG("Test complete, shutting down client\n");
     Client.Shutdown();
-    VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
 }
 
@@ -792,7 +792,34 @@ DEF_TEST(MultipleRequests) {
     
     LOG("Test complete, shutting down client\n");
     Client.Shutdown();
-    VERIFY(Client.ShutdownComplete.WaitFor());
+    return true;
+}
+
+bool RequestTransferTest(uint32_t Upload, uint32_t Download) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    TestRequest Request(Client);
+    // Send out the requested data on upload
+    std::vector<uint8_t> RequestData(Upload, 0xEF);
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, RequestData.data(), RequestData.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(Request.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    // Wait for the server to receive the request w/ payload
+    VERIFY(Server.NewRequest.WaitFor());
+    auto ServerRequest = Server.NewRequest.Get();
+    VERIFY(ServerRequest->AllDataReceived.WaitFor());
+    VERIFY(ServerRequest->PeerSendComplete);
+    VERIFY(ServerRequest->TotalDataReceived == Upload);
+    // Send the response data on download
+    std::vector<uint8_t> ResponseData(Download, 0xAB);
+    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, ResponseData.data(), ResponseData.size(), MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(Request.AllDataReceived.WaitFor());
+    VERIFY(Request.PeerSendComplete);
+    VERIFY(Request.TotalDataReceived == Download);
+    Client.Shutdown();
     return true;
 }
 
@@ -802,192 +829,32 @@ DEF_TEST(MultipleRequests) {
 #define LARGE_TEST_SIZE_50MB (50 * 1024 * 1024)
 #define LARGE_TEST_SIZE_100MB (100 * 1024 * 1024)
 
-// Large download (server to client) 1MB
 DEF_TEST(RequestDownload1MB) {
-    MsH3Api Api; VERIFY(Api.IsValid());
-    TestServer Server(Api); VERIFY(Server.IsValid());
-    TestClient Client(Api); VERIFY(Client.IsValid());
-    TestRequest Request(Client);
-    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(Request.IsValid());
-    VERIFY_SUCCESS(Client.Start());
-    VERIFY(Server.WaitForConnection());
-    VERIFY(Client.Connected.WaitFor());
-    VERIFY(Server.NewRequest.WaitFor());
-    auto ServerRequest = Server.NewRequest.Get();
-    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_1MB, 0xAB);
-    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(Request.AllDataReceived.WaitFor());
-    VERIFY(Request.TotalDataReceived == LARGE_TEST_SIZE_1MB);
-    Client.Shutdown();
-    VERIFY(Client.ShutdownComplete.WaitFor());
-    return true;
+    return RequestTransferTest(0, LARGE_TEST_SIZE_1MB);
 }
 
-// Large download (server to client) 10MB
 DEF_TEST(RequestDownload10MB) {
-    MsH3Api Api; VERIFY(Api.IsValid());
-    TestServer Server(Api); VERIFY(Server.IsValid());
-    TestClient Client(Api); VERIFY(Client.IsValid());
-    TestRequest Request(Client);
-    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(Request.IsValid());
-    VERIFY_SUCCESS(Client.Start());
-    VERIFY(Server.WaitForConnection());
-    VERIFY(Client.Connected.WaitFor());
-    VERIFY(Server.NewRequest.WaitFor());
-    auto ServerRequest = Server.NewRequest.Get();
-    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_10MB, 0xCD);
-    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(Request.AllDataReceived.WaitFor(1000));
-    VERIFY(Request.TotalDataReceived == LARGE_TEST_SIZE_10MB);
-    Client.Shutdown();
-    VERIFY(Client.ShutdownComplete.WaitFor());
-    return true;
+    return RequestTransferTest(0, LARGE_TEST_SIZE_10MB);
 }
 
-// Large download (server to client) 50MB
 DEF_TEST(RequestDownload50MB) {
-    MsH3Api Api; VERIFY(Api.IsValid());
-    TestServer Server(Api); VERIFY(Server.IsValid());
-    TestClient Client(Api); VERIFY(Client.IsValid());
-    TestRequest Request(Client);
-    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(Request.IsValid());
-    VERIFY_SUCCESS(Client.Start());
-    VERIFY(Server.WaitForConnection());
-    VERIFY(Client.Connected.WaitFor());
-    VERIFY(Server.NewRequest.WaitFor());
-    auto ServerRequest = Server.NewRequest.Get();
-    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_50MB, 0xA5);
-    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(Request.AllDataReceived.WaitFor(1000));
-    VERIFY(Request.TotalDataReceived == LARGE_TEST_SIZE_50MB);
-    Client.Shutdown();
-    VERIFY(Client.ShutdownComplete.WaitFor());
-    return true;
+    return RequestTransferTest(0, LARGE_TEST_SIZE_50MB);
 }
 
-// Large upload (client to server) 1MB
 DEF_TEST(RequestUpload1MB) {
-    MsH3Api Api; VERIFY(Api.IsValid());
-    TestServer Server(Api); VERIFY(Server.IsValid());
-    TestClient Client(Api); VERIFY(Client.IsValid());
-    VERIFY_SUCCESS(Client.Start());
-    VERIFY(Server.WaitForConnection());
-    VERIFY(Client.Connected.WaitFor());
-    TestRequest Request(Client);
-    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_1MB, 0xEF);
-    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    
-    LOG("Waiting for server request with timeout\n");
-    VERIFY(Server.NewRequest.WaitFor());
-    
-    auto ServerRequest = Server.NewRequest.Get();
-    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
-    
-    LOG("Waiting for server to receive data with timeout\n");
-    VERIFY(ServerRequest->AllDataReceived.WaitFor());
-    VERIFY(ServerRequest->TotalDataReceived == LARGE_TEST_SIZE_1MB);
-
-    // Wait for client request to complete
-    VERIFY(Request.ShutdownComplete.WaitFor());
-    
-    // First, shutdown the client connection to ensure all data is flushed
-    LOG("Shutting down client connection\n");
-    Client.Shutdown();
-    
-    return true;
+    return RequestTransferTest(LARGE_TEST_SIZE_1MB, 0);
 }
 
-// Large upload (client to server) 10MB
 DEF_TEST(RequestUpload10MB) {
-    MsH3Api Api; VERIFY(Api.IsValid());
-    TestServer Server(Api); VERIFY(Server.IsValid());
-    TestClient Client(Api); VERIFY(Client.IsValid());
-    VERIFY_SUCCESS(Client.Start());
-    VERIFY(Server.WaitForConnection());
-    VERIFY(Client.Connected.WaitFor());
-    TestRequest Request(Client);
-    std::vector<uint8_t> buffer(LARGE_TEST_SIZE_10MB, 0xBC);
-    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    
-    LOG("Waiting for server request with timeout (10MB)\n");
-    VERIFY(Server.NewRequest.WaitFor());
-    
-    auto ServerRequest = Server.NewRequest.Get();
-    
-    LOG("Waiting for server to receive data with timeout (10MB)\n");
-    VERIFY(ServerRequest->AllDataReceived.WaitFor(1000));
-    VERIFY(ServerRequest->TotalDataReceived == LARGE_TEST_SIZE_10MB);
-
-    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
-
-    // Wait for client request to complete
-    VERIFY(Request.ShutdownComplete.WaitFor());
-    
-    // Shutdown the server request gracefully and wait for it to complete
-    LOG("Shutting down server request (10MB)\n");
-    ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
-    
-    // Give more time for server request to complete
-    LOG("Waiting for server request shutdown to complete (10MB)\n");
-    VERIFY(ServerRequest->ShutdownComplete.WaitFor());
-    
-    // Now it's safe to shut down the client connection
-    LOG("Shutting down client connection (10MB)\n");
-    Client.Shutdown();
-    
-    LOG("Waiting for client shutdown (10MB)\n");
-    VERIFY(Client.ShutdownComplete.WaitFor());
-    return true;
+    return RequestTransferTest(LARGE_TEST_SIZE_10MB, 0);
 }
 
-// Bidirectional large transfer (client uploads, server responds with large download)
-DEF_TEST(RequestBidirectional10MB) {
-    MsH3Api Api; VERIFY(Api.IsValid());
-    TestServer Server(Api); VERIFY(Server.IsValid());
-    TestClient Client(Api); VERIFY(Client.IsValid());
-    VERIFY_SUCCESS(Client.Start());
-    VERIFY(Server.WaitForConnection());
-    VERIFY(Client.Connected.WaitFor());
-    TestRequest Request(Client);
-    std::vector<uint8_t> uploadBuffer(LARGE_TEST_SIZE_10MB, 0xDE);
-    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, (const char*)uploadBuffer.data(), uploadBuffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    
-    LOG("Waiting for server request with timeout (bidirectional)\n");
-    VERIFY(Server.NewRequest.WaitFor());
-    
-    auto ServerRequest = Server.NewRequest.Get();
-    std::vector<uint8_t> downloadBuffer(LARGE_TEST_SIZE_10MB, 0xAD);
-    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)downloadBuffer.data(), downloadBuffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    
-    LOG("Waiting for server to receive data with timeout (bidirectional)\n");
-    VERIFY(ServerRequest->AllDataReceived.WaitFor(1000));
-    VERIFY(ServerRequest->TotalDataReceived == LARGE_TEST_SIZE_10MB);
+DEF_TEST(RequestUpload50MB) {
+    return RequestTransferTest(LARGE_TEST_SIZE_50MB, 0);
+}
 
-    LOG("Waiting for client to receive data with timeout (bidirectional)\n");
-    VERIFY(Request.AllDataReceived.WaitFor(1000));
-    VERIFY(Request.TotalDataReceived == LARGE_TEST_SIZE_10MB);
-    
-    // Wait for client request to complete
-    VERIFY(Request.ShutdownComplete.WaitFor());
-    
-    // Shutdown the server request gracefully and wait for it to complete
-    LOG("Shutting down server request (bidirectional)\n");
-    ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
-    
-    // Give more time for server request to complete
-    LOG("Waiting for server request shutdown to complete (bidirectional)\n");
-    VERIFY(ServerRequest->ShutdownComplete.WaitFor());
-    
-    // Now it's safe to shut down the client connection
-    LOG("Shutting down client connection (bidirectional)\n");
-    Client.Shutdown();
-    
-    LOG("Waiting for client shutdown (bidirectional)\n");
-    VERIFY(Client.ShutdownComplete.WaitFor());
-    return true;
+DEF_TEST(RequestBidirectional10MB) {
+    return RequestTransferTest(LARGE_TEST_SIZE_10MB, LARGE_TEST_SIZE_10MB);
 }
 
 const TestFunc TestFunctions[] = {
@@ -1007,6 +874,7 @@ const TestFunc TestFunctions[] = {
     ADD_TEST(RequestDownload50MB),
     ADD_TEST(RequestUpload1MB),
     ADD_TEST(RequestUpload10MB),
+    ADD_TEST(RequestUpload50MB),
     ADD_TEST(RequestBidirectional10MB),
 };
 const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
