@@ -717,10 +717,10 @@ MsH3pUniDirStream::ControlStreamCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Control peer send abort, 0x%llx\n", (unsigned long long)Event->PEER_SEND_ABORTED.ErrorCode);
+        //printf("Control peer send abort, 0x%llx\n", (unsigned long long)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Control peer recv abort, 0x%llx\n", (unsigned long long)Event->PEER_RECEIVE_ABORTED.ErrorCode);
+        //printf("Control peer recv abort, 0x%llx\n", (unsigned long long)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default: break;
     }
@@ -833,10 +833,10 @@ MsH3pUniDirStream::EncoderStreamCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Encoder peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
+        //printf("Encoder peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Encoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
+        //printf("Encoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default: break;
     }
@@ -867,10 +867,10 @@ MsH3pUniDirStream::DecoderStreamCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Decoder peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
+        //printf("Decoder peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Decoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
+        //printf("Decoder peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default: break;
     }
@@ -911,10 +911,10 @@ MsH3pUniDirStream::UnknownStreamCallback(
         }
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-        printf("Unknown peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
+        //printf("Unknown peer send abort, 0x%llx\n", (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode);
         break;
     case QUIC_STREAM_EVENT_PEER_RECEIVE_ABORTED:
-        printf("Unknown peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
+        //printf("Unknown peer recv abort, 0x%llx\n", (long long unsigned)Event->PEER_RECEIVE_ABORTED.ErrorCode);
         break;
     default: break;
     }

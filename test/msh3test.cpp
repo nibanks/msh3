@@ -167,7 +167,35 @@ const size_t Response500HeadersCount = sizeof(Response500Headers)/sizeof(MSH3_HE
 const char JsonRequestData[] = "{\"test\":\"data\"}";
 const char TextRequestData[] = "Hello World";
 
-struct HeaderValidator {
+const char* ToString(MSH3_REQUEST_EVENT_TYPE Type) {
+    switch (Type) {
+        case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE: return "SHUTDOWN_COMPLETE";
+        case MSH3_REQUEST_EVENT_HEADER_RECEIVED: return "HEADER_RECEIVED";
+        case MSH3_REQUEST_EVENT_DATA_RECEIVED: return "DATA_RECEIVED";
+        case MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN: return "PEER_SEND_SHUTDOWN";
+        case MSH3_REQUEST_EVENT_PEER_SEND_ABORTED: return "PEER_SEND_ABORTED";
+        case MSH3_REQUEST_EVENT_IDEAL_SEND_SIZE: return "IDEAL_SEND_SIZE";
+        case MSH3_REQUEST_EVENT_SEND_COMPLETE: return "SEND_COMPLETE";
+        case MSH3_REQUEST_EVENT_SEND_SHUTDOWN_COMPLETE: return "SEND_SHUTDOWN_COMPLETE";
+        case MSH3_REQUEST_EVENT_PEER_RECEIVE_ABORTED: return "PEER_RECEIVE_ABORTED";
+        default: return "UNKNOWN";
+    }
+}
+
+struct TestRequest : public MsH3Request {
+    const char* Role;
+    TestRequest(MsH3Connection& Connection, MsH3CleanUpMode CleanUpMode = CleanUpManual)
+     : MsH3Request(Connection, MSH3_REQUEST_FLAG_NONE, CleanUpMode, RequestCallback, this), Role("CLIENT") {
+        LOG("%s TestRequest constructed\n", Role);
+    }
+    TestRequest(
+        MSH3_REQUEST* ServerHandle,
+        MsH3CleanUpMode CleanUpMode
+        ) noexcept : MsH3Request(ServerHandle, CleanUpMode, RequestCallback, this), Role("SERVER") {
+        LOG("%s TestRequest constructed\n", Role);
+    }
+    ~TestRequest() noexcept { LOG("~TestRequest\n"); }
+
     struct StoredHeader {
         std::string Name;
         std::string Value;
@@ -177,8 +205,15 @@ struct HeaderValidator {
     
     // Set of all the headers received
     std::vector<StoredHeader> Headers;
+    MsH3Waitable<bool> AllDataSent;         // Signal when all data has been sent
     MsH3Waitable<bool> AllHeadersReceived;  // Signal when headers are complete (data received)
-    
+    MsH3Waitable<bool> AllDataReceived;     // Signal when all data has been received
+    MsH3Waitable<uint32_t> LatestDataReceived;  // Signal when latest data has been received
+    uint64_t TotalDataReceived = 0;         // Total data received in bytes
+    bool PeerSendAborted = false;           // Flag to track if peer send was aborted
+    bool HandleReceivesAsync = false;
+    bool CompleteAsyncReceivesInline = false;
+
     // Helper to get the first header by name
     StoredHeader* GetHeaderByName(const char* name, size_t nameLength) {
         std::string nameStr(name, nameLength);
@@ -216,37 +251,76 @@ struct HeaderValidator {
             return MSH3_STATUS_SUCCESS;
         }
         
-        auto ctx = (HeaderValidator*)Context;
-        
+        auto ctx = (TestRequest*)Context;
+        LOG("%s Event: %s\n", ctx->Role, ToString(Event->Type));
+
         if (Event->Type == MSH3_REQUEST_EVENT_HEADER_RECEIVED) {
             const MSH3_HEADER* header = Event->HEADER_RECEIVED.Header;
             
             // Validate the header
             if (!header || !header->Name || header->NameLength == 0 || !header->Value) {
-                LOG("Warning: Received invalid header\n");
+                LOG("%s Warning: Received invalid header\n", ctx->Role);
                 return MSH3_STATUS_SUCCESS;
             }
             
             // Save the header data
             ctx->Headers.emplace_back(
                 header->Name, header->NameLength, header->Value, header->ValueLength);
-            
-            LOG("Successfully processed header: %s\n", header->Name);
+
+            LOG("%s Processed header: '%s'\n", ctx->Role, ctx->Headers.back().Name.c_str());
 
         } else if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
-            // Signal that all headers have been received (since data always comes after headers)
-            LOG("Data received - all headers should be complete\n");
-            ctx->AllHeadersReceived.Set(true);
+            LOG("%s Data received: %u bytes\n", ctx->Role, Event->DATA_RECEIVED.Length);
+            if (!ctx->AllHeadersReceived.Get()) {
+                // Signal that all headers have been received (since data always comes after headers)
+                LOG("%s Request headers complete\n", ctx->Role);
+                ctx->AllHeadersReceived.Set(true);
+            }
+
+            ctx->TotalDataReceived += Event->DATA_RECEIVED.Length;
+            ctx->LatestDataReceived.Set(Event->DATA_RECEIVED.Length);
+
+            if (ctx->HandleReceivesAsync) {
+                if (ctx->CompleteAsyncReceivesInline) {
+                    LOG("%s Completing async receive inline\n", ctx->Role);
+                    Request->CompleteReceive(Event->DATA_RECEIVED.Length);
+                }
+                return MSH3_STATUS_PENDING;
+            }
 
         } else if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN) {
+            if (!ctx->AllHeadersReceived.Get()) {
+                // Signal that all headers have been received (since data always comes after headers)
+                LOG("%s Request headers complete\n", ctx->Role);
+                ctx->AllHeadersReceived.Set(true);
+            }
+            ctx->AllDataReceived.Set(true);
+
+        } else if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_ABORTED) {
             // Handle case where request completes without data
-            LOG("Peer send shutdown - marking headers as complete\n");
-            ctx->AllHeadersReceived.Set(true);
+            ctx->PeerSendAborted = true;
+            if (!ctx->AllHeadersReceived.Get()) {
+                // Signal that all headers have been received (since data always comes after headers)
+                LOG("%s Request headers complete\n", ctx->Role);
+                ctx->AllHeadersReceived.Set(true);
+            }
+            ctx->AllDataReceived.Set(true);
 
         } else if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE) {
-            LOG("Request shutdown complete\n");
-            // Ensure headers are marked as complete in case other events were missed
-            ctx->AllHeadersReceived.Set(true);
+            if (!ctx->AllHeadersReceived.Get()) {
+                // Signal that all headers have been received (since data always comes after headers)
+                LOG("%s Request headers complete\n", ctx->Role);
+                ctx->AllHeadersReceived.Set(true);
+            }
+            if (!ctx->AllDataReceived.Get()) {
+                // Signal that all headers have been received (since data always comes after headers)
+                LOG("%s Data complete\n", ctx->Role);
+                ctx->AllDataReceived.Set(true);
+            }
+        } else if (Event->Type == MSH3_REQUEST_EVENT_SEND_SHUTDOWN_COMPLETE) {
+            if (!ctx->AllDataSent.Get()) {
+                ctx->AllDataSent.Set(true);
+            }
         }
 
         return MSH3_STATUS_SUCCESS;
@@ -256,13 +330,14 @@ struct HeaderValidator {
 struct TestServer : public MsH3AutoAcceptListener {
     bool SingleThreaded;
     MsH3Configuration Config;
-    MsH3Waitable<MsH3Request*> NewRequest;
+    MsH3Waitable<TestRequest*> NewRequest;
     TestServer(MsH3Api& Api, bool SingleThread = false)
      : MsH3AutoAcceptListener(Api, MsH3Addr(), ConnectionCallback, this), Config(Api), SingleThreaded(SingleThread) {
         if (Handle && MSH3_FAILED(Config.LoadConfiguration())) {
             MsH3ListenerClose(Handle); Handle = nullptr;
         }
     }
+    ~TestServer() noexcept { LOG("~TestServer\n"); }
     bool WaitForConnection() noexcept {
         VERIFY(NewConnection.WaitFor());
         auto ServerConnection = NewConnection.Get();
@@ -279,7 +354,7 @@ struct TestServer : public MsH3AutoAcceptListener {
         ) noexcept {
         auto pThis = (TestServer*)Context;
         if (Event->Type == MSH3_CONNECTION_EVENT_NEW_REQUEST) {
-            auto Request = new (std::nothrow) MsH3Request(Event->NEW_REQUEST.Request, CleanUpAutoDelete, MsH3Request::NoOpCallback, pThis);
+            auto Request = new (std::nothrow) TestRequest(Event->NEW_REQUEST.Request, CleanUpAutoDelete);
             pThis->NewRequest.Set(Request);
         }
         return MSH3_STATUS_SUCCESS;
@@ -300,6 +375,7 @@ struct TestClient : public MsH3Connection {
             MsH3ConnectionClose(Handle); Handle = nullptr;
         }
     }
+    ~TestClient() noexcept { LOG("~TestClient\n"); }
     MSH3_STATUS Start() noexcept { return MsH3Connection::Start(Config); }
     static
     MSH3_STATUS
@@ -385,7 +461,7 @@ DEF_TEST(SimpleRequest) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    MsH3Request Request(Client); VERIFY(Request.IsValid());
+    TestRequest Request(Client); VERIFY(Request.IsValid());
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
@@ -400,33 +476,12 @@ DEF_TEST(SimpleRequest) {
 }
 
 bool ReceiveData(bool Async, bool Inline = true) {
-    struct TestContext {
-        bool Async; bool Inline;
-        MsH3Waitable<uint32_t> Data;
-        TestContext(bool Async, bool Inline) : Async(Async), Inline(Inline) {}
-        static MSH3_STATUS RequestCallback(
-            struct MsH3Request* Request,
-            void* Context,
-            MSH3_REQUEST_EVENT* Event
-            ) {
-            auto ctx = (TestContext*)Context;
-            if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
-                ctx->Data.Set(Event->DATA_RECEIVED.Length);
-                if (ctx->Async) {
-                    if (ctx->Inline) {
-                        Request->CompleteReceive(Event->DATA_RECEIVED.Length);
-                    }
-                    return MSH3_STATUS_PENDING;
-                }
-            }
-            return MSH3_STATUS_SUCCESS;
-        }
-    };
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    TestContext Context(Async, Inline);
-    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, TestContext::RequestCallback, &Context);
+    TestRequest Request(Client);
+    Request.HandleReceivesAsync = Async;
+    Request.CompleteAsyncReceivesInline = Inline;
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Request.IsValid());
     VERIFY_SUCCESS(Client.Start());
@@ -435,10 +490,10 @@ bool ReceiveData(bool Async, bool Inline = true) {
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest = Server.NewRequest.Get();
     VERIFY(ServerRequest->Send(RequestHeaders, RequestHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(Context.Data.WaitFor());
-    VERIFY(Context.Data.Get() == sizeof(ResponseData));
+    VERIFY(Request.LatestDataReceived.WaitFor());
+    VERIFY(Request.LatestDataReceived.Get() == sizeof(ResponseData));
     if (Async && !Inline) {
-        Request.CompleteReceive(Context.Data.Get());
+        Request.CompleteReceive(Request.LatestDataReceived.Get());
     }
     VERIFY(Request.ShutdownComplete.WaitFor());
     //VERIFY(ServerRequest->ShutdownComplete.WaitFor());
@@ -467,9 +522,7 @@ DEF_TEST(HeaderValidation) {
     VERIFY(Client.Connected.WaitFor());
     LOG("Connection established\n");
     
-    // Create validator on stack instead of heap for better cleanup
-    HeaderValidator validator;
-    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator);
+    TestRequest Request(Client);
     VERIFY(Request.IsValid());
     LOG("Request created\n");
     
@@ -488,26 +541,26 @@ DEF_TEST(HeaderValidation) {
     
     // Wait for all headers to be received (signaled by data event or completion)
     LOG("Waiting for all headers to be received\n");
-    VERIFY(validator.AllHeadersReceived.WaitFor());
+    VERIFY(Request.AllHeadersReceived.WaitFor());
     LOG("All headers received\n");
     
-    LOG("Header count received: %zu\n", validator.Headers.size());
-    VERIFY(validator.Headers.size() == ResponseHeadersCount);
+    LOG("Header count received: %zu\n", Request.Headers.size());
+    VERIFY(Request.Headers.size() == ResponseHeadersCount);
     LOG("Successfully received the expected number of headers\n");
     
     // Verify the header data we copied
     LOG("Verifying header data\n");
     
     // Log how many headers we received
-    LOG("Received %zu headers\n", validator.Headers.size());
-    for (size_t i = 0; i < validator.Headers.size(); i++) {
+    LOG("Received %zu headers\n", Request.Headers.size());
+    for (size_t i = 0; i < Request.Headers.size(); i++) {
         LOG("  Header[%zu]: %s = %s\n", i, 
-            validator.Headers[i].Name.c_str(), 
-            validator.Headers[i].Value.c_str());
+            Request.Headers[i].Name.c_str(), 
+            Request.Headers[i].Value.c_str());
     }
     
     // Check for the status header and verify it
-    auto statusHeader = validator.GetHeaderByName(":status", 7);
+    auto statusHeader = Request.GetHeaderByName(":status", 7);
     VERIFY(statusHeader != nullptr);
     
     // Verify header name
@@ -538,9 +591,7 @@ DEF_TEST(DifferentResponseCodes) {
     // Test 201 Created response
     {
         LOG("Testing 201 Created response\n");
-        HeaderValidator validator;
-        
-        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator);
+        TestRequest Request(Client);
         
         LOG("Sending PUT request\n");
         VERIFY(Request.Send(PutRequestHeaders, PutRequestHeadersCount, TextRequestData, sizeof(TextRequestData) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
@@ -556,16 +607,16 @@ DEF_TEST(DifferentResponseCodes) {
         
         // Validate the received headers
         LOG("Waiting for all headers\n");
-        VERIFY(validator.AllHeadersReceived.WaitFor());
+        VERIFY(Request.AllHeadersReceived.WaitFor());
         
         // Verify status code
         LOG("Verifying status code\n");
-        uint32_t statusCode = validator.GetStatusCode();
+        uint32_t statusCode = Request.GetStatusCode();
         LOG("Status code received: %u\n", statusCode);
         VERIFY(statusCode == 201);
         
         // Verify location header
-        auto locationHeader = validator.GetHeaderByName("location", 8);
+        auto locationHeader = Request.GetHeaderByName("location", 8);
         VERIFY(locationHeader != nullptr);
         VERIFY(locationHeader->Value == "/resource/123");
         
@@ -578,9 +629,7 @@ DEF_TEST(DifferentResponseCodes) {
         // Reset the server's NewRequest waitable
         Server.NewRequest.Reset();
         
-        HeaderValidator validator;
-        
-        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator);
+        TestRequest Request(Client);
         
         LOG("Sending GET request for 404\n");
         VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
@@ -598,15 +647,15 @@ DEF_TEST(DifferentResponseCodes) {
         
         // Validate the received status code
         LOG("Waiting for all headers\n");
-        VERIFY(validator.AllHeadersReceived.WaitFor());
+        VERIFY(Request.AllHeadersReceived.WaitFor());
         
         // Verify status code
-        uint32_t statusCode = validator.GetStatusCode();
+        uint32_t statusCode = Request.GetStatusCode();
         LOG("Status code received: %u\n", statusCode);
         VERIFY(statusCode == 404);
         
         // Verify content-type header
-        auto contentTypeHeader = validator.GetHeaderByName("content-type", 12);
+        auto contentTypeHeader = Request.GetHeaderByName("content-type", 12);
         VERIFY(contentTypeHeader != nullptr);
         VERIFY(contentTypeHeader->Value == "text/plain");
         
@@ -619,9 +668,7 @@ DEF_TEST(DifferentResponseCodes) {
         // Reset the server's NewRequest waitable
         Server.NewRequest.Reset();
         
-        HeaderValidator validator;
-        
-        MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator);
+        TestRequest Request(Client);
         
         LOG("Sending request for 500\n");
         VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
@@ -639,15 +686,15 @@ DEF_TEST(DifferentResponseCodes) {
         
         // Validate the received status code
         LOG("Waiting for all headers\n");
-        VERIFY(validator.AllHeadersReceived.WaitFor());
+        VERIFY(Request.AllHeadersReceived.WaitFor());
         
         // Verify status code
-        uint32_t statusCode = validator.GetStatusCode();
+        uint32_t statusCode = Request.GetStatusCode();
         LOG("Status code received: %u\n", statusCode);
         VERIFY(statusCode == 500);
         
         // Verify content-type header
-        auto contentTypeHeader = validator.GetHeaderByName("content-type", 12);
+        auto contentTypeHeader = Request.GetHeaderByName("content-type", 12);
         VERIFY(contentTypeHeader != nullptr);
         VERIFY(contentTypeHeader->Value == "text/plain");
         
@@ -674,8 +721,7 @@ DEF_TEST(MultipleRequests) {
 
     // Send first request (GET)
     LOG("Sending first request (GET)\n");
-    HeaderValidator validator1;
-    MsH3Request Request1(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator1);
+    TestRequest Request1(Client);
     VERIFY(Request1.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest1 = Server.NewRequest.Get();
@@ -685,13 +731,13 @@ DEF_TEST(MultipleRequests) {
     LOG("First response sent\n");
     
     // Wait for headers and validate status code
-    VERIFY(validator1.AllHeadersReceived.WaitFor());
-    uint32_t statusCode1 = validator1.GetStatusCode();
+    VERIFY(Request1.AllHeadersReceived.WaitFor());
+    uint32_t statusCode1 = Request1.GetStatusCode();
     LOG("First status code received: %u\n", statusCode1);
     VERIFY(statusCode1 == 200);
     
     // Verify content-type header
-    auto contentType1 = validator1.GetHeaderByName("content-type", 12);
+    auto contentType1 = Request1.GetHeaderByName("content-type", 12);
     VERIFY(contentType1 != nullptr);
     VERIFY(contentType1->Value == "application/json");
     LOG("First request headers validated\n");
@@ -699,8 +745,7 @@ DEF_TEST(MultipleRequests) {
     // Send second request (POST)
     LOG("Sending second request (POST)\n");
     Server.NewRequest.Reset();
-    HeaderValidator validator2;
-    MsH3Request Request2(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator2);
+    TestRequest Request2(Client);
     VERIFY(Request2.Send(PostRequestHeaders, PostRequestHeadersCount, JsonRequestData, sizeof(JsonRequestData) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest2 = Server.NewRequest.Get();
@@ -710,13 +755,13 @@ DEF_TEST(MultipleRequests) {
     LOG("Second response sent\n");
     
     // Wait for headers and validate status code
-    VERIFY(validator2.AllHeadersReceived.WaitFor());
-    uint32_t statusCode2 = validator2.GetStatusCode();
+    VERIFY(Request2.AllHeadersReceived.WaitFor());
+    uint32_t statusCode2 = Request2.GetStatusCode();
     LOG("Second status code received: %u\n", statusCode2);
     VERIFY(statusCode2 == 201);
     
     // Verify location header
-    auto locationHeader = validator2.GetHeaderByName("location", 8);
+    auto locationHeader = Request2.GetHeaderByName("location", 8);
     VERIFY(locationHeader != nullptr);
     VERIFY(locationHeader->Value == "/resource/123");
     LOG("Second request headers validated\n");
@@ -724,8 +769,7 @@ DEF_TEST(MultipleRequests) {
     // Send third request (PUT)
     LOG("Sending third request (PUT)\n");
     Server.NewRequest.Reset();
-    HeaderValidator validator3;
-    MsH3Request Request3(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, HeaderValidator::RequestCallback, &validator3);
+    TestRequest Request3(Client);
     VERIFY(Request3.Send(PutRequestHeaders, PutRequestHeadersCount, TextRequestData, sizeof(TextRequestData) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest3 = Server.NewRequest.Get();
@@ -735,13 +779,13 @@ DEF_TEST(MultipleRequests) {
     LOG("Third response sent\n");
     
     // Wait for headers and validate status code
-    VERIFY(validator3.AllHeadersReceived.WaitFor());
-    uint32_t statusCode3 = validator3.GetStatusCode();
+    VERIFY(Request3.AllHeadersReceived.WaitFor());
+    uint32_t statusCode3 = Request3.GetStatusCode();
     LOG("Third status code received: %u\n", statusCode3);
     VERIFY(statusCode3 == 200);
     
     // Verify content-type header for third request
-    auto contentType3 = validator3.GetHeaderByName("content-type", 12);
+    auto contentType3 = Request3.GetHeaderByName("content-type", 12);
     VERIFY(contentType3 != nullptr);
     VERIFY(contentType3->Value == "application/json");
     LOG("Third request headers validated\n");
@@ -758,37 +802,12 @@ DEF_TEST(MultipleRequests) {
 #define LARGE_TEST_SIZE_50MB (50 * 1024 * 1024)
 #define LARGE_TEST_SIZE_100MB (100 * 1024 * 1024)
 
-struct LargeDataContext {
-    size_t TotalReceived = 0;
-    size_t ExpectedSize = 0;
-    MsH3Waitable<bool> Done;
-    LargeDataContext(size_t expected) : ExpectedSize(expected) {}
-    static MSH3_STATUS RequestCallback(
-        struct MsH3Request* /*Request*/,
-        void* Context,
-        MSH3_REQUEST_EVENT* Event
-    ) {
-        auto ctx = (LargeDataContext*)Context;
-        if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
-            ctx->TotalReceived += Event->DATA_RECEIVED.Length;
-            if (ctx->TotalReceived >= ctx->ExpectedSize) {
-                ctx->Done.Set(true);
-            }
-        }
-        if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE) {
-            ctx->Done.Set(true);
-        }
-        return MSH3_STATUS_SUCCESS;
-    }
-};
-
 // Large download (server to client) 1MB
-DEF_TEST(LargeDownload1MB) {
+DEF_TEST(RequestDownload1MB) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    LargeDataContext ctx(LARGE_TEST_SIZE_1MB);
-    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, LargeDataContext::RequestCallback, &ctx);
+    TestRequest Request(Client);
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Request.IsValid());
     VERIFY_SUCCESS(Client.Start());
@@ -798,20 +817,19 @@ DEF_TEST(LargeDownload1MB) {
     auto ServerRequest = Server.NewRequest.Get();
     std::vector<uint8_t> buffer(LARGE_TEST_SIZE_1MB, 0xAB);
     VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(ctx.Done.WaitFor());
-    VERIFY(ctx.TotalReceived == LARGE_TEST_SIZE_1MB);
+    VERIFY(Request.AllDataReceived.WaitFor());
+    VERIFY(Request.TotalDataReceived == LARGE_TEST_SIZE_1MB);
     Client.Shutdown();
     VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
 }
 
 // Large download (server to client) 10MB
-DEF_TEST(LargeDownload10MB) {
+DEF_TEST(RequestDownload10MB) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    LargeDataContext ctx(LARGE_TEST_SIZE_10MB);
-    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, LargeDataContext::RequestCallback, &ctx);
+    TestRequest Request(Client);
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Request.IsValid());
     VERIFY_SUCCESS(Client.Start());
@@ -821,20 +839,19 @@ DEF_TEST(LargeDownload10MB) {
     auto ServerRequest = Server.NewRequest.Get();
     std::vector<uint8_t> buffer(LARGE_TEST_SIZE_10MB, 0xCD);
     VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(ctx.Done.WaitFor());
-    VERIFY(ctx.TotalReceived == LARGE_TEST_SIZE_10MB);
+    VERIFY(Request.AllDataReceived.WaitFor(1000));
+    VERIFY(Request.TotalDataReceived == LARGE_TEST_SIZE_10MB);
     Client.Shutdown();
     VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
 }
 
 // Large download (server to client) 50MB
-DEF_TEST(LargeDownload50MB) {
+DEF_TEST(RequestDownload50MB) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    LargeDataContext ctx(LARGE_TEST_SIZE_50MB);
-    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, LargeDataContext::RequestCallback, &ctx);
+    TestRequest Request(Client);
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     VERIFY(Request.IsValid());
     VERIFY_SUCCESS(Client.Start());
@@ -844,42 +861,22 @@ DEF_TEST(LargeDownload50MB) {
     auto ServerRequest = Server.NewRequest.Get();
     std::vector<uint8_t> buffer(LARGE_TEST_SIZE_50MB, 0xA5);
     VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(ctx.Done.WaitFor());
-    VERIFY(ctx.TotalReceived == LARGE_TEST_SIZE_50MB);
+    VERIFY(Request.AllDataReceived.WaitFor(1000));
+    VERIFY(Request.TotalDataReceived == LARGE_TEST_SIZE_50MB);
     Client.Shutdown();
     VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
 }
 
 // Large upload (client to server) 1MB
-DEF_TEST(LargeUpload1MB) {
+DEF_TEST(RequestUpload1MB) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    MsH3Waitable<size_t> serverReceived;
-    struct UploadContext {
-        MsH3Waitable<size_t>* Received;
-        size_t Total = 0;
-        static MSH3_STATUS RequestCallback(
-            struct MsH3Request* /*Request*/,
-            void* Context,
-            MSH3_REQUEST_EVENT* Event
-        ) {
-            auto ctx = (UploadContext*)Context;
-            if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
-                ctx->Total += Event->DATA_RECEIVED.Length;
-            }
-            if (Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN) {
-                LOG("Peer send shutdown received, total data length: %zu\n", ctx->Total);
-                ctx->Received->Set(ctx->Total);
-            }
-            return MSH3_STATUS_SUCCESS;
-        }
-    } uploadCtx{&serverReceived};
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
-    MsH3Request Request(Client);
+    TestRequest Request(Client);
     std::vector<uint8_t> buffer(LARGE_TEST_SIZE_1MB, 0xEF);
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
     
@@ -887,122 +884,109 @@ DEF_TEST(LargeUpload1MB) {
     VERIFY(Server.NewRequest.WaitFor());
     
     auto ServerRequest = Server.NewRequest.Get();
-    MsH3RequestSetCallbackHandler(ServerRequest->Handle, (MSH3_REQUEST_CALLBACK_HANDLER)UploadContext::RequestCallback, &uploadCtx);
     VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     
     LOG("Waiting for server to receive data with timeout\n");
-    VERIFY(serverReceived.WaitFor(2000));
+    VERIFY(ServerRequest->AllDataReceived.WaitFor());
+    VERIFY(ServerRequest->TotalDataReceived == LARGE_TEST_SIZE_1MB);
+
+    // Wait for client request to complete
+    VERIFY(Request.ShutdownComplete.WaitFor());
     
-    VERIFY(serverReceived.Get() == LARGE_TEST_SIZE_1MB);
+    // First, shutdown the client connection to ensure all data is flushed
+    LOG("Shutting down client connection\n");
     Client.Shutdown();
     
-    LOG("Waiting for client shutdown with timeout\n");
-    VERIFY(Client.ShutdownComplete.WaitFor(1000));
     return true;
 }
 
 // Large upload (client to server) 10MB
-DEF_TEST(LargeUpload10MB) {
+DEF_TEST(RequestUpload10MB) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    MsH3Waitable<size_t> serverReceived;
-    struct UploadContext {
-        MsH3Waitable<size_t>* Received;
-        size_t Total = 0;
-        static MSH3_STATUS RequestCallback(
-            struct MsH3Request* /*Request*/,
-            void* Context,
-            MSH3_REQUEST_EVENT* Event
-        ) {
-            auto ctx = (UploadContext*)Context;
-            if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
-                ctx->Total += Event->DATA_RECEIVED.Length;
-            }
-            if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE) {
-                ctx->Received->Set(ctx->Total);
-            }
-            return MSH3_STATUS_SUCCESS;
-        }
-    } uploadCtx{&serverReceived};
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
-    MsH3Request Request(Client);
+    TestRequest Request(Client);
     std::vector<uint8_t> buffer(LARGE_TEST_SIZE_10MB, 0xBC);
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, (const char*)buffer.data(), buffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
     
     LOG("Waiting for server request with timeout (10MB)\n");
-    VERIFY(Server.NewRequest.WaitFor(1000));
+    VERIFY(Server.NewRequest.WaitFor());
     
     auto ServerRequest = Server.NewRequest.Get();
-    MsH3RequestSetCallbackHandler(ServerRequest->Handle, (MSH3_REQUEST_CALLBACK_HANDLER)UploadContext::RequestCallback, &uploadCtx);
-    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     
     LOG("Waiting for server to receive data with timeout (10MB)\n");
-    VERIFY(serverReceived.WaitFor(8000)); // Longer timeout for larger data
+    VERIFY(ServerRequest->AllDataReceived.WaitFor(1000));
+    VERIFY(ServerRequest->TotalDataReceived == LARGE_TEST_SIZE_10MB);
+
+    VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+
+    // Wait for client request to complete
+    VERIFY(Request.ShutdownComplete.WaitFor());
     
-    VERIFY(serverReceived.Get() == LARGE_TEST_SIZE_10MB);
+    // Shutdown the server request gracefully and wait for it to complete
+    LOG("Shutting down server request (10MB)\n");
+    ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
+    
+    // Give more time for server request to complete
+    LOG("Waiting for server request shutdown to complete (10MB)\n");
+    VERIFY(ServerRequest->ShutdownComplete.WaitFor());
+    
+    // Now it's safe to shut down the client connection
+    LOG("Shutting down client connection (10MB)\n");
     Client.Shutdown();
     
-    LOG("Waiting for client shutdown with timeout (10MB)\n");
-    VERIFY(Client.ShutdownComplete.WaitFor(1000));
+    LOG("Waiting for client shutdown (10MB)\n");
+    VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
 }
 
 // Bidirectional large transfer (client uploads, server responds with large download)
-DEF_TEST(LargeBidirectional10MB) {
+DEF_TEST(RequestBidirectional10MB) {
     MsH3Api Api; VERIFY(Api.IsValid());
     TestServer Server(Api); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
-    MsH3Waitable<size_t> serverReceived;
-    struct UploadContext {
-        MsH3Waitable<size_t>* Received;
-        size_t Total = 0;
-        static MSH3_STATUS RequestCallback(
-            struct MsH3Request* /*Request*/,
-            void* Context,
-            MSH3_REQUEST_EVENT* Event
-        ) {
-            auto ctx = (UploadContext*)Context;
-            if (Event->Type == MSH3_REQUEST_EVENT_DATA_RECEIVED) {
-                ctx->Total += Event->DATA_RECEIVED.Length;
-            }
-            if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE) {
-                ctx->Received->Set(ctx->Total);
-            }
-            return MSH3_STATUS_SUCCESS;
-        }
-    } uploadCtx{&serverReceived};
-    LargeDataContext downloadCtx(LARGE_TEST_SIZE_10MB);
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
-    MsH3Request Request(Client, MSH3_REQUEST_FLAG_NONE, CleanUpManual, LargeDataContext::RequestCallback, &downloadCtx);
+    TestRequest Request(Client);
     std::vector<uint8_t> uploadBuffer(LARGE_TEST_SIZE_10MB, 0xDE);
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, (const char*)uploadBuffer.data(), uploadBuffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
     
     LOG("Waiting for server request with timeout (bidirectional)\n");
-    VERIFY(Server.NewRequest.WaitFor(1000));
+    VERIFY(Server.NewRequest.WaitFor());
     
     auto ServerRequest = Server.NewRequest.Get();
-    MsH3RequestSetCallbackHandler(ServerRequest->Handle, (MSH3_REQUEST_CALLBACK_HANDLER)UploadContext::RequestCallback, &uploadCtx);
     std::vector<uint8_t> downloadBuffer(LARGE_TEST_SIZE_10MB, 0xAD);
     VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, (const char*)downloadBuffer.data(), downloadBuffer.size(), MSH3_REQUEST_SEND_FLAG_FIN));
     
     LOG("Waiting for server to receive data with timeout (bidirectional)\n");
-    VERIFY(serverReceived.WaitFor(8000)); // Longer timeout for larger data
-    
-    VERIFY(serverReceived.Get() == LARGE_TEST_SIZE_10MB);
-    
+    VERIFY(ServerRequest->AllDataReceived.WaitFor(1000));
+    VERIFY(ServerRequest->TotalDataReceived == LARGE_TEST_SIZE_10MB);
+
     LOG("Waiting for client to receive data with timeout (bidirectional)\n");
-    VERIFY(downloadCtx.Done.WaitFor(8000)); // Longer timeout for larger data
+    VERIFY(Request.AllDataReceived.WaitFor(1000));
+    VERIFY(Request.TotalDataReceived == LARGE_TEST_SIZE_10MB);
     
-    VERIFY(downloadCtx.TotalReceived == LARGE_TEST_SIZE_10MB);
+    // Wait for client request to complete
+    VERIFY(Request.ShutdownComplete.WaitFor());
+    
+    // Shutdown the server request gracefully and wait for it to complete
+    LOG("Shutting down server request (bidirectional)\n");
+    ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
+    
+    // Give more time for server request to complete
+    LOG("Waiting for server request shutdown to complete (bidirectional)\n");
+    VERIFY(ServerRequest->ShutdownComplete.WaitFor());
+    
+    // Now it's safe to shut down the client connection
+    LOG("Shutting down client connection (bidirectional)\n");
     Client.Shutdown();
     
-    LOG("Waiting for client shutdown with timeout (bidirectional)\n");
-    VERIFY(Client.ShutdownComplete.WaitFor(1000));
+    LOG("Waiting for client shutdown (bidirectional)\n");
+    VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
 }
 
@@ -1018,12 +1002,12 @@ const TestFunc TestFunctions[] = {
     ADD_TEST(HeaderValidation),
     ADD_TEST(DifferentResponseCodes),
     ADD_TEST(MultipleRequests),
-    ADD_TEST(LargeDownload1MB),
-    ADD_TEST(LargeDownload10MB),
-    ADD_TEST(LargeDownload50MB),
-    ADD_TEST(LargeUpload1MB),
-    ADD_TEST(LargeUpload10MB),
-    ADD_TEST(LargeBidirectional10MB),
+    ADD_TEST(RequestDownload1MB),
+    ADD_TEST(RequestDownload10MB),
+    ADD_TEST(RequestDownload50MB),
+    ADD_TEST(RequestUpload1MB),
+    ADD_TEST(RequestUpload10MB),
+    ADD_TEST(RequestBidirectional10MB),
 };
 const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
 
@@ -1031,7 +1015,7 @@ const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
 void WatchdogFunction() {
     LOG("Watchdog started with timeout %u ms\n", g_WatchdogTimeoutMs);
     if (!g_TestAllDone.WaitFor(g_WatchdogTimeoutMs)) {
-        printf("WATCHDOG TIMEOUT!\n"); fflush(stdout);
+        printf("WATCHDOG TIMEOUT! Killing process...\n"); fflush(stdout);
         exit(1); // Exit if test takes too long
     }
     LOG("Watchdog completed successfully\n");
@@ -1045,9 +1029,10 @@ static inline bool IsQuoteChar(char c) {
 void PrintUsage(const char* program) {
     printf("Usage: %s [options]\n", program);
     printf("Options:\n");
-    printf("  --filter=PATTERN   Only run tests matching pattern (supports * wildcard)\n");
-    printf("  -v, --verbose       Print detailed test information\n");
-    printf("  --help              Print this help message\n");
+    printf("  -f, --filter=PATTERN  Only run tests matching pattern (supports * wildcard)\n");
+    printf("  -h, --help            Print this help message\n");
+    printf("  -v, --verbose         Print detailed test information\n");
+    printf("  -t, --timeout=MSEC    Set watchdog timeout in milliseconds (default: 5000)\n");
 }
 
 int MSH3_CALL main(int argc, char** argv) {
@@ -1055,8 +1040,8 @@ int MSH3_CALL main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
             g_Verbose = true;
-        } else if (strncmp(argv[i], "--filter=", 9) == 0) {
-            const char* filterValue = argv[i] + 9;
+        } else if (strncmp(argv[i], "-f=", 3) == 0 || strncmp(argv[i], "--filter=", 9) == 0) {
+            char* filterValue = (argv[i][1] == 'f') ? argv[i] + 3 : argv[i] + 9;
             // If the filter value starts with a quote, remove the quotes
             if (filterValue[0] != '\0' && IsQuoteChar(filterValue[0])) {
                 char quoteChar = filterValue[0];
@@ -1065,12 +1050,23 @@ int MSH3_CALL main(int argc, char** argv) {
                 if (len > 1 && filterValue[len-1] == quoteChar) {
                     // Skip the first quote and null-terminate before the last quote
                     // We're modifying argv directly which is allowed
-                    ((char*)filterValue)[len-1] = '\0';
+                    filterValue[len-1] = '\0';
                     filterValue++;
                 }
             }
             g_TestFilter = filterValue;
-        } else if (strcmp(argv[i], "--help") == 0) {
+        } else if (strncmp(argv[i], "-t=", 3) == 0 || strncmp(argv[i], "--timeout=", 10) == 0) {
+            const char* timeoutValue = (argv[i][1] == 't') ? argv[i] + 3 : argv[i] + 10;
+            // Convert timeout value to integer
+            int timeout = atoi(timeoutValue);
+            if (timeout > 0) {
+                g_WatchdogTimeoutMs = (uint32_t)timeout;
+            } else {
+                printf("Invalid timeout value: %s\n", timeoutValue);
+                PrintUsage(argv[0]);
+                return 1;
+            }
+        } else if (strcmp(argv[i], "-?") == 0 || strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             PrintUsage(argv[0]);
             return 0;
         } else {
@@ -1116,14 +1112,14 @@ int MSH3_CALL main(int argc, char** argv) {
         std::thread watchdogThread(WatchdogFunction);
 
         auto result = TestFunctions[i].Func();
+        LOG("Completed test: %s - %s\n", TestFunctions[i].Name, result ? "PASSED" : "FAILED");
+
         g_TestAllDone.Set(true);
         
         // Wait for watchdog thread to finish
         if (watchdogThread.joinable()) {
             watchdogThread.join();
         }
-        
-        LOG("Completed test: %s - %s\n", TestFunctions[i].Name, result ? "PASSED" : "FAILED");
 
         if (!result) FailCount++;
     }
