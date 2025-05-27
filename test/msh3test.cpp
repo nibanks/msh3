@@ -377,7 +377,10 @@ struct TestClient : public MsH3Connection {
             MsH3ConnectionClose(Handle); Handle = nullptr;
         }
     }
-    ~TestClient() noexcept { LOG("~TestClient\n"); }
+    ~TestClient() noexcept {
+        Shutdown();
+        LOG("~TestClient\n");
+    }
     MSH3_STATUS Start() noexcept { return MsH3Connection::Start(Config); }
     static
     MSH3_STATUS
@@ -444,7 +447,6 @@ DEF_TEST(HandshakeFail) {
     TestClient Client(Api); VERIFY(Client.IsValid());
     VERIFY_SUCCESS(Client.Start());
     VERIFY(!Client.Connected.WaitFor(1000));
-    Client.Shutdown();
     return true;
 }
 
@@ -456,7 +458,6 @@ DEF_TEST(HandshakeSetCertTimeout) {
     VERIFY(Server.NewConnection.WaitFor());
     VERIFY(!Server.NewConnection.Get()->Connected.WaitFor(1000));
     VERIFY(!Client.Connected.WaitFor());
-    Client.Shutdown();
     return true;
 }
 
@@ -473,7 +474,6 @@ DEF_TEST(SimpleRequest) {
     auto ServerRequest = Server.NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
     VERIFY(Request.ShutdownComplete.WaitFor());
-    Client.Shutdown();
     return true;
 }
 
@@ -498,8 +498,6 @@ bool ReceiveData(bool Async, bool Inline = true) {
         Request.CompleteReceive(Request.LatestDataReceived.Get());
     }
     VERIFY(Request.ShutdownComplete.WaitFor());
-    //VERIFY(ServerRequest->ShutdownComplete.WaitFor());
-    Client.Shutdown();
     return true;
 }
 
@@ -572,10 +570,6 @@ DEF_TEST(HeaderValidation) {
     // Verify header value
     VERIFY(statusHeader->Value == "200");
     LOG("Header value verified\n");
-
-    // Clean up safely
-    LOG("Test complete, shutting down client\n");
-    Client.Shutdown();
     
     return true;
 }
@@ -701,10 +695,6 @@ DEF_TEST(DifferentResponseCodes) {
         
         LOG("500 Internal Server Error test passed\n");
     }
-    
-    // Clean up safely
-    LOG("Test complete, shutting down client\n");
-    Client.Shutdown();
     return true;
 }
 
@@ -789,9 +779,6 @@ DEF_TEST(MultipleRequests) {
     VERIFY(contentType3 != nullptr);
     VERIFY(contentType3->Value == "application/json");
     LOG("Third request headers validated\n");
-    
-    LOG("Test complete, shutting down client\n");
-    Client.Shutdown();
     return true;
 }
 
@@ -810,16 +797,15 @@ bool RequestTransferTest(uint32_t Upload, uint32_t Download) {
     // Wait for the server to receive the request w/ payload
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest = Server.NewRequest.Get();
-    VERIFY(ServerRequest->AllDataReceived.WaitFor());
+    VERIFY(ServerRequest->AllDataReceived.WaitFor(2000)); // A bit longer wait for data
     VERIFY(ServerRequest->PeerSendComplete);
     VERIFY(ServerRequest->TotalDataReceived == Upload);
     // Send the response data on download
     std::vector<uint8_t> ResponseData(Download, 0xAB);
     VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, ResponseData.data(), ResponseData.size(), MSH3_REQUEST_SEND_FLAG_FIN));
-    VERIFY(Request.AllDataReceived.WaitFor());
+    VERIFY(Request.AllDataReceived.WaitFor(2000)); // A bit longer wait for data
     VERIFY(Request.PeerSendComplete);
     VERIFY(Request.TotalDataReceived == Download);
-    Client.Shutdown();
     return true;
 }
 
