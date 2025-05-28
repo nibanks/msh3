@@ -53,7 +53,7 @@ struct MsH3Waitable {
         State = (T)0;
     }
     // Enhanced safety: get current state with lock
-    T GetSafe() { 
+    T GetSafe() {
         std::lock_guard<std::mutex> Lock{Mutex};
         return State;
     }
@@ -294,7 +294,7 @@ struct MsH3Connection {
         ) noexcept : Handle(ServerHandle), CleanUp(CleanUpMode), Callback(Callback), Context(Context)  {
         MsH3ConnectionSetCallbackHandler(Handle, (MSH3_CONNECTION_CALLBACK_HANDLER)MsH3Callback, this);
     }
-    ~MsH3Connection() noexcept { Close(); }
+    virtual ~MsH3Connection() noexcept { Close(); }
     MsH3Connection(MsH3Connection& other) = delete;
     MsH3Connection operator=(MsH3Connection& Other) = delete;
     bool IsValid() const noexcept { return Handle != nullptr; }
