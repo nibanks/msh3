@@ -132,13 +132,10 @@ MsH3ApiClose(
     Reg->Shutdown(QUIC_CONNECTION_SHUTDOWN_FLAG_SILENT, 0);
     delete Reg;
     if (MsH3pRefCount.fetch_sub(1) == 1) {
-        if (MsQuicExecutions != nullptr) {
-            MsQuic->ExecutionDelete(MsQuicExecutionCount, MsQuicExecutions);
-            MsQuicExecutions = nullptr;
-            MsQuicExecutionCount = 0;
-        }
         delete MsQuic;
         MsQuic = nullptr;
+        MsQuicExecutions = nullptr;
+        MsQuicExecutionCount = 0;
     }
 }
 
@@ -492,16 +489,16 @@ MsH3pConnection::MsH3pConnection(
         Callbacks(Handler), Context(Context)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
-    
+
     // Initialize the decoder with dynamic table support
     // The QPACK decoder will use our local max table size and blocked streams
     // Use LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL for better performance
-    lsqpack_dec_init(&Decoder, nullptr, 
-                    H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY, 
-                    H3_DEFAULT_QPACK_BLOCKED_STREAMS, 
-                    &MsH3pBiDirStream::hset_if, 
+    lsqpack_dec_init(&Decoder, nullptr,
+                    H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY,
+                    H3_DEFAULT_QPACK_BLOCKED_STREAMS,
+                    &MsH3pBiDirStream::hset_if,
                     (lsqpack_dec_opts)(LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL));
-                    
+
     if (!IsValid()) return;
     LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
     if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
@@ -514,14 +511,14 @@ MsH3pConnection::MsH3pConnection(
     ) : MsQuicConnection(ServerHandle, CleanUpManual, s_MsQuicCallback, this)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
-    
+
     // Initialize the decoder with dynamic table support
-    lsqpack_dec_init(&Decoder, nullptr, 
-                    H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY, 
-                    H3_DEFAULT_QPACK_BLOCKED_STREAMS, 
-                    &MsH3pBiDirStream::hset_if, 
+    lsqpack_dec_init(&Decoder, nullptr,
+                    H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY,
+                    H3_DEFAULT_QPACK_BLOCKED_STREAMS,
+                    &MsH3pBiDirStream::hset_if,
                     (lsqpack_dec_opts)0);
-                    
+
     if (!IsValid()) return;
     LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
     if (QUIC_FAILED(InitStatus = LocalEncoder->GetInitStatus())) return;
@@ -658,13 +655,13 @@ MsH3pConnection::ReceiveSettingsFrame(
     } while (Offset < BufferLength);
 
     tsu_buf_sz = sizeof(tsu_buf);
-    
+
     // Use the peer's max table size or our default if peer doesn't support it
     uint32_t dynamicTableSize = PeerMaxTableSize != 0 ? PeerMaxTableSize : H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY;
-    
+
     // Use the peer's max blocked streams value or our default if peer doesn't support it
     uint64_t blockedStreams = PeerQPackBlockedStreams != 0 ? PeerQPackBlockedStreams : H3_DEFAULT_QPACK_BLOCKED_STREAMS;
-    
+
     // Initialize the encoder with dynamic table support
     if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
         printf("lsqpack_enc_init failed\n");
@@ -775,7 +772,7 @@ MsH3pUniDirStream::EncodeHeaders(
             return false;
         }
         size_t enc_size = sizeof(RawBuffer) - enc_off, hea_size = sizeof(Request->HeadersBuffer) - hea_off;
-        
+
         // Use dynamic table if possible - don't set LQEF_NO_INDEX or LQEF_NEVER_INDEX flags
         // This allows the encoder to decide whether to index the header
         auto result = lsqpack_enc_encode(&H3.Encoder, RawBuffer + enc_off, &enc_size, Request->HeadersBuffer + hea_off, &hea_size, &Header, (lsqpack_enc_flags)0);
@@ -817,13 +814,13 @@ MsH3pUniDirStream::EncoderStreamCallback(
         // Process encoder stream data for dynamic table updates
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
-            
+
             if (Buffer->Length > 0) {
                 // Feed encoder instructions to the QPACK decoder
-                int ret = lsqpack_dec_enc_in(&H3.Decoder, 
-                                           Buffer->Buffer, 
+                int ret = lsqpack_dec_enc_in(&H3.Decoder,
+                                           Buffer->Buffer,
                                            Buffer->Length);
-                                           
+
                 if (ret != 0) {
                     printf("[QPACK] lsqpack_dec_enc_in failed: %d\n", ret);
                 }
@@ -849,13 +846,13 @@ MsH3pUniDirStream::DecoderStreamCallback(
         // Process decoder stream data
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
-            
+
             if (Buffer->Length > 0) {
                 // Process decoder instructions from peer
-                int ret = lsqpack_enc_decoder_in(&H3.Encoder, 
-                                               Buffer->Buffer, 
+                int ret = lsqpack_enc_decoder_in(&H3.Encoder,
+                                               Buffer->Buffer,
                                                Buffer->Length);
-                                               
+
                 if (ret != 0) {
                     printf("[QPACK] lsqpack_enc_decoder_in failed: %d\n", ret);
                 }

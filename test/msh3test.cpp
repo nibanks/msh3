@@ -26,6 +26,8 @@ bool g_Verbose = false;
 const char* g_TestFilter = nullptr;
 uint32_t g_WatchdogTimeoutMs = 5000; // Default to 5 seconds
 MsH3Waitable<bool> g_TestAllDone;
+std::atomic_int g_ConnectionCount = 0;
+MsH3Waitable<bool> g_ConnectionsComplete;
 
 // Helper function to print logs when in verbose mode
 #define LOG(...) if (g_Verbose) { printf(__VA_ARGS__); fflush(stdout); }
@@ -167,6 +169,17 @@ const size_t Response500HeadersCount = sizeof(Response500Headers)/sizeof(MSH3_HE
 const char JsonRequestData[] = "{\"test\":\"data\"}";
 const char TextRequestData[] = "Hello World";
 
+const char* ToString(MSH3_CONNECTION_EVENT_TYPE Type) {
+    switch (Type) {
+        case MSH3_CONNECTION_EVENT_CONNECTED: return "CONNECTED";
+        case MSH3_CONNECTION_EVENT_NEW_REQUEST: return "NEW_REQUEST";
+        case MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT: return "SHUTDOWN_INITIATED_BY_TRANSPORT";
+        case MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER: return "SHUTDOWN_INITIATED_BY_PEER";
+        case MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE: return "SHUTDOWN_COMPLETE";
+        default: return "UNKNOWN";
+    }
+}
+
 const char* ToString(MSH3_REQUEST_EVENT_TYPE Type) {
     switch (Type) {
         case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE: return "SHUTDOWN_COMPLETE";
@@ -202,7 +215,7 @@ struct TestRequest : public MsH3Request {
         StoredHeader(const char* name, size_t nameLen, const char* value, size_t valueLen)
             : Name(name, nameLen), Value(value, valueLen) {}
     };
-    
+
     // Set of all the headers received
     std::vector<StoredHeader> Headers;
     MsH3Waitable<bool> AllDataSent;         // Signal when all data has been sent
@@ -225,12 +238,12 @@ struct TestRequest : public MsH3Request {
         }
         return nullptr;
     }
-    
+
     // Check if we have a specific number of headers
     bool HasExpectedHeaderCount(uint32_t expected) {
         return Headers.size() == expected;
     }
-    
+
     // Helper to get the status code from headers
     uint32_t GetStatusCode() {
         auto statusHeader = GetHeaderByName(":status", 7);
@@ -240,7 +253,7 @@ struct TestRequest : public MsH3Request {
         }
         return 0; // Return 0 if status header not found or invalid
     }
-    
+
     static MSH3_STATUS RequestCallback(
         struct MsH3Request* Request,
         void* Context,
@@ -251,19 +264,19 @@ struct TestRequest : public MsH3Request {
             LOG("Warning: Invalid RequestCallback input\n");
             return MSH3_STATUS_SUCCESS;
         }
-        
+
         auto ctx = (TestRequest*)Context;
-        LOG("%s Event: %s\n", ctx->Role, ToString(Event->Type));
+        LOG("%s RequestEvent: %s\n", ctx->Role, ToString(Event->Type));
 
         if (Event->Type == MSH3_REQUEST_EVENT_HEADER_RECEIVED) {
             const MSH3_HEADER* header = Event->HEADER_RECEIVED.Header;
-            
+
             // Validate the header
             if (!header || !header->Name || header->NameLength == 0 || !header->Value) {
                 LOG("%s Warning: Received invalid header\n", ctx->Role);
                 return MSH3_STATUS_SUCCESS;
             }
-            
+
             // Save the header data
             ctx->Headers.emplace_back(
                 header->Name, header->NameLength, header->Value, header->ValueLength);
@@ -329,13 +342,42 @@ struct TestRequest : public MsH3Request {
     }
 };
 
-struct TestServer : public MsH3AutoAcceptListener {
-    bool SingleThreaded;
-    MsH3Configuration Config;
+struct TestConnection : public MsH3Connection {
+    TestConnection(
+        MsH3Api& Api,
+        MsH3CleanUpMode CleanUpMode = CleanUpManual,
+        MsH3ConnectionCallback* Callback = NoOpCallback,
+        void* Context = nullptr
+        ) noexcept : MsH3Connection(Api, CleanUpMode, Callback, Context) {
+        g_ConnectionCount.fetch_add(1);
+        LOG("TestConnection created (client)\n");
+    }
+    TestConnection(
+        MSH3_CONNECTION* ServerHandle,
+        MsH3CleanUpMode CleanUpMode,
+        MsH3ConnectionCallback* Callback,
+        void* Context = nullptr
+        ) noexcept : MsH3Connection(ServerHandle, CleanUpMode, Callback, Context) {
+        g_ConnectionCount.fetch_add(1);
+        LOG("TestConnection created (server)\n");
+    }
+    virtual ~TestConnection() noexcept {
+        if (g_ConnectionCount.fetch_sub(1) == 1) {
+            LOG("All connections closed, signaling completion\n");
+            g_ConnectionsComplete.Set(true);
+        }
+        LOG("~TestConnection\n");
+    }
+};
+
+struct TestServer : public MsH3Listener {
+    bool AutoConfigure; // Automatically configure the server
+    MsH3Configuration Configuration;
+    MsH3Waitable<TestConnection*> NewConnection;
     MsH3Waitable<TestRequest*> NewRequest;
-    TestServer(MsH3Api& Api, bool SingleThread = false)
-     : MsH3AutoAcceptListener(Api, MsH3Addr(), ConnectionCallback, this), Config(Api), SingleThreaded(SingleThread) {
-        if (Handle && MSH3_FAILED(Config.LoadConfiguration())) {
+    TestServer(MsH3Api& Api, bool AutoConfigure = true)
+     : MsH3Listener(Api, MsH3Addr(), CleanUpAutoDelete, ListenerCallback, this), Configuration(Api), AutoConfigure(AutoConfigure) {
+        if (Handle && MSH3_FAILED(Configuration.LoadConfiguration())) {
             MsH3ListenerClose(Handle); Handle = nullptr;
         }
     }
@@ -343,9 +385,35 @@ struct TestServer : public MsH3AutoAcceptListener {
     bool WaitForConnection() noexcept {
         VERIFY(NewConnection.WaitFor());
         auto ServerConnection = NewConnection.Get();
-        VERIFY_SUCCESS(ServerConnection->SetConfiguration(Config));
         VERIFY(ServerConnection->Connected.WaitFor());
         return true;
+    }
+    static
+    MSH3_STATUS
+    ListenerCallback(
+        MsH3Listener* /* Listener */,
+        void* Context,
+        MSH3_LISTENER_EVENT* Event
+        ) noexcept {
+        auto pThis = (TestServer*)Context;
+        MSH3_STATUS Status = MSH3_STATUS_INVALID_STATE;
+        if (Event->Type == MSH3_LISTENER_EVENT_NEW_CONNECTION) {
+            auto Connection = new(std::nothrow) TestConnection(Event->NEW_CONNECTION.Connection, CleanUpAutoDelete, ConnectionCallback, pThis);
+            if (Connection) {
+                if (pThis->AutoConfigure &&
+                    MSH3_FAILED(Status = Connection->SetConfiguration(pThis->Configuration))) {
+                    //
+                    // The connection is being rejected. Let the library free the handle.
+                    //
+                    Connection->Handle = nullptr;
+                    delete Connection;
+                } else {
+                    Status = MSH3_STATUS_SUCCESS;
+                    pThis->NewConnection.Set(Connection);
+                }
+            }
+        }
+        return Status;
     }
     static
     MSH3_STATUS
@@ -355,6 +423,7 @@ struct TestServer : public MsH3AutoAcceptListener {
         MSH3_CONNECTION_EVENT* Event
         ) noexcept {
         auto pThis = (TestServer*)Context;
+        LOG("SERVER ConnectionEvent: %s\n", ToString(Event->Type));
         if (Event->Type == MSH3_CONNECTION_EVENT_NEW_REQUEST) {
             auto Request = new (std::nothrow) TestRequest(Event->NEW_REQUEST.Request, CleanUpAutoDelete);
             pThis->NewRequest.Set(Request);
@@ -369,17 +438,18 @@ const MSH3_CREDENTIAL_CONFIG ClientCredConfig = {
     nullptr
 };
 
-struct TestClient : public MsH3Connection {
+struct TestClient : public TestConnection {
     bool SingleThreaded;
     MsH3Configuration Config;
-    TestClient(MsH3Api& Api, bool SingleThread = false) : MsH3Connection(Api, CleanUpManual, Callbacks), Config(Api), SingleThreaded(SingleThread) {
+    TestClient(MsH3Api& Api, bool SingleThread = false, MsH3CleanUpMode CleanUpMode = CleanUpManual)
+        : TestConnection(Api, CleanUpMode, Callbacks), Config(Api), SingleThreaded(SingleThread) {
         if (Handle && MSH3_FAILED(Config.LoadConfiguration(ClientCredConfig))) {
             MsH3ConnectionClose(Handle); Handle = nullptr;
         }
     }
-    ~TestClient() noexcept {
+    virtual ~TestClient() noexcept {
         Shutdown();
-        LOG("~TestClient\n");
+        Close();
     }
     MSH3_STATUS Start() noexcept { return MsH3Connection::Start(Config); }
     static
@@ -389,6 +459,7 @@ struct TestClient : public MsH3Connection {
         void* /* Context */,
         MSH3_CONNECTION_EVENT* Event
         ) noexcept {
+        LOG("CLIENT ConnectionEvent: %s\n", ToString(Event->Type));
         if (Event->Type == MSH3_CONNECTION_EVENT_NEW_REQUEST) {
             //
             // Not great beacuse it doesn't provide an application specific
@@ -398,12 +469,7 @@ struct TestClient : public MsH3Connection {
             MsH3RequestClose(Event->NEW_REQUEST.Request);
         } else if (Event->Type == MSH3_CONNECTION_EVENT_CONNECTED) {
             if (((TestClient*)Connection)->SingleThreaded) {
-                g_TestAllDone.Set(true);
                 Connection->Shutdown();
-            }
-        } else if (Event->Type == MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE) {
-            if (((TestClient*)Connection)->SingleThreaded) {
-                g_TestAllDone.Set(true);
             }
         }
         return MSH3_STATUS_SUCCESS;
@@ -427,17 +493,14 @@ DEF_TEST(HandshakeSingleThread) {
     MSH3_EXECUTION_CONFIG ExecutionConfig = { 0, EventQueue };
     MSH3_EXECUTION* Execution;
     MsH3Api Api(1, &ExecutionConfig, &Execution); VERIFY(Api.IsValid());
-    TestServer Server(Api, true); VERIFY(Server.IsValid());
-    TestClient Client(Api, true); VERIFY(Client.IsValid());
-    VERIFY_SUCCESS(Client.Start());
-    while (!g_TestAllDone.Get()) {
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    auto Client = new TestClient(Api, true, CleanUpAutoDelete);
+    VERIFY(Client->IsValid());
+    VERIFY_SUCCESS(Client->Start());
+    uint32_t DrainCount = 10;
+    while (!g_ConnectionsComplete.Get() && DrainCount-- > 0) {
         uint32_t WaitTime = Api.Poll(Execution);
-        EventQueue.CompleteEvents(WaitTime);
-
-        auto ServerConnection = Server.NewConnection.GetAndReset();
-        if (ServerConnection) {
-            VERIFY_SUCCESS(ServerConnection->SetConfiguration(Server.Config));
-        }
+        EventQueue.CompleteEvents(g_ConnectionsComplete.Get() ? 100 : WaitTime);
     }
     return true;
 }
@@ -452,7 +515,7 @@ DEF_TEST(HandshakeFail) {
 
 DEF_TEST(HandshakeSetCertTimeout) {
     MsH3Api Api; VERIFY(Api.IsValid());
-    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestServer Server(Api, false); VERIFY(Server.IsValid());
     TestClient Client(Api); VERIFY(Client.IsValid());
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.NewConnection.WaitFor());
@@ -521,11 +584,11 @@ DEF_TEST(HeaderValidation) {
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
     LOG("Connection established\n");
-    
+
     TestRequest Request(Client);
     VERIFY(Request.IsValid());
     LOG("Request created\n");
-    
+
     // Send a request with valid headers
     LOG("Sending request with headers\n");
     VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
@@ -533,44 +596,44 @@ DEF_TEST(HeaderValidation) {
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest = Server.NewRequest.Get();
     LOG("Server received request\n");
-    
+
     // Server sends response with headers
     LOG("Server sending response\n");
     VERIFY(ServerRequest->Send(ResponseHeaders, ResponseHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
     LOG("Response sent\n");
-    
+
     // Wait for all headers to be received (signaled by data event or completion)
     LOG("Waiting for all headers to be received\n");
     VERIFY(Request.AllHeadersReceived.WaitFor());
     LOG("All headers received\n");
-    
+
     LOG("Header count received: %zu\n", Request.Headers.size());
     VERIFY(Request.Headers.size() == ResponseHeadersCount);
     LOG("Successfully received the expected number of headers\n");
-    
+
     // Verify the header data we copied
     LOG("Verifying header data\n");
-    
+
     // Log how many headers we received
     LOG("Received %zu headers\n", Request.Headers.size());
     for (size_t i = 0; i < Request.Headers.size(); i++) {
-        LOG("  Header[%zu]: %s = %s\n", i, 
-            Request.Headers[i].Name.c_str(), 
+        LOG("  Header[%zu]: %s = %s\n", i,
+            Request.Headers[i].Name.c_str(),
             Request.Headers[i].Value.c_str());
     }
-    
+
     // Check for the status header and verify it
     auto statusHeader = Request.GetHeaderByName(":status", 7);
     VERIFY(statusHeader != nullptr);
-    
+
     // Verify header name
     VERIFY(statusHeader->Name == ":status");
     LOG("Header name verified\n");
-    
+
     // Verify header value
     VERIFY(statusHeader->Value == "200");
     LOG("Header value verified\n");
-    
+
     return true;
 }
 
@@ -582,117 +645,117 @@ DEF_TEST(DifferentResponseCodes) {
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
     LOG("Connection established for DifferentResponseCodes test\n");
-    
+
     // Test 201 Created response
     {
         LOG("Testing 201 Created response\n");
         TestRequest Request(Client);
-        
+
         LOG("Sending PUT request\n");
         VERIFY(Request.Send(PutRequestHeaders, PutRequestHeadersCount, TextRequestData, sizeof(TextRequestData) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
         LOG("Waiting for server to receive request\n");
         VERIFY(Server.NewRequest.WaitFor());
         auto ServerRequest = Server.NewRequest.Get();
         LOG("Server request received\n");
-        
+
         // Server sends 201 Created response
         LOG("Sending 201 response\n");
         VERIFY(ServerRequest->Send(Response201Headers, Response201HeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
         LOG("Response sent\n");
-        
+
         // Validate the received headers
         LOG("Waiting for all headers\n");
         VERIFY(Request.AllHeadersReceived.WaitFor());
-        
+
         // Verify status code
         LOG("Verifying status code\n");
         uint32_t statusCode = Request.GetStatusCode();
         LOG("Status code received: %u\n", statusCode);
         VERIFY(statusCode == 201);
-        
+
         // Verify location header
         auto locationHeader = Request.GetHeaderByName("location", 8);
         VERIFY(locationHeader != nullptr);
         VERIFY(locationHeader->Value == "/resource/123");
-        
+
         LOG("201 Created test passed\n");
     }
-    
+
     // Test 404 Not Found response
     {
         LOG("Testing 404 Not Found response\n");
         // Reset the server's NewRequest waitable
         Server.NewRequest.Reset();
-        
+
         TestRequest Request(Client);
-        
+
         LOG("Sending GET request for 404\n");
         VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
         LOG("404 Request sent, waiting for server\n");
-        
+
         VERIFY(Server.NewRequest.WaitFor());
         auto ServerRequest = Server.NewRequest.Get();
         LOG("404 Server request received\n");
-        
+
         // Server sends 404 Not Found response
         const char notFoundBody[] = "Not Found";
         LOG("Sending 404 response\n");
         VERIFY(ServerRequest->Send(Response404Headers, Response404HeadersCount, notFoundBody, sizeof(notFoundBody) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
         LOG("404 Response sent\n");
-        
+
         // Validate the received status code
         LOG("Waiting for all headers\n");
         VERIFY(Request.AllHeadersReceived.WaitFor());
-        
+
         // Verify status code
         uint32_t statusCode = Request.GetStatusCode();
         LOG("Status code received: %u\n", statusCode);
         VERIFY(statusCode == 404);
-        
+
         // Verify content-type header
         auto contentTypeHeader = Request.GetHeaderByName("content-type", 12);
         VERIFY(contentTypeHeader != nullptr);
         VERIFY(contentTypeHeader->Value == "text/plain");
-        
+
         LOG("404 Not Found test passed\n");
     }
-    
+
     // Test 500 Internal Server Error response
     {
         LOG("Testing 500 Internal Server Error response\n");
         // Reset the server's NewRequest waitable
         Server.NewRequest.Reset();
-        
+
         TestRequest Request(Client);
-        
+
         LOG("Sending request for 500\n");
         VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
         LOG("500 Request sent\n");
-        
+
         VERIFY(Server.NewRequest.WaitFor());
         auto ServerRequest = Server.NewRequest.Get();
         LOG("500 Server request received\n");
-        
+
         // Server sends 500 Internal Server Error response
         const char serverErrorBody[] = "Server Error";
         LOG("Sending 500 response\n");
         VERIFY(ServerRequest->Send(Response500Headers, Response500HeadersCount, serverErrorBody, sizeof(serverErrorBody) - 1, MSH3_REQUEST_SEND_FLAG_FIN));
         LOG("500 Response sent\n");
-        
+
         // Validate the received status code
         LOG("Waiting for all headers\n");
         VERIFY(Request.AllHeadersReceived.WaitFor());
-        
+
         // Verify status code
         uint32_t statusCode = Request.GetStatusCode();
         LOG("Status code received: %u\n", statusCode);
         VERIFY(statusCode == 500);
-        
+
         // Verify content-type header
         auto contentTypeHeader = Request.GetHeaderByName("content-type", 12);
         VERIFY(contentTypeHeader != nullptr);
         VERIFY(contentTypeHeader->Value == "text/plain");
-        
+
         LOG("500 Internal Server Error test passed\n");
     }
     return true;
@@ -706,7 +769,7 @@ DEF_TEST(MultipleRequests) {
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
-    
+
     LOG("Connection established, starting requests\n");
 
     // Send first request (GET)
@@ -716,22 +779,22 @@ DEF_TEST(MultipleRequests) {
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest1 = Server.NewRequest.Get();
     LOG("First server request received\n");
-    
+
     VERIFY(ServerRequest1->Send(ResponseHeaders, ResponseHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
     LOG("First response sent\n");
-    
+
     // Wait for headers and validate status code
     VERIFY(Request1.AllHeadersReceived.WaitFor());
     uint32_t statusCode1 = Request1.GetStatusCode();
     LOG("First status code received: %u\n", statusCode1);
     VERIFY(statusCode1 == 200);
-    
+
     // Verify content-type header
     auto contentType1 = Request1.GetHeaderByName("content-type", 12);
     VERIFY(contentType1 != nullptr);
     VERIFY(contentType1->Value == "application/json");
     LOG("First request headers validated\n");
-    
+
     // Send second request (POST)
     LOG("Sending second request (POST)\n");
     Server.NewRequest.Reset();
@@ -740,22 +803,22 @@ DEF_TEST(MultipleRequests) {
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest2 = Server.NewRequest.Get();
     LOG("Second server request received\n");
-    
+
     VERIFY(ServerRequest2->Send(Response201Headers, Response201HeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
     LOG("Second response sent\n");
-    
+
     // Wait for headers and validate status code
     VERIFY(Request2.AllHeadersReceived.WaitFor());
     uint32_t statusCode2 = Request2.GetStatusCode();
     LOG("Second status code received: %u\n", statusCode2);
     VERIFY(statusCode2 == 201);
-    
+
     // Verify location header
     auto locationHeader = Request2.GetHeaderByName("location", 8);
     VERIFY(locationHeader != nullptr);
     VERIFY(locationHeader->Value == "/resource/123");
     LOG("Second request headers validated\n");
-    
+
     // Send third request (PUT)
     LOG("Sending third request (PUT)\n");
     Server.NewRequest.Reset();
@@ -764,16 +827,16 @@ DEF_TEST(MultipleRequests) {
     VERIFY(Server.NewRequest.WaitFor());
     auto ServerRequest3 = Server.NewRequest.Get();
     LOG("Third server request received\n");
-    
+
     VERIFY(ServerRequest3->Send(ResponseHeaders, ResponseHeadersCount, ResponseData, sizeof(ResponseData), MSH3_REQUEST_SEND_FLAG_FIN));
     LOG("Third response sent\n");
-    
+
     // Wait for headers and validate status code
     VERIFY(Request3.AllHeadersReceived.WaitFor());
     uint32_t statusCode3 = Request3.GetStatusCode();
     LOG("Third status code received: %u\n", statusCode3);
     VERIFY(statusCode3 == 200);
-    
+
     // Verify content-type header for third request
     auto contentType3 = Request3.GetHeaderByName("content-type", 12);
     VERIFY(contentType3 != nullptr);
@@ -960,7 +1023,7 @@ int MSH3_CALL main(int argc, char** argv) {
 
         printf("  %s\n", TestFunctions[i].Name);
         fflush(stdout);
-        
+
         // Start watchdog thread for this test
         g_TestAllDone.Reset();
         std::thread watchdogThread(WatchdogFunction);
@@ -969,7 +1032,7 @@ int MSH3_CALL main(int argc, char** argv) {
         LOG("Completed test: %s - %s\n", TestFunctions[i].Name, result ? "PASSED" : "FAILED");
 
         g_TestAllDone.Set(true);
-        
+
         // Wait for watchdog thread to finish
         if (watchdogThread.joinable()) {
             watchdogThread.join();
