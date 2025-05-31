@@ -72,7 +72,7 @@ MsH3ApiOpenWithExecution(
         return nullptr;
     }
     if (MsH3pRefCount.fetch_add(1) == 0) {
-        MsQuic = new(std::nothrow) MsQuicApi();
+        MsQuic = new(std::nothrow) MsQuicApi(MsQuicOpenVersion, MsQuicClose, true);
         if (!MsQuic || QUIC_FAILED(MsQuic->GetInitStatus())) {
             printf("MsQuicApi failed\n");
             delete MsQuic;

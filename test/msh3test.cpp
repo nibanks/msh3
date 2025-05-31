@@ -498,7 +498,7 @@ DEF_TEST(HandshakeSingleThread) {
     VERIFY(Client->IsValid());
     VERIFY_SUCCESS(Client->Start());
     uint32_t DrainCount = 10;
-    while (!g_ConnectionsComplete.Get() && DrainCount-- > 0) {
+    while (!g_ConnectionsComplete.Get() || --DrainCount > 0) {
         uint32_t WaitTime = Api.Poll(Execution);
         EventQueue.CompleteEvents(g_ConnectionsComplete.Get() ? 100 : WaitTime);
     }
@@ -908,7 +908,7 @@ DEF_TEST(RequestBidirectional10MB) {
 
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
-    //ADD_TEST(HandshakeSingleThread),
+    ADD_TEST(HandshakeSingleThread),
     ADD_TEST(HandshakeFail),
     ADD_TEST(HandshakeSetCertTimeout),
     ADD_TEST(SimpleRequest),
