@@ -5,6 +5,7 @@
 
 --*/
 
+#include "msquic/src/inc/msquic.h"
 #include "msh3.hpp"
 
 #include <atomic>
@@ -18,43 +19,28 @@ using namespace std;
 using namespace std::chrono;
 
 struct PingStats {
-    uint32_t PacketsSent = 0;
-    uint32_t PacketsReceived = 0;
+    uint32_t RequestsSent = 0;
+    uint32_t ResponsesReceived = 0;
     uint64_t TotalTime = 0;
     uint64_t MinTime = UINT64_MAX;
     uint64_t MaxTime = 0;
-    bool FirstPacket = true;
-    
+
     void RecordResponse(uint64_t timeMs) {
-        PacketsReceived++;
+        ResponsesReceived++;
         TotalTime += timeMs;
-        if (FirstPacket || timeMs < MinTime) MinTime = timeMs;
+        if (timeMs < MinTime) MinTime = timeMs;
         if (timeMs > MaxTime) MaxTime = timeMs;
-        FirstPacket = false;
-    }
-    
-    void PrintStats(const char* host) {
-        printf("\n--- %s HTTP/3 ping statistics ---\n", host);
-        printf("%u requests transmitted, %u received, %.1f%% packet loss\n",
-               PacketsSent, PacketsReceived, 
-               PacketsSent > 0 ? ((PacketsSent - PacketsReceived) * 100.0 / PacketsSent) : 0.0);
-        if (PacketsReceived > 0) {
-            printf("round-trip min/avg/max = %llu/%llu/%llu ms\n",
-                   (unsigned long long)MinTime,
-                   (unsigned long long)(TotalTime / PacketsReceived),
-                   (unsigned long long)MaxTime);
-        }
     }
 };
 
 struct PingRequest {
     steady_clock::time_point StartTime;
-    uint32_t Index;
 };
 
 struct Arguments {
     const char* Host { nullptr };
     MsH3Addr Address { 443 };
+    QUIC_ADDR_STR AddressStr { 0 };
     const char* Path { "/" };
     MSH3_CREDENTIAL_FLAGS Flags { MSH3_CREDENTIAL_FLAG_CLIENT };
     bool Verbose { false };
@@ -69,24 +55,24 @@ struct Arguments {
 
 MSH3_STATUS
 MsH3RequestHandler(
-    MsH3Request* /* Request */,
+    MsH3Request* Request,
     void* Context,
     MSH3_REQUEST_EVENT* Event
     )
 {
     auto pingRequest = (PingRequest*)Context;
-    auto endTime = steady_clock::now();
-    
+
     switch (Event->Type) {
-    case MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN: {
-        auto duration = duration_cast<microseconds>(endTime - pingRequest->StartTime).count() / 1000.0;
-        Args.Stats.RecordResponse((uint64_t)(duration));
-            
-        printf("Response from %s: time=%.3fms\n", Args.Host, duration);
-            
+    case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE:
+        delete pingRequest;
         if (++Args.CompletionCount == (int)Args.Count && Args.Count > 0) {
             Args.Connection->Shutdown();
         }
+        break;
+    case MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN: {
+        auto duration = duration_cast<microseconds>(steady_clock::now() - pingRequest->StartTime).count() / 1000.0;
+        Args.Stats.RecordResponse((uint64_t)(duration));
+        printf("Response from %s: time=%.3fms\n", Args.AddressStr.Address, duration);
         break;
     }
     case MSH3_REQUEST_EVENT_HEADER_RECEIVED:
@@ -108,26 +94,14 @@ MsH3RequestHandler(
             printf("\n");
         }
         break;
-    case MSH3_REQUEST_EVENT_PEER_SEND_ABORTED: {
-        auto duration = duration_cast<microseconds>(endTime - pingRequest->StartTime).count() / 1000.0;
-        printf("Request %u aborted: 0x%llx (time=%.3fms)\n", 
-               pingRequest->Index, (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode, 
-               duration);
-        if (++Args.CompletionCount == (int)Args.Count && Args.Count > 0) {
-            Args.Connection->Shutdown();
-        }
+    case MSH3_REQUEST_EVENT_PEER_SEND_ABORTED:
+    case MSH3_REQUEST_EVENT_PEER_RECEIVE_ABORTED:
+        Request->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_ABORT, 0);
         break;
-    }
     default:
         break;
     }
-    
-    // Clean up the ping request context if the request is complete
-    if (Event->Type == MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE || 
-        Event->Type == MSH3_REQUEST_EVENT_PEER_SEND_ABORTED) {
-        delete pingRequest;
-    }
-    
+
     return MSH3_STATUS_SUCCESS;
 }
 
@@ -158,7 +132,7 @@ void ParseArgs(int argc, char **argv) {
             exit(0);
         }
     }
-    
+
     if (argc < 2) {
         PrintUsage(argv[0]);
         exit(0);
@@ -198,7 +172,7 @@ void ParseArgs(int argc, char **argv) {
 
         } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
             Args.Verbose = true;
-            
+
         } else {
             printf("Unknown option: %s\n", argv[i]);
             PrintUsage(argv[0]);
@@ -220,69 +194,75 @@ bool SendPingRequest(MsH3Connection& Connection) {
 
     auto pingRequest = new PingRequest();
     pingRequest->StartTime = steady_clock::now();
-    pingRequest->Index = ++Args.Stats.PacketsSent;
-    
+
     auto Request = new (std::nothrow) MsH3Request(Connection, MSH3_REQUEST_FLAG_NONE, CleanUpAutoDelete, MsH3RequestHandler, pingRequest);
     if (!Request || !Request->IsValid()) {
-        printf("Failed to create request %u\n", Args.Stats.PacketsSent);
+        printf("Failed to create request\n");
+        Request->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_ABORT, 0);
         delete pingRequest;
         return false;
     }
-    
+
     if (!Request->Send(Headers, HeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN)) {
-        printf("Failed to send request %u\n", Args.Stats.PacketsSent);
+        printf("Failed to send request\n");
+        Request->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_ABORT, 0);
         delete pingRequest;
         return false;
     }
-    
+
     return true;
 }
 
 int MSH3_CALL main(int argc, char **argv) {
     ParseArgs(argc, argv);
-    
+
     MsH3Api Api;
     if (!Api.IsValid()) {
         printf("Failed to initialize MSH3 API\n");
         return -1;
     }
-    
+
     MsH3Configuration Configuration(Api);
     if (!Configuration.IsValid()) {
         printf("Failed to create configuration\n");
         return -1;
     }
-    
+
     if (MSH3_FAILED(Configuration.LoadConfiguration({MSH3_CREDENTIAL_TYPE_NONE, Args.Flags, 0}))) {
         printf("Failed to load configuration\n");
         return -1;
     }
-    
+
     MsH3Connection Connection(Api);
     if (!Connection.IsValid()) {
         printf("Failed to create connection\n");
         return -1;
     }
-    
+
     Args.Connection = &Connection;
-    
-    const char* method = Args.UseGet ? "GET" : "HEAD";
-    printf("HTTP/3 pinging %s:%u [%s] with %s:\n", Args.Host, 443, "ip", method);  // TODO: extract actual port and remote IP
+
     if (MSH3_FAILED(Connection.Start(Configuration, Args.Host, Args.Address))) {
         printf("Failed to start connection\n");
         return -1;
     }
+
+    uint32_t addressSize = sizeof(Args.Address);
+    MsH3ConnectionGetQuicParam(Connection, QUIC_PARAM_CONN_REMOTE_ADDRESS, &addressSize, &Args.Address);
+    QuicAddrToString((QUIC_ADDR*)&Args.Address, &Args.AddressStr);
+
+    const char* method = Args.UseGet ? "GET" : "HEAD";
+    printf("\nPinging %s [%s] with HTTP/3 %s requests:\n", Args.Host, Args.AddressStr.Address, method);
 
     // Wait for connection to establish
     if (!Connection.Connected.WaitFor(Args.Timeout)) {
         printf("Connection timeout\n");
         return -1;
     }
-    
+
     // Send ping requests - unified loop for both infinite and finite modes
     for (uint32_t i = 0; Args.Count == 0 || i < Args.Count; ++i) {
         if (!SendPingRequest(Connection)) break;
-        
+
         // Wait for interval before next request (except for last request in finite mode)
         if (Args.Interval > 0 && (Args.Count == 0 || i < Args.Count - 1)) {
             this_thread::sleep_for(milliseconds(Args.Interval));
@@ -291,9 +271,22 @@ int MSH3_CALL main(int argc, char **argv) {
 
     // Wait for all responses
     Connection.ShutdownComplete.Wait();
-    
-    // Print statistics
-    Args.Stats.PrintStats(Args.Host);
+
+    QUIC_STATISTICS_V2 stats = {0};
+    uint32_t statsSize = sizeof(stats);
+    MsH3ConnectionGetQuicParam(Connection, QUIC_PARAM_CONN_STATISTICS_V2, &statsSize, &stats);
+    printf("\nPing statistics for %s:\n", Args.Host);
+    printf("  Packets: Sent: %llu, Received: %llu, Lost: %llu (%.1f%% loss)\n",
+        (unsigned long long)stats.SendTotalPackets,
+        (unsigned long long)stats.RecvTotalPackets,
+        (unsigned long long)(stats.SendSuspectedLostPackets),
+        (100.0 * stats.SendSuspectedLostPackets / stats.SendTotalPackets));
+
+    printf("Approximate round trip times in milliseconds:\n");
+    printf("  Minimum: %llums, Maximum: %llums, Average: %llums\n",
+        (unsigned long long)Args.Stats.MinTime,
+        (unsigned long long)Args.Stats.MaxTime,
+        (unsigned long long)(Args.Stats.TotalTime / Args.Stats.ResponsesReceived));
 
     return 0;
 }
