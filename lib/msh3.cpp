@@ -571,6 +571,7 @@ MsH3pConnection::MsH3pConnection(
 MsH3pConnection::~MsH3pConnection()
 {
     lsqpack_enc_cleanup(&Encoder);
+    lsqpack_dec_cleanup(&Decoder);
     delete LocalDecoder;
     delete LocalEncoder;
     delete LocalControl;
@@ -712,6 +713,15 @@ MsH3pConnection::ReceiveSettingsFrame(
     if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
         printf("lsqpack_enc_init failed\n");
         return false;
+    }
+
+    // Re-initialize the decoder to match the encoder settings
+    // This ensures encoder/decoder compatibility regardless of peer capabilities
+    lsqpack_dec_cleanup(&Decoder);
+    if (dynamicTableSize > 0) {
+        lsqpack_dec_init(&Decoder, nullptr, dynamicTableSize, blockedStreams, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)(LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL));
+    } else {
+        lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
     }
 
     EncoderInitialized = true;
