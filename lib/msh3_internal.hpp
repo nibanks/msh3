@@ -123,11 +123,19 @@ enum H3FrameType {
 #define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 4096  // Enable dynamic table with a default size of 4096 bytes
 #define H3_DEFAULT_QPACK_BLOCKED_STREAMS    100   // Allow up to 100 blocked streams
 
+#if MSH3_STATIC_QPACK
+const H3Settings SettingsH3[] = {
+    { H3SettingQPackMaxTableCapacity, 0 },
+    { H3SettingQPackBlockedStreamsSize, 0 },
+    { H3SettingDatagrams, 1 }, // N.B. - The MsH3pUniDirStream constructor assumes this is always last.
+};
+#else
 const H3Settings SettingsH3[] = {
     { H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
     { H3SettingQPackBlockedStreamsSize, H3_DEFAULT_QPACK_BLOCKED_STREAMS },
     { H3SettingDatagrams, 1 }, // N.B. - The MsH3pUniDirStream constructor assumes this is always last.
 };
+#endif // MSH3_STATIC_QPACK
 
 // Copied from QuicVanIntDecode and changed to uint32_t offset/length
 inline

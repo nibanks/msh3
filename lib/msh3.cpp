@@ -988,7 +988,7 @@ MsH3pBiDirStream::Send(
     )
 {
     if (Headers && HeadersCount != 0) { // TODO - Make sure headers weren't already sent
-        if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return false;
+    if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return false;
         auto HeadersLength = Buffers[1].Length + Buffers[2].Length;
         auto HeaderFlags = Flags;
         if (Data && DataLength != 0) {
