@@ -15,6 +15,7 @@ EXPORTS
     MsH3ConnectionStart
     MsH3ConnectionShutdown
     MsH3ConnectionClose
+    MsH3ConnectionGetQuicParam
     MsH3RequestOpen
     MsH3RequestSetCallbackHandler
     MsH3RequestSend
@@ -22,5 +23,6 @@ EXPORTS
     MsH3RequestCompleteReceive
     MsH3RequestShutdown
     MsH3RequestClose
+    MsH3RequestGetQuicParam
     MsH3ListenerOpen
     MsH3ListenerClose
