@@ -321,6 +321,7 @@ struct MsH3pConnection : public MsQuicConnection {
     uint64_t PeerQPackBlockedStreams {H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM};
 
     bool EncoderInitialized {false};
+    uint32_t DynamicTableSize {0}; // Actual dynamic table size being used (0 = static mode)
 
     std::mutex ShutdownCompleteMutex;
     std::condition_variable ShutdownCompleteEvent;

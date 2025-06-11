@@ -702,11 +702,10 @@ MsH3pConnection::ReceiveSettingsFrame(
     uint32_t dynamicTableSize = 0;
     uint64_t blockedStreams = 0;
 #else
-    // Use the peer's max table size or our default if peer doesn't support it
-    uint32_t dynamicTableSize = PeerMaxTableSize != 0 ? PeerMaxTableSize : H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY;
-
-    // Use the peer's max blocked streams value or our default if peer doesn't support it
-    uint64_t blockedStreams = PeerQPackBlockedStreams != 0 ? PeerQPackBlockedStreams : H3_DEFAULT_QPACK_BLOCKED_STREAMS;
+    // Respect the peer's QPACK settings completely
+    // If peer advertises max table size = 0, we must use static mode even if we support dynamic
+    uint32_t dynamicTableSize = PeerMaxTableSize;
+    uint64_t blockedStreams = PeerQPackBlockedStreams;
 #endif // MSH3_STATIC_QPACK
 
     // Initialize the encoder
@@ -716,6 +715,7 @@ MsH3pConnection::ReceiveSettingsFrame(
     }
 
     EncoderInitialized = true;
+    DynamicTableSize = dynamicTableSize;
     return true;
 }
 
@@ -894,9 +894,9 @@ MsH3pUniDirStream::DecoderStreamCallback(
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
 #if !MSH3_STATIC_QPACK
-        // Process decoder stream data for dynamic table updates
-        // Only process if encoder has been properly initialized
-        if (H3.EncoderInitialized) {
+        // Only process decoder stream data if we're actually using dynamic QPACK
+        // Even with MSH3_STATIC_QPACK disabled, we might use static mode if peer doesn't support dynamic
+        if (H3.EncoderInitialized && H3.DynamicTableSize > 0) {
             for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
                 const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
 
@@ -912,6 +912,7 @@ MsH3pUniDirStream::DecoderStreamCallback(
                 }
             }
         }
+        // If DynamicTableSize == 0, we're using static mode and should ignore decoder stream
 #endif // !MSH3_STATIC_QPACK
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
