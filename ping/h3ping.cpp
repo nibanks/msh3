@@ -5,8 +5,8 @@
 
 --*/
 
-#include "msh3.hpp"
 #include "msquic/src/inc/msquic.h"
+#include "msh3.hpp"
 
 #include <atomic>
 #include <chrono>
