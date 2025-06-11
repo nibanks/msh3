@@ -8,7 +8,7 @@
 #define MSH3_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
 #define QUIC_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
 
-#define MSH3_STATIC_QPACK 1 // Always use static QPACK for now
+// #define MSH3_STATIC_QPACK 1 // Always use static QPACK for now
 
 #include "msh3_internal.hpp"
 
@@ -524,6 +524,9 @@ MsH3pConnection::MsH3pConnection(
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
 
+#if MSH3_STATIC_QPACK
+    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
+#else
     // Initialize the decoder with dynamic table support
     // The QPACK decoder will use our local max table size and blocked streams
     // Use LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL for better performance
@@ -532,6 +535,7 @@ MsH3pConnection::MsH3pConnection(
                     H3_DEFAULT_QPACK_BLOCKED_STREAMS,
                     &MsH3pBiDirStream::hset_if,
                     (lsqpack_dec_opts)(LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL));
+#endif // MSH3_STATIC_QPACK
 
     if (!IsValid()) return;
     LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
@@ -711,6 +715,7 @@ MsH3pConnection::ReceiveSettingsFrame(
         return false;
     }
 
+    EncoderInitialized = true;
     return true;
 }
 
@@ -888,21 +893,26 @@ MsH3pUniDirStream::DecoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-        // Process decoder stream data
-        for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
-            const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
+#if !MSH3_STATIC_QPACK
+        // Process decoder stream data for dynamic table updates
+        // Only process if encoder has been properly initialized
+        if (H3.EncoderInitialized) {
+            for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
+                const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
 
-            if (Buffer->Length > 0) {
-                // Process decoder instructions from peer
-                int ret = lsqpack_enc_decoder_in(&H3.Encoder,
-                                               Buffer->Buffer,
-                                               Buffer->Length);
+                if (Buffer->Length > 0) {
+                    // Process decoder instructions from peer
+                    int ret = lsqpack_enc_decoder_in(&H3.Encoder,
+                                                   Buffer->Buffer,
+                                                   Buffer->Length);
 
-                if (ret != 0) {
-                    printf("[QPACK] lsqpack_enc_decoder_in failed: %d\n", ret);
+                    if (ret != 0) {
+                        printf("[QPACK] lsqpack_enc_decoder_in failed: %d\n", ret);
+                    }
                 }
             }
         }
+#endif // !MSH3_STATIC_QPACK
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         break;

@@ -312,6 +312,8 @@ struct MsH3pConnection : public MsQuicConnection {
     uint32_t PeerMaxTableSize {H3_RFC_DEFAULT_HEADER_TABLE_SIZE};
     uint64_t PeerQPackBlockedStreams {H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM};
 
+    bool EncoderInitialized {false};
+
     std::mutex ShutdownCompleteMutex;
     std::condition_variable ShutdownCompleteEvent;
     bool ShutdownComplete {false};
