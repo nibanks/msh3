@@ -322,3 +322,68 @@ This function should be called when the request is no longer needed. After calli
 // Close the request
 MsH3RequestClose(request);
 ```
+
+## MsH3RequestGetQuicParam
+
+```c
+MSH3_STATUS
+MSH3_CALL
+MsH3RequestGetQuicParam(
+    MSH3_REQUEST* Request,
+    uint32_t Param,
+    uint32_t* BufferLength,
+    void* Buffer
+    );
+```
+
+Queries a parameter from the underlying QUIC stream.
+
+### Parameters
+
+`Request` - The request object.
+
+`Param` - The parameter to query (defined in msquic.h).
+
+`BufferLength` - On input, the size of the buffer. On output, the size of the data returned.
+
+`Buffer` - The buffer to receive the parameter data.
+
+### Returns
+
+Returns MSH3_STATUS_SUCCESS if successful, or an error code otherwise.
+
+### Remarks
+
+This function provides direct access to the underlying MsQuic stream parameters without requiring individual wrapper APIs for each parameter. The parameter constants are defined in msquic.h and include values like QUIC_PARAM_STREAM_ID, QUIC_PARAM_STREAM_IDEAL_SEND_BUFFER_SIZE, and QUIC_PARAM_STREAM_STATISTICS.
+
+### Example
+
+```c
+#include <msquic.h>  // For parameter definitions
+
+// Query stream ID on a request
+QUIC_UINT62 streamId;
+uint32_t bufferLength = sizeof(streamId);
+MSH3_STATUS status = MsH3RequestGetQuicParam(
+    request,
+    QUIC_PARAM_STREAM_ID,
+    &bufferLength,
+    &streamId
+);
+if (MSH3_SUCCEEDED(status)) {
+    printf("Stream ID: %llu\n", streamId);
+}
+
+// Query ideal send buffer size
+uint64_t idealSize;
+bufferLength = sizeof(idealSize);
+status = MsH3RequestGetQuicParam(
+    request,
+    QUIC_PARAM_STREAM_IDEAL_SEND_BUFFER_SIZE,
+    &bufferLength,
+    &idealSize
+);
+if (MSH3_SUCCEEDED(status)) {
+    printf("Ideal send buffer size: %llu bytes\n", idealSize);
+}
+```

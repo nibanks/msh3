@@ -239,3 +239,68 @@ This function should be called when the connection is no longer needed. After ca
 // Close the connection
 MsH3ConnectionClose(connection);
 ```
+
+## MsH3ConnectionGetQuicParam
+
+```c
+MSH3_STATUS
+MSH3_CALL
+MsH3ConnectionGetQuicParam(
+    MSH3_CONNECTION* Connection,
+    uint32_t Param,
+    uint32_t* BufferLength,
+    void* Buffer
+    );
+```
+
+Queries a parameter from the underlying QUIC connection.
+
+### Parameters
+
+`Connection` - The connection object.
+
+`Param` - The parameter to query (defined in msquic.h).
+
+`BufferLength` - On input, the size of the buffer. On output, the size of the data returned.
+
+`Buffer` - The buffer to receive the parameter data.
+
+### Returns
+
+Returns MSH3_STATUS_SUCCESS if successful, or an error code otherwise.
+
+### Remarks
+
+This function provides direct access to the underlying MsQuic connection parameters without requiring individual wrapper APIs for each parameter. The parameter constants are defined in msquic.h and include values like QUIC_PARAM_CONN_QUIC_VERSION, QUIC_PARAM_CONN_REMOTE_ADDRESS, and QUIC_PARAM_CONN_STATISTICS_V2.
+
+### Example
+
+```c
+#include <msquic.h>  // For parameter definitions
+
+// Query QUIC version on a connection
+uint32_t version;
+uint32_t bufferLength = sizeof(version);
+MSH3_STATUS status = MsH3ConnectionGetQuicParam(
+    connection, 
+    QUIC_PARAM_CONN_QUIC_VERSION, 
+    &bufferLength, 
+    &version
+);
+if (MSH3_SUCCEEDED(status)) {
+    printf("QUIC version: 0x%x\n", version);
+}
+
+// Query remote address
+QUIC_ADDR remoteAddr;
+bufferLength = sizeof(remoteAddr);
+status = MsH3ConnectionGetQuicParam(
+    connection,
+    QUIC_PARAM_CONN_REMOTE_ADDRESS,
+    &bufferLength,
+    &remoteAddr
+);
+if (MSH3_SUCCEEDED(status)) {
+    printf("Remote address retrieved\n");
+}
+```
