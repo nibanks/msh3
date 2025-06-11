@@ -683,9 +683,11 @@ MsH3pConnection::ReceiveSettingsFrame(
         switch (SettingType) {
         case H3SettingQPackMaxTableCapacity:
             PeerMaxTableSize = (uint32_t)SettingValue;
+            printf("[QPACK Debug] Peer QPACK Max Table Size: %u\n", PeerMaxTableSize);
             break;
         case H3SettingQPackBlockedStreamsSize:
             PeerQPackBlockedStreams = SettingValue;
+            printf("[QPACK Debug] Peer QPACK Blocked Streams: %llu\n", PeerQPackBlockedStreams);
             break;
         case H3SettingDatagrams:
             if (SettingValue) {
@@ -709,6 +711,9 @@ MsH3pConnection::ReceiveSettingsFrame(
     uint32_t dynamicTableSize = PeerMaxTableSize;
     uint64_t blockedStreams = PeerQPackBlockedStreams;
 #endif // MSH3_STATIC_QPACK
+
+    printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%llu\n", 
+           dynamicTableSize, blockedStreams);
 
     // Initialize the encoder
     if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
@@ -929,6 +934,8 @@ MsH3pUniDirStream::DecoderStreamCallback(
 #if !MSH3_STATIC_QPACK
         // Only process decoder stream data if we're actually using dynamic QPACK
         // Even with MSH3_STATIC_QPACK disabled, we might use static mode if peer doesn't support dynamic
+        printf("[QPACK Debug] Decoder stream receive: EncoderInitialized=%d, DynamicTableSize=%u\n", 
+               H3.EncoderInitialized ? 1 : 0, H3.DynamicTableSize);
         if (H3.EncoderInitialized && H3.DynamicTableSize > 0) {
             for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
                 const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
@@ -943,8 +950,21 @@ MsH3pUniDirStream::DecoderStreamCallback(
 
                     if (ret != 0) {
                         printf("[QPACK] lsqpack_enc_decoder_in failed: %d\n", ret);
+                        // If decoder instruction processing fails, fall back to ignoring further decoder data
+                        // This handles cases where peers send incompatible instructions
+                        printf("[QPACK] Disabling dynamic QPACK due to decoder instruction failure\n");
+                        H3.DynamicTableSize = 0;
+                        // Note: We don't reinitialize encoder/decoder here to avoid disrupting ongoing requests
+                        // Instead, we just stop processing future decoder instructions
                     }
                 }
+            }
+        } else {
+            // Just debug the received data but don't process it
+            for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
+                const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
+                DebugIoBuffer(Buffer, "recv", Type);
+                printf("[QPACK Debug] Ignoring decoder stream data in static mode or uninitialized state\n");
             }
         }
         // If DynamicTableSize == 0, we're using static mode and should ignore decoder stream
