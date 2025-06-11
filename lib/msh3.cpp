@@ -687,7 +687,7 @@ MsH3pConnection::ReceiveSettingsFrame(
             break;
         case H3SettingQPackBlockedStreamsSize:
             PeerQPackBlockedStreams = SettingValue;
-            printf("[QPACK Debug] Peer QPACK Blocked Streams: %llu\n", PeerQPackBlockedStreams);
+            printf("[QPACK Debug] Peer QPACK Blocked Streams: %lu\n", (unsigned long)PeerQPackBlockedStreams);
             break;
         case H3SettingDatagrams:
             if (SettingValue) {
@@ -712,11 +712,11 @@ MsH3pConnection::ReceiveSettingsFrame(
     uint64_t blockedStreams = PeerQPackBlockedStreams;
 #endif // MSH3_STATIC_QPACK
 
-    printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%llu\n", 
+    printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%lu\n", 
            dynamicTableSize, blockedStreams);
 
     // Initialize the encoder
-    if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
+    if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, (lsqpack_enc_opts)0, tsu_buf, &tsu_buf_sz) != 0) {
         printf("lsqpack_enc_init failed\n");
         return false;
     }
@@ -725,7 +725,7 @@ MsH3pConnection::ReceiveSettingsFrame(
     // This ensures encoder/decoder compatibility regardless of peer capabilities
     lsqpack_dec_cleanup(&Decoder);
     if (dynamicTableSize > 0) {
-        lsqpack_dec_init(&Decoder, nullptr, dynamicTableSize, blockedStreams, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)(LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL));
+        lsqpack_dec_init(&Decoder, nullptr, dynamicTableSize, (unsigned)blockedStreams, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)(LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL));
     } else {
         lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
     }
