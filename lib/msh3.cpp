@@ -255,6 +255,19 @@ MsH3ConnectionClose(
 }
 
 extern "C"
+MSH3_STATUS
+MSH3_CALL
+MsH3ConnectionGetQuicParam(
+    MSH3_CONNECTION* Handle,
+    uint32_t Param,
+    uint32_t* BufferLength,
+    void* Buffer
+    )
+{
+    return MsQuic->GetParam(((MsH3pConnection*)Handle)->Handle, Param, BufferLength, Buffer);
+}
+
+extern "C"
 MSH3_REQUEST*
 MSH3_CALL
 MsH3RequestOpen(
@@ -280,6 +293,19 @@ MsH3RequestClose(
     )
 {
     delete (MsH3pBiDirStream*)Handle;
+}
+
+extern "C"
+MSH3_STATUS
+MSH3_CALL
+MsH3RequestGetQuicParam(
+    MSH3_REQUEST* Handle,
+    uint32_t Param,
+    uint32_t* BufferLength,
+    void* Buffer
+    )
+{
+    return MsQuic->GetParam(((MsH3pBiDirStream*)Handle)->Handle, Param, BufferLength, Buffer);
 }
 
 extern "C"
