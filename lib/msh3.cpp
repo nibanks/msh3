@@ -264,6 +264,9 @@ MsH3ConnectionGetQuicParam(
     void* Buffer
     )
 {
+    if (!Handle || !BufferLength) {
+        return MSH3_STATUS_INVALID_STATE;
+    }
     return MsQuic->GetParam(((MsH3pConnection*)Handle)->Handle, Param, BufferLength, Buffer);
 }
 
@@ -305,6 +308,9 @@ MsH3RequestGetQuicParam(
     void* Buffer
     )
 {
+    if (!Handle || !BufferLength) {
+        return MSH3_STATUS_INVALID_STATE;
+    }
     return MsQuic->GetParam(((MsH3pBiDirStream*)Handle)->Handle, Param, BufferLength, Buffer);
 }
 

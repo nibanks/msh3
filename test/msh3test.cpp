@@ -972,6 +972,23 @@ DEF_TEST(RequestGetQuicParam) {
     return true;
 }
 
+DEF_TEST(GetQuicParamBasic) {
+    // Basic test to verify the functions exist and handle null parameters correctly
+    MsH3Api Api; VERIFY(Api.IsValid());
+    
+    // Test with null connection should fail appropriately
+    uint32_t bufferLength = sizeof(uint32_t);
+    uint32_t buffer = 0;
+    auto status = MsH3ConnectionGetQuicParam(nullptr, QUIC_PARAM_CONN_QUIC_VERSION, &bufferLength, &buffer);
+    VERIFY(MSH3_FAILED(status)); // Should fail gracefully with null connection
+    
+    // Test with null request should fail appropriately  
+    status = MsH3RequestGetQuicParam(nullptr, QUIC_PARAM_STREAM_ID, &bufferLength, &buffer);
+    VERIFY(MSH3_FAILED(status)); // Should fail gracefully with null request
+    
+    return true;
+}
+
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
     //ADD_TEST(HandshakeSingleThread),
@@ -984,6 +1001,7 @@ const TestFunc TestFunctions[] = {
     ADD_TEST(HeaderValidation),
     ADD_TEST(DifferentResponseCodes),
     ADD_TEST(MultipleRequests),
+    ADD_TEST(GetQuicParamBasic),
     ADD_TEST(ConnectionGetQuicParam),
     ADD_TEST(RequestGetQuicParam),
     ADD_TEST(RequestDownload1MB),
