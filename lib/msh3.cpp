@@ -853,7 +853,8 @@ MsH3pUniDirStream::EncodeHeaders(
     Request->Buffers[1].Length = (uint32_t)pref_sz;
 
     // If there's encoder output from dynamic indexing, send it on the encoder stream
-    if (Buffer.Length != 0) {
+    // Only send encoder stream data when actually using dynamic mode
+    if (Buffer.Length != 0 && H3.DynamicTableSize > 0) {
         if (QUIC_FAILED(Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT))) {
             printf("Encoder send failed\n");
         }
