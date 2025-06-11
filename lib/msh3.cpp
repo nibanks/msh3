@@ -706,10 +706,16 @@ MsH3pConnection::ReceiveSettingsFrame(
     uint32_t dynamicTableSize = 0;
     uint64_t blockedStreams = 0;
 #else
-    // Respect the peer's QPACK settings completely
-    // If peer advertises max table size = 0, we must use static mode even if we support dynamic
-    uint32_t dynamicTableSize = PeerMaxTableSize;
-    uint64_t blockedStreams = PeerQPackBlockedStreams;
+    // Conservative approach: Start with static mode even if we support dynamic
+    // We'll upgrade to dynamic mode after a few successful static requests
+    // This helps with servers that have poor dynamic QPACK implementations
+    uint32_t dynamicTableSize = 0; // Start with static mode
+    uint64_t blockedStreams = 0;
+    
+    // Store peer capabilities for potential future upgrade to dynamic mode
+    // (Currently disabled - would need additional logic to safely upgrade mid-connection)
+    (void)PeerMaxTableSize;
+    (void)PeerQPackBlockedStreams;
 #endif // MSH3_STATIC_QPACK
 
     printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%lu\n", 

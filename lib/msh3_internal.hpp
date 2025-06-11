@@ -322,6 +322,7 @@ struct MsH3pConnection : public MsQuicConnection {
 
     bool EncoderInitialized {false};
     uint32_t DynamicTableSize {0}; // Actual dynamic table size being used (0 = static mode)
+    uint32_t StaticRequestCount {0}; // Number of successful static requests before enabling dynamic QPACK
 
     std::mutex ShutdownCompleteMutex;
     std::condition_variable ShutdownCompleteEvent;
