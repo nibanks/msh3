@@ -58,13 +58,13 @@ struct Arguments {
     const char* Path { "/" };
     MSH3_CREDENTIAL_FLAGS Flags { MSH3_CREDENTIAL_FLAG_CLIENT };
     bool Verbose { false };
-    uint32_t Count { 4 };  // Default to 4 pings like traditional ping
+    uint32_t Count { 4 };  // Default to 4 pings like traditional ping, 0 = infinite
     uint32_t Interval { 1000 }; // Default 1 second interval
     uint32_t Timeout { 5000 };  // Default 5 second timeout
+    bool UseGet { false }; // Default to HEAD, use GET if specified
     std::atomic_int CompletionCount { 0 };
     MsH3Connection* Connection { nullptr };
     PingStats Stats;
-    bool Infinite { false };
 } Args;
 
 MSH3_STATUS
@@ -78,13 +78,13 @@ MsH3RequestHandler(
     auto endTime = steady_clock::now();
     
     switch (Event->Type) {
-    case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE: {
-        auto duration = duration_cast<milliseconds>(endTime - pingRequest->StartTime).count();
-        Args.Stats.RecordResponse(duration);
+    case MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN: {
+        auto duration = duration_cast<microseconds>(endTime - pingRequest->StartTime).count() / 1000.0;
+        Args.Stats.RecordResponse((uint64_t)(duration));
             
-        printf("Reply from %s: time=%llums\n", Args.Host, (unsigned long long)duration);
+        printf("Response from %s: time=%.3fms\n", Args.Host, duration);
             
-        if (++Args.CompletionCount == (int)Args.Count && !Args.Infinite) {
+        if (++Args.CompletionCount == (int)Args.Count && Args.Count > 0) {
             Args.Connection->Shutdown();
         }
         break;
@@ -101,15 +101,19 @@ MsH3RequestHandler(
         break;
     case MSH3_REQUEST_EVENT_DATA_RECEIVED:
         if (Args.Verbose) {
-            printf("Received %u bytes of data\n", Event->DATA_RECEIVED.Length);
+            auto Data = Event->DATA_RECEIVED.Data;
+            auto Length = Event->DATA_RECEIVED.Length;
+            printf("Received payload: ");
+            fwrite(Data, 1, Length, stdout);
+            printf("\n");
         }
         break;
     case MSH3_REQUEST_EVENT_PEER_SEND_ABORTED: {
-        auto duration = duration_cast<milliseconds>(endTime - pingRequest->StartTime).count();
-        printf("Request %u aborted: 0x%llx (time=%llums)\n", 
+        auto duration = duration_cast<microseconds>(endTime - pingRequest->StartTime).count() / 1000.0;
+        printf("Request %u aborted: 0x%llx (time=%.3fms)\n", 
                pingRequest->Index, (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode, 
-               (unsigned long long)duration);
-        if (++Args.CompletionCount == (int)Args.Count && !Args.Infinite) {
+               duration);
+        if (++Args.CompletionCount == (int)Args.Count && Args.Count > 0) {
             Args.Connection->Shutdown();
         }
         break;
@@ -132,6 +136,7 @@ void PrintUsage(const char* progName) {
     printf("Usage: %s <server[:port]> [options...]\n", progName);
     printf("Options:\n");
     printf("  -c, --count <num>      Number of requests to send (default=4, 0=infinite)\n");
+    printf("  -g, --get              Use GET requests instead of HEAD (default=HEAD)\n");
     printf("  -h, --help             Print this help text\n");
     printf("  -i, --interval <ms>    Interval between requests in milliseconds (default=1000)\n");
     printf("  -p, --path <path>      Path to request (default=/)\n");
@@ -172,7 +177,9 @@ void ParseArgs(int argc, char **argv) {
         if (!strcmp(argv[i], "--count") || !strcmp(argv[i], "-c")) {
             if (++i >= argc) { printf("Missing count value\n"); exit(-1); }
             Args.Count = (uint32_t)atoi(argv[i]);
-            if (Args.Count == 0) Args.Infinite = true;
+
+        } else if (!strcmp(argv[i], "--get") || !strcmp(argv[i], "-g")) {
+            Args.UseGet = true;
 
         } else if (!strcmp(argv[i], "--interval") || !strcmp(argv[i], "-i")) {
             if (++i >= argc) { printf("Missing interval value\n"); exit(-1); }
@@ -201,8 +208,9 @@ void ParseArgs(int argc, char **argv) {
 }
 
 bool SendPingRequest(MsH3Connection& Connection) {
+    const char* method = Args.UseGet ? "GET" : "HEAD";
     MSH3_HEADER Headers[] = {
-        { ":method", 7, "HEAD", 4 },  // Use HEAD for minimal overhead
+        { ":method", 7, method, strlen(method) },
         { ":path", 5, Args.Path, strlen(Args.Path) },
         { ":scheme", 7, "https", 5 },
         { ":authority", 10, Args.Host, strlen(Args.Host) },
@@ -232,8 +240,6 @@ bool SendPingRequest(MsH3Connection& Connection) {
 
 int MSH3_CALL main(int argc, char **argv) {
     ParseArgs(argc, argv);
-
-    printf("H3PING %s (%s): HTTP/3 connectivity test\n", Args.Host, Args.Host);
     
     MsH3Api Api;
     if (!Api.IsValid()) {
@@ -260,7 +266,8 @@ int MSH3_CALL main(int argc, char **argv) {
     
     Args.Connection = &Connection;
     
-    printf("Connecting to %s:%u...\n", Args.Host, 443);  // TODO: extract actual port
+    const char* method = Args.UseGet ? "GET" : "HEAD";
+    printf("HTTP/3 pinging %s:%u [%s] with %s:\n", Args.Host, 443, "ip", method);  // TODO: extract actual port and remote IP
     if (MSH3_FAILED(Connection.Start(Configuration, Args.Host, Args.Address))) {
         printf("Failed to start connection\n");
         return -1;
@@ -272,25 +279,13 @@ int MSH3_CALL main(int argc, char **argv) {
         return -1;
     }
     
-    // Send ping requests
-    if (Args.Infinite) {
-        printf("Sending infinite requests to %s (press Ctrl+C to stop):\n", Args.Host);
-        while (true) {
-            if (!SendPingRequest(Connection)) break;
-            
-            // Wait for interval before next request
-            if (Args.Interval > 0) {
-                this_thread::sleep_for(milliseconds(Args.Interval));
-            }
-        }
-    } else {
-        printf("Sending %u requests to %s:\n", Args.Count, Args.Host);
-        for (uint32_t i = 0; i < Args.Count; ++i) {
-            if (!SendPingRequest(Connection)) break;
-            
-            if (i < Args.Count - 1 && Args.Interval > 0) {
-                this_thread::sleep_for(milliseconds(Args.Interval));
-            }
+    // Send ping requests - unified loop for both infinite and finite modes
+    for (uint32_t i = 0; Args.Count == 0 || i < Args.Count; ++i) {
+        if (!SendPingRequest(Connection)) break;
+        
+        // Wait for interval before next request (except for last request in finite mode)
+        if (Args.Interval > 0 && (Args.Count == 0 || i < Args.Count - 1)) {
+            this_thread::sleep_for(milliseconds(Args.Interval));
         }
     }
 
