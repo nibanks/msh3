@@ -78,18 +78,17 @@ MsH3RequestHandler(
     auto endTime = steady_clock::now();
     
     switch (Event->Type) {
-    case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE:
-        {
-            auto duration = duration_cast<milliseconds>(endTime - pingRequest->StartTime).count();
-            Args.Stats.RecordResponse(duration);
+    case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE: {
+        auto duration = duration_cast<milliseconds>(endTime - pingRequest->StartTime).count();
+        Args.Stats.RecordResponse(duration);
             
-            printf("Reply from %s: time=%llums\n", Args.Host, (unsigned long long)duration);
+        printf("Reply from %s: time=%llums\n", Args.Host, (unsigned long long)duration);
             
-            if (++Args.CompletionCount == (int)Args.Count && !Args.Infinite) {
-                Args.Connection->Shutdown();
-            }
+        if (++Args.CompletionCount == (int)Args.Count && !Args.Infinite) {
+            Args.Connection->Shutdown();
         }
         break;
+    }
     case MSH3_REQUEST_EVENT_HEADER_RECEIVED:
         if (Args.Verbose) {
             auto Header = Event->HEADER_RECEIVED.Header;
@@ -105,20 +104,16 @@ MsH3RequestHandler(
             printf("Received %u bytes of data\n", Event->DATA_RECEIVED.Length);
         }
         break;
-    case MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN:
-        // Request completed successfully
-        break;
-    case MSH3_REQUEST_EVENT_PEER_SEND_ABORTED:
-        {
-            auto duration = duration_cast<milliseconds>(endTime - pingRequest->StartTime).count();
-            printf("Request %u aborted: 0x%llx (time=%llums)\n", 
-                   pingRequest->Index, (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode, 
-                   (unsigned long long)duration);
-            if (++Args.CompletionCount == (int)Args.Count && !Args.Infinite) {
-                Args.Connection->Shutdown();
-            }
+    case MSH3_REQUEST_EVENT_PEER_SEND_ABORTED: {
+        auto duration = duration_cast<milliseconds>(endTime - pingRequest->StartTime).count();
+        printf("Request %u aborted: 0x%llx (time=%llums)\n", 
+               pingRequest->Index, (long long unsigned)Event->PEER_SEND_ABORTED.ErrorCode, 
+               (unsigned long long)duration);
+        if (++Args.CompletionCount == (int)Args.Count && !Args.Infinite) {
+            Args.Connection->Shutdown();
         }
         break;
+    }
     default:
         break;
     }
@@ -277,8 +272,6 @@ int MSH3_CALL main(int argc, char **argv) {
         return -1;
     }
     
-    printf("Connected. Starting ping test...\n");
-
     // Send ping requests
     if (Args.Infinite) {
         printf("Sending infinite requests to %s (press Ctrl+C to stop):\n", Args.Host);

@@ -83,11 +83,3 @@ cmake -DMSH3_PING=ON ..
 # Build
 make h3ping
 ```
-
-## Comparison with quicreach
-
-h3ping provides similar functionality to Microsoft's `quicreach` tool but:
-- Uses the msh3 API instead of MsQuic directly
-- Focuses on HTTP/3 connectivity testing specifically
-- Provides a more ping-like interface and output format
-- Integrates with the msh3 build system and testing infrastructure
