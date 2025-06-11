@@ -105,6 +105,28 @@ MsH3RequestHandler(
     return MSH3_STATUS_SUCCESS;
 }
 
+static
+MSH3_STATUS
+MsH3ConnectionHandler(
+    MsH3Connection* /* Connection */,
+    void* /* Context */,
+    MSH3_CONNECTION_EVENT* Event
+    ) noexcept {
+    if (Event->Type == MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER) {
+        printf("Connection shutdown initiated by peer: 0x%llx\n",
+               (long long unsigned)Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
+
+    } else if (Event->Type == MSH3_CONNECTION_EVENT_NEW_REQUEST) {
+        //
+        // Not great beacuse it doesn't provide an application specific
+        // error code. If you expect to get streams, you should not no-op
+        // the callbacks.
+        //
+        MsH3RequestClose(Event->NEW_REQUEST.Request);
+    }
+    return MSH3_STATUS_SUCCESS;
+}
+
 void PrintUsage(const char* progName) {
     printf("h3ping - HTTP/3 connectivity testing tool\n");
     printf("Usage: %s <server[:port]> [options...]\n", progName);
@@ -233,7 +255,7 @@ int MSH3_CALL main(int argc, char **argv) {
         return -1;
     }
 
-    MsH3Connection Connection(Api);
+    MsH3Connection Connection(Api, CleanUpManual, MsH3ConnectionHandler);
     if (!Connection.IsValid()) {
         printf("Failed to create connection\n");
         return -1;

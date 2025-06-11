@@ -8,7 +8,8 @@
 #define MSH3_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
 #define QUIC_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
 
-// #define MSH3_STATIC_QPACK 1 // Always use static QPACK for now
+//#define MSH3_STATIC_QPACK 1 // Always use static QPACK for now
+#define MSH3_DEBUG_IO 1
 
 #include "msh3_internal.hpp"
 
@@ -733,6 +734,23 @@ MsH3pConnection::ReceiveSettingsFrame(
 // MsH3pUniDirStream
 //
 
+#if MSH3_DEBUG_IO
+void DebugIoBuffer(
+    const QUIC_BUFFER* Buffer,
+    const char* Prefix,
+    uint32_t Type
+    )
+{
+    printf("uni[%u] %s: ", Type, Prefix);
+    for (uint32_t j = 0; j < Buffer->Length; ++j) {
+        printf("%02x ", ((uint8_t*)Buffer->Buffer)[j]);
+    }
+    printf("\n");
+}
+#else
+#define DebugIoBuffer(Buffer, Prefix, Type) ((void)0)
+#endif // MSH3_DEBUG_IO
+
 MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type)
     : MsQuicStream(Connection, QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
 {
@@ -753,6 +771,7 @@ MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pCon
         InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
         return;
     }
+    DebugIoBuffer(&Buffer, "send", Type);
     InitStatus = Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START);
 }
 
@@ -855,6 +874,7 @@ MsH3pUniDirStream::EncodeHeaders(
     // If there's encoder output from dynamic indexing, send it on the encoder stream
     // Only send encoder stream data when actually using dynamic mode
     if (Buffer.Length != 0 && H3.DynamicTableSize > 0) {
+        DebugIoBuffer(&Buffer, "send", Type);
         if (QUIC_FAILED(Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT))) {
             printf("Encoder send failed\n");
         }
@@ -874,6 +894,8 @@ MsH3pUniDirStream::EncoderStreamCallback(
         // Process encoder stream data for dynamic table updates
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
+
+            DebugIoBuffer(Buffer, "recv", Type);
 
             if (Buffer->Length > 0) {
                 // Feed encoder instructions to the QPACK decoder
@@ -910,6 +932,8 @@ MsH3pUniDirStream::DecoderStreamCallback(
         if (H3.EncoderInitialized && H3.DynamicTableSize > 0) {
             for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
                 const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
+
+                DebugIoBuffer(Buffer, "recv", Type);
 
                 if (Buffer->Length > 0) {
                     // Process decoder instructions from peer
