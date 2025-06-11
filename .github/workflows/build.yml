@@ -69,7 +69,7 @@ jobs:
                 id: cpp/include-non-header
     - name: Build
       shell: pwsh
-      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -Debug
+      run: ./.github/workflows/build.ps1 -Config ${{ matrix.config }} -Tls ${{ matrix.tls }} -Link ${{ matrix.link }} -BuildId ${{ github.run_number }} -Suffix "-official" -WithTests -WithTools -WithPing -Debug
     - name: Perform CodeQL Analysis
       if: ${{ (matrix.os == 'ubuntu') && (matrix.tls == 'quictls') && (matrix.link == 'shared')  && (matrix.config == 'Release') }}
       uses: github/codeql-action/analyze@fca7ace96b7d713c7035871441bd52efbe39e27e
@@ -110,11 +110,18 @@ jobs:
           artifacts/*.so
           artifacts/msh3app
           artifacts/msh3test
+          artifacts/h3ping
     - name: msh3app
       run: |
         ./artifacts/msh3app outlook.office.com
         ./artifacts/msh3app www.cloudflare.com
         ./artifacts/msh3app www.google.com
+      timeout-minutes: 1
+    - name: h3ping
+      run: |
+        ./artifacts/h3ping outlook.office.com -c 2 || true
+        ./artifacts/h3ping www.cloudflare.com -c 2 || true
+        ./artifacts/h3ping www.google.com -c 2 || true
       timeout-minutes: 1
     - name: msh3test
       run: ./artifacts/msh3test -v
