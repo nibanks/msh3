@@ -147,7 +147,19 @@ void PrintUsage(const char* progName) {
 }
 
 void ParseArgs(int argc, char **argv) {
-    if (argc < 2 || !strcmp(argv[1], "-?") || !strcmp(argv[1], "-h") || !strcmp(argv[1], "--help")) {
+    // Check for version and help first, before requiring server argument
+    for (int i = 1; i < argc; ++i) {
+        if (!strcmp(argv[i], "-?") || !strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+            PrintUsage(argv[0]);
+            exit(0);
+        } else if (!strcmp(argv[i], "--version") || !strcmp(argv[i], "-V")) {
+            uint32_t Version[4]; MsH3Version(Version);
+            printf("h3ping using msh3 v%u.%u.%u.%u\n", Version[0], Version[1], Version[2], Version[3]);
+            exit(0);
+        }
+    }
+    
+    if (argc < 2) {
         PrintUsage(argv[0]);
         exit(0);
     }
@@ -184,11 +196,6 @@ void ParseArgs(int argc, char **argv) {
 
         } else if (!strcmp(argv[i], "--verbose") || !strcmp(argv[i], "-v")) {
             Args.Verbose = true;
-
-        } else if (!strcmp(argv[i], "--version") || !strcmp(argv[i], "-V")) {
-            uint32_t Version[4]; MsH3Version(Version);
-            printf("h3ping using msh3 v%u.%u.%u.%u\n", Version[0], Version[1], Version[2], Version[3]);
-            exit(0);
             
         } else {
             printf("Unknown option: %s\n", argv[i]);
