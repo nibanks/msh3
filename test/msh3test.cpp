@@ -8,6 +8,7 @@
 #define MSH3_TEST_MODE 1
 #define MSH3_API_ENABLE_PREVIEW_FEATURES 1
 
+#include "msquic/src/inc/msquic.h" // For MsQuic parameter constants and types
 #include "msh3.hpp"
 #include <stdio.h>
 #include <string.h>
@@ -20,19 +21,6 @@
 #include <thread> // For watchdog timer thread
 #include <chrono> // For timing
 #include <atomic> // For thread communication
-
-// MsQuic parameter constants for testing
-#define QUIC_PARAM_CONN_QUIC_VERSION                    0x05000000  // uint32_t
-#define QUIC_PARAM_CONN_REMOTE_ADDRESS                  0x05000002  // QUIC_ADDR
-#define QUIC_PARAM_STREAM_ID                            0x08000000  // QUIC_UINT62
-
-// MsQuic types for testing
-typedef uint64_t QUIC_UINT62;
-typedef union QUIC_ADDR {
-    struct sockaddr Ip;
-    struct sockaddr_in Ipv4;
-    struct sockaddr_in6 Ipv6;
-} QUIC_ADDR;
 
 // Global flags for command line options
 bool g_Verbose = false;
