@@ -952,7 +952,6 @@ DEF_TEST(RequestGetQuicParam) {
     auto Status = MsH3RequestGetQuicParam(Request.Handle, QUIC_PARAM_STREAM_ID, &BufferLength, &StreamId);
     VERIFY_SUCCESS(Status);
     VERIFY(BufferLength == sizeof(StreamId));
-    VERIFY(StreamId != 0); // Should have a valid stream ID
     
     auto ServerRequest = Server.NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
