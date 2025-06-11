@@ -8,6 +8,8 @@
 #define MSH3_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
 #define QUIC_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
 
+#define MSH3_STATIC_QPACK 1 // Always use static QPACK for now
+
 #include "msh3_internal.hpp"
 
 const MsQuicApi* MsQuic;
@@ -544,12 +546,16 @@ MsH3pConnection::MsH3pConnection(
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
 
+#if MSH3_STATIC_QPACK
+    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
+#else
     // Initialize the decoder with dynamic table support
     lsqpack_dec_init(&Decoder, nullptr,
                     H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY,
                     H3_DEFAULT_QPACK_BLOCKED_STREAMS,
                     &MsH3pBiDirStream::hset_if,
                     (lsqpack_dec_opts)0);
+#endif // MSH3_STATIC_QPACK
 
     if (!IsValid()) return;
     LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
@@ -688,13 +694,18 @@ MsH3pConnection::ReceiveSettingsFrame(
 
     tsu_buf_sz = sizeof(tsu_buf);
 
+#if MSH3_STATIC_QPACK
+    uint32_t dynamicTableSize = 0;
+    uint64_t blockedStreams = 0;
+#else
     // Use the peer's max table size or our default if peer doesn't support it
     uint32_t dynamicTableSize = PeerMaxTableSize != 0 ? PeerMaxTableSize : H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY;
 
     // Use the peer's max blocked streams value or our default if peer doesn't support it
     uint64_t blockedStreams = PeerQPackBlockedStreams != 0 ? PeerQPackBlockedStreams : H3_DEFAULT_QPACK_BLOCKED_STREAMS;
+#endif // MSH3_STATIC_QPACK
 
-    // Initialize the encoder with dynamic table support
+    // Initialize the encoder
     if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
         printf("lsqpack_enc_init failed\n");
         return false;
@@ -843,6 +854,7 @@ MsH3pUniDirStream::EncoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
+#if !MSH3_STATIC_QPACK
         // Process encoder stream data for dynamic table updates
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
@@ -858,6 +870,7 @@ MsH3pUniDirStream::EncoderStreamCallback(
                 }
             }
         }
+#endif // !MSH3_STATIC_QPACK
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         break;
