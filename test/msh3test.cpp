@@ -8,6 +8,7 @@
 #define MSH3_TEST_MODE 1
 #define MSH3_API_ENABLE_PREVIEW_FEATURES 1
 
+#include "msquic/src/inc/msquic.h" // For MsQuic parameter constants and types
 #include "msh3.hpp"
 #include <stdio.h>
 #include <string.h>
@@ -906,6 +907,75 @@ DEF_TEST(RequestBidirectional10MB) {
     return RequestTransferTest(LARGE_TEST_SIZE_10MB, LARGE_TEST_SIZE_10MB);
 }
 
+DEF_TEST(ConnectionGetQuicParam) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    
+    // Test getting QUIC_PARAM_CONN_QUIC_VERSION
+    uint32_t QuicVersion = 0;
+    uint32_t BufferLength = sizeof(QuicVersion);
+    auto Status = MsH3ConnectionGetQuicParam(Client.Handle, QUIC_PARAM_CONN_QUIC_VERSION, &BufferLength, &QuicVersion);
+    VERIFY_SUCCESS(Status);
+    VERIFY(BufferLength == sizeof(QuicVersion));
+    VERIFY(QuicVersion != 0); // Should have a valid QUIC version
+    
+    // Test getting QUIC_PARAM_CONN_REMOTE_ADDRESS
+    QUIC_ADDR RemoteAddr;
+    BufferLength = sizeof(RemoteAddr);
+    Status = MsH3ConnectionGetQuicParam(Client.Handle, QUIC_PARAM_CONN_REMOTE_ADDRESS, &BufferLength, &RemoteAddr);
+    VERIFY_SUCCESS(Status);
+    VERIFY(BufferLength == sizeof(RemoteAddr));
+    
+    Client.Shutdown();
+    VERIFY(Client.ShutdownComplete.WaitFor());
+    return true;
+}
+
+DEF_TEST(RequestGetQuicParam) {
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api); VERIFY(Server.IsValid());
+    TestClient Client(Api); VERIFY(Client.IsValid());
+    TestRequest Request(Client); VERIFY(Request.IsValid());
+    VERIFY(Request.Send(RequestHeaders, RequestHeadersCount, nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    VERIFY(Server.NewRequest.WaitFor());
+    
+    // Test getting QUIC_PARAM_STREAM_ID
+    QUIC_UINT62 StreamId = 0;
+    uint32_t BufferLength = sizeof(StreamId);
+    auto Status = MsH3RequestGetQuicParam(Request.Handle, QUIC_PARAM_STREAM_ID, &BufferLength, &StreamId);
+    VERIFY_SUCCESS(Status);
+    VERIFY(BufferLength == sizeof(StreamId));
+    
+    auto ServerRequest = Server.NewRequest.Get();
+    ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
+    VERIFY(Request.ShutdownComplete.WaitFor());
+    return true;
+}
+
+DEF_TEST(GetQuicParamBasic) {
+    // Basic test to verify the functions exist and handle null parameters correctly
+    MsH3Api Api; VERIFY(Api.IsValid());
+    
+    // Test with null connection should fail appropriately
+    uint32_t bufferLength = sizeof(uint32_t);
+    uint32_t buffer = 0;
+    auto status = MsH3ConnectionGetQuicParam(nullptr, QUIC_PARAM_CONN_QUIC_VERSION, &bufferLength, &buffer);
+    VERIFY(MSH3_FAILED(status)); // Should fail gracefully with null connection
+    
+    // Test with null request should fail appropriately  
+    status = MsH3RequestGetQuicParam(nullptr, QUIC_PARAM_STREAM_ID, &bufferLength, &buffer);
+    VERIFY(MSH3_FAILED(status)); // Should fail gracefully with null request
+    
+    return true;
+}
+
 const TestFunc TestFunctions[] = {
     ADD_TEST(Handshake),
     //ADD_TEST(HandshakeSingleThread),
@@ -918,6 +988,9 @@ const TestFunc TestFunctions[] = {
     ADD_TEST(HeaderValidation),
     ADD_TEST(DifferentResponseCodes),
     ADD_TEST(MultipleRequests),
+    ADD_TEST(GetQuicParamBasic),
+    ADD_TEST(ConnectionGetQuicParam),
+    ADD_TEST(RequestGetQuicParam),
     ADD_TEST(RequestDownload1MB),
     ADD_TEST(RequestDownload10MB),
     ADD_TEST(RequestDownload50MB),

@@ -427,6 +427,15 @@ MsH3ConnectionClose(
     MSH3_CONNECTION* Connection
     );
 
+MSH3_STATUS
+MSH3_CALL
+MsH3ConnectionGetQuicParam(
+    MSH3_CONNECTION* Connection,
+    uint32_t Param,
+    uint32_t* BufferLength,
+    void* Buffer
+    );
+
 //
 // Request Interface
 //
@@ -552,6 +561,15 @@ void
 MSH3_CALL
 MsH3RequestClose(
     MSH3_REQUEST* Request
+    );
+
+MSH3_STATUS
+MSH3_CALL
+MsH3RequestGetQuicParam(
+    MSH3_REQUEST* Request,
+    uint32_t Param,
+    uint32_t* BufferLength,
+    void* Buffer
     );
 
 //

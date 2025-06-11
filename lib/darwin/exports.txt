@@ -12,6 +12,7 @@ _MsH3ConnectionSetConfiguration
 _MsH3ConnectionStart
 _MsH3ConnectionShutdown
 _MsH3ConnectionClose
+_MsH3ConnectionGetQuicParam
 _MsH3RequestOpen
 _MsH3RequestSetCallbackHandler
 _MsH3RequestSetReceiveEnabled
@@ -19,5 +20,6 @@ _MsH3RequestCompleteReceive
 _MsH3RequestSend
 _MsH3RequestShutdown
 _MsH3RequestClose
+_MsH3RequestGetQuicParam
 _MsH3ListenerOpen
 _MsH3ListenerClose
