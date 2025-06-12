@@ -460,6 +460,9 @@ MsH3pConfiguration::MsH3pConfiguration(
         if (Settings->IsSet.DatagramEnabled) {
             DatagramEnabled = Settings->DatagramEnabled;
         }
+        if (Settings->IsSet.DynamicQPackEnabled) {
+            DynamicQPackEnabled = Settings->DynamicQPackEnabled;
+        }
     }
 }
 
@@ -521,9 +524,10 @@ MsH3pConnection::MsH3pConnection(
         Callbacks(Handler), Context(Context)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
+    // Initialize with disabled QPACK by default; will be reconfigured in InitializeConfig
     lsqpack_dec_init(&Decoder, nullptr,
-                    H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY,
-                    H3_DEFAULT_QPACK_BLOCKED_STREAMS,
+                    0,
+                    0,
                     &MsH3pBiDirStream::hset_if,
                     (lsqpack_dec_opts)0);
 
@@ -539,9 +543,10 @@ MsH3pConnection::MsH3pConnection(
     ) : MsQuicConnection(ServerHandle, CleanUpManual, s_MsQuicCallback, this)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
+    // Initialize with disabled QPACK by default; will be reconfigured in InitializeConfig
     lsqpack_dec_init(&Decoder, nullptr,
-                    H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY,
-                    H3_DEFAULT_QPACK_BLOCKED_STREAMS,
+                    0,
+                    0,
                     &MsH3pBiDirStream::hset_if,
                     (lsqpack_dec_opts)0);
 
@@ -566,6 +571,7 @@ MsH3pConnection::InitializeConfig(
     const MsH3pConfiguration& Configuration
     )
 {
+    DynamicQPackEnabled = Configuration.DynamicQPackEnabled;
     LocalControl = new(std::nothrow) MsH3pUniDirStream(*this, Configuration);
     if (QUIC_FAILED(LocalControl->GetInitStatus())) return LocalControl->GetInitStatus();
     return QUIC_STATUS_SUCCESS;
@@ -685,8 +691,8 @@ MsH3pConnection::ReceiveSettingsFrame(
 
     tsu_buf_sz = sizeof(tsu_buf);
 
-    uint32_t dynamicTableSize = min(PeerMaxTableSize, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY);
-    uint64_t blockedStreams = min(PeerQPackBlockedStreams, H3_DEFAULT_QPACK_BLOCKED_STREAMS);
+    uint32_t dynamicTableSize = min(PeerMaxTableSize, GetQPackMaxTableCapacity(DynamicQPackEnabled));
+    uint64_t blockedStreams = min(PeerQPackBlockedStreams, GetQPackBlockedStreams(DynamicQPackEnabled));
 
     //printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%llu\n",
     //       dynamicTableSize, blockedStreams);
@@ -741,8 +747,16 @@ MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pCon
     if (!IsValid()) return;
     Buffer.Buffer[0] = (uint8_t)Type;
     Buffer.Length = 1;
-    const uint32_t SettingsLength = Configuration.DatagramEnabled ? ARRAYSIZE(SettingsH3) : ARRAYSIZE(SettingsH3) - 1;
-    if (!H3WriteSettingsFrame(SettingsH3, SettingsLength, &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
+
+    H3Settings Settings[3];
+    uint32_t SettingsLength = 0;
+    Settings[SettingsLength++] = { H3SettingQPackMaxTableCapacity, GetQPackMaxTableCapacity(Configuration.DynamicQPackEnabled) };
+    Settings[SettingsLength++] = { H3SettingQPackBlockedStreamsSize, GetQPackBlockedStreams(Configuration.DynamicQPackEnabled) };
+    if (Configuration.DatagramEnabled) {
+        Settings[SettingsLength++] = { H3SettingDatagrams, 1 };
+    }
+
+    if (!H3WriteSettingsFrame(Settings, SettingsLength, &Buffer.Length, sizeof(RawBuffer), RawBuffer)) {
         InitStatus = QUIC_STATUS_OUT_OF_MEMORY;
         return;
     }
