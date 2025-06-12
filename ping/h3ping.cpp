@@ -256,6 +256,8 @@ int MSH3_CALL main(int argc, char **argv) {
         return -1;
     }
 
+    Args.Connection = &Connection;
+
     uint32_t addressSize = sizeof(Args.Address);
     MsH3ConnectionGetQuicParam(Connection, QUIC_PARAM_CONN_REMOTE_ADDRESS, &addressSize, &Args.Address);
     QuicAddrToString((QUIC_ADDR*)&Args.Address, &Args.AddressStr);
