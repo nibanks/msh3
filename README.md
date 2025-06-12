@@ -9,11 +9,12 @@ Minimal HTTP/3 library on top of [microsoft/msquic](https://github.com/microsoft
 ## Features
 
 - Complete HTTP/3 ([RFC 9114](https://tools.ietf.org/html/rfc9114)) implementation
-- QPACK header compression ([RFC 9204](https://tools.ietf.org/html/rfc9204)) with dynamic table support
+- QPACK header compression ([RFC 9204](https://tools.ietf.org/html/rfc9204)) with runtime-configurable dynamic table support
 - Client and server support
 - Sending and receiving request headers and payload
 - Various TLS certificate authentication options
 - Optional server validation ("unsecure" mode)
+- Preview features available with `MSH3_API_ENABLE_PREVIEW_FEATURES`
 
 See the [protocol overview](docs/protocol-overview.md) for more information.
 
@@ -36,13 +37,13 @@ if (api) {
     if (connection) {
         // Start the connection to a server
         MsH3ConnectionStart(connection, config, "example.com", &serverAddress);
-        
+
         // Create and send a request
         MSH3_REQUEST* request = MsH3RequestOpen(connection, RequestCallback, context, MSH3_REQUEST_FLAG_NONE);
         if (request) {
             // Send headers and optional data
             MsH3RequestSend(request, MSH3_REQUEST_SEND_FLAG_FIN, headers, headerCount, body, bodyLength, context);
-            
+
             // Clean up when done
             MsH3RequestClose(request);
         }
@@ -82,3 +83,21 @@ msh3app www.cloudflare.com
 msh3app www.google.com
 msh3app nghttp2.org:4433
 ```
+
+### Advanced Configuration
+
+For applications requiring optimized header compression, you can enable dynamic QPACK:
+
+```c
+#ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
+// Create settings with dynamic QPACK enabled
+MSH3_SETTINGS settings = {0};
+settings.IsSet.DynamicQPackEnabled = 1;
+settings.DynamicQPackEnabled = 1;
+
+// Create configuration with the settings
+MSH3_CONFIGURATION* config = MsH3ConfigurationOpen(api, &settings, sizeof(settings));
+#endif
+```
+
+This enables more efficient header compression for applications making multiple requests with similar headers.

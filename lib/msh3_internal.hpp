@@ -35,7 +35,6 @@
 #define MSH3_VERSION_ONLY 1
 #include "msh3.ver"
 
-//#define MSH3_DYNAMIC_QPACK 1 // Use dynamic QPACK for now
 //#define MSH3_DEBUG_IO 1     // Print out the contents of the uni-directional streams
 
 #ifdef _WIN32
@@ -123,19 +122,15 @@ enum H3FrameType {
 
 #define H3_RFC_DEFAULT_HEADER_TABLE_SIZE    0
 #define H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM 0
-#if MSH3_DYNAMIC_QPACK
-#define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 4096  // Enable dynamic table with a default size of 4096 bytes
-#define H3_DEFAULT_QPACK_BLOCKED_STREAMS    100   // Allow up to 100 blocked streams
-#else
-#define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 0
-#define H3_DEFAULT_QPACK_BLOCKED_STREAMS    0
-#endif
 
-const H3Settings SettingsH3[] = {
-    { H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
-    { H3SettingQPackBlockedStreamsSize, H3_DEFAULT_QPACK_BLOCKED_STREAMS },
-    { H3SettingDatagrams, 1 }, // N.B. - The MsH3pUniDirStream constructor assumes this is always last.
-};
+// Helper functions to get QPACK settings based on configuration
+inline uint32_t GetQPackMaxTableCapacity(bool DynamicQPackEnabled) {
+    return DynamicQPackEnabled ? 4096 : 0;  // Enable dynamic table with a default size of 4096 bytes
+}
+
+inline uint32_t GetQPackBlockedStreams(bool DynamicQPackEnabled) {
+    return DynamicQPackEnabled ? 100 : 0;   // Allow up to 100 blocked streams
+}
 
 // Copied from QuicVanIntDecode and changed to uint32_t offset/length
 inline
@@ -283,6 +278,7 @@ inline QUIC_STREAM_SHUTDOWN_FLAGS ToQuicShutdownFlags(MSH3_REQUEST_SHUTDOWN_FLAG
 
 struct MsH3pConfiguration : public MsQuicConfiguration {
     bool DatagramEnabled {false};
+    bool DynamicQPackEnabled {false};
     QUIC_CREDENTIAL_CONFIG* SelfSign {nullptr};
     MsH3pConfiguration(
         const MsQuicRegistration& Registration,
@@ -324,6 +320,8 @@ struct MsH3pConnection : public MsQuicConnection {
     std::condition_variable ShutdownCompleteEvent;
     bool ShutdownComplete {false};
     bool HandshakeSuccess {false};
+
+    bool DynamicQPackEnabled {false};
 
     char HostName[256];
 

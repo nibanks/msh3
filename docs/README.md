@@ -20,6 +20,10 @@ MSH3 provides a C-style API for HTTP/3 functionality. The API is divided into se
 - [Using MSH3 as a Server](server-usage.md)
 - [HTTP/3 and QUIC Protocol Overview](protocol-overview.md)
 
+## Advanced Features
+
+- [Dynamic QPACK Header Compression](dynamic-qpack.md) - Configurable header compression optimization
+
 ## Additional Resources
 
 - [HTTP/3 RFC 9114](https://tools.ietf.org/html/rfc9114)

@@ -382,6 +382,12 @@ struct TestServer : public MsH3Listener {
             MsH3ListenerClose(Handle); Handle = nullptr;
         }
     }
+    TestServer(MsH3Api& Api, const MSH3_SETTINGS* Settings, bool AutoConfigure = true)
+     : MsH3Listener(Api, MsH3Addr(), CleanUpAutoDelete, ListenerCallback, this), Configuration(Api, Settings), AutoConfigure(AutoConfigure) {
+        if (Handle && MSH3_FAILED(Configuration.LoadConfiguration())) {
+            MsH3ListenerClose(Handle); Handle = nullptr;
+        }
+    }
     ~TestServer() noexcept { LOG("~TestServer\n"); }
     bool WaitForConnection() noexcept {
         VERIFY(NewConnection.WaitFor());
@@ -444,6 +450,12 @@ struct TestClient : public TestConnection {
     MsH3Configuration Config;
     TestClient(MsH3Api& Api, bool SingleThread = false, MsH3CleanUpMode CleanUpMode = CleanUpManual)
         : TestConnection(Api, CleanUpMode, Callbacks), Config(Api), SingleThreaded(SingleThread) {
+        if (Handle && MSH3_FAILED(Config.LoadConfiguration(ClientCredConfig))) {
+            MsH3ConnectionClose(Handle); Handle = nullptr;
+        }
+    }
+    TestClient(MsH3Api& Api, const MSH3_SETTINGS* Settings, bool SingleThread = false, MsH3CleanUpMode CleanUpMode = CleanUpManual)
+        : TestConnection(Api, CleanUpMode, Callbacks), Config(Api, Settings), SingleThreaded(SingleThread) {
         if (Handle && MSH3_FAILED(Config.LoadConfiguration(ClientCredConfig))) {
             MsH3ConnectionClose(Handle); Handle = nullptr;
         }
@@ -914,7 +926,7 @@ DEF_TEST(ConnectionGetQuicParam) {
     VERIFY_SUCCESS(Client.Start());
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
-    
+
     // Test getting QUIC_PARAM_CONN_QUIC_VERSION
     uint32_t QuicVersion = 0;
     uint32_t BufferLength = sizeof(QuicVersion);
@@ -922,14 +934,14 @@ DEF_TEST(ConnectionGetQuicParam) {
     VERIFY_SUCCESS(Status);
     VERIFY(BufferLength == sizeof(QuicVersion));
     VERIFY(QuicVersion != 0); // Should have a valid QUIC version
-    
+
     // Test getting QUIC_PARAM_CONN_REMOTE_ADDRESS
     QUIC_ADDR RemoteAddr;
     BufferLength = sizeof(RemoteAddr);
     Status = MsH3ConnectionGetQuicParam(Client.Handle, QUIC_PARAM_CONN_REMOTE_ADDRESS, &BufferLength, &RemoteAddr);
     VERIFY_SUCCESS(Status);
     VERIFY(BufferLength == sizeof(RemoteAddr));
-    
+
     Client.Shutdown();
     VERIFY(Client.ShutdownComplete.WaitFor());
     return true;
@@ -945,14 +957,14 @@ DEF_TEST(RequestGetQuicParam) {
     VERIFY(Server.WaitForConnection());
     VERIFY(Client.Connected.WaitFor());
     VERIFY(Server.NewRequest.WaitFor());
-    
+
     // Test getting QUIC_PARAM_STREAM_ID
     QUIC_UINT62 StreamId = 0;
     uint32_t BufferLength = sizeof(StreamId);
     auto Status = MsH3RequestGetQuicParam(Request.Handle, QUIC_PARAM_STREAM_ID, &BufferLength, &StreamId);
     VERIFY_SUCCESS(Status);
     VERIFY(BufferLength == sizeof(StreamId));
-    
+
     auto ServerRequest = Server.NewRequest.Get();
     ServerRequest->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_GRACEFUL);
     VERIFY(Request.ShutdownComplete.WaitFor());
@@ -962,17 +974,62 @@ DEF_TEST(RequestGetQuicParam) {
 DEF_TEST(GetQuicParamBasic) {
     // Basic test to verify the functions exist and handle null parameters correctly
     MsH3Api Api; VERIFY(Api.IsValid());
-    
+
     // Test with null connection should fail appropriately
     uint32_t bufferLength = sizeof(uint32_t);
     uint32_t buffer = 0;
     auto status = MsH3ConnectionGetQuicParam(nullptr, QUIC_PARAM_CONN_QUIC_VERSION, &bufferLength, &buffer);
     VERIFY(MSH3_FAILED(status)); // Should fail gracefully with null connection
-    
-    // Test with null request should fail appropriately  
+
+    // Test with null request should fail appropriately
     status = MsH3RequestGetQuicParam(nullptr, QUIC_PARAM_STREAM_ID, &bufferLength, &buffer);
     VERIFY(MSH3_FAILED(status)); // Should fail gracefully with null request
-    
+
+    return true;
+}
+
+DEF_TEST(DynamicQPackSettings) {
+    // Create settings with DynamicQPackEnabled
+    MSH3_SETTINGS settings = {0};
+    settings.IsSet.DynamicQPackEnabled = 1;
+    settings.DynamicQPackEnabled = 1;
+    settings.IsSet.IdleTimeoutMs = 1;
+    settings.IdleTimeoutMs = 30000;
+
+    // Create headers with many repeated values (to test dynamic compression)
+    const MSH3_HEADER DynamicQPackHeaders[] = {
+        { ":method", 7, "GET", 3 },
+        { ":path", 5, "/test", 5 },
+        { ":scheme", 7, "https", 5 },
+        { ":authority", 10, "localhost", 9 },
+        { "user-agent", 10, "msh3-test-dynamic-qpack", 23 },
+        { "accept", 6, "application/json", 16 },
+        { "accept-encoding", 15, "gzip, deflate, br", 17 },
+        { "x-custom-header", 15, "repeated-value-for-qpack-testing", 33 }
+    };
+
+    // Send a response with similar headers to test bidirectional dynamic QPACK
+    const MSH3_HEADER ResponseHeaders[] = {
+        { ":status", 7, "200", 3 },
+        { "content-type", 12, "application/json", 16 },
+        { "x-custom-header", 15, "repeated-value-for-qpack-testing", 33 },
+        { "x-server", 9, "msh3-test-server", 16 }
+    };
+
+    MsH3Api Api; VERIFY(Api.IsValid());
+    TestServer Server(Api, &settings); VERIFY(Server.IsValid());
+    TestClient Client(Api, &settings); VERIFY(Client.IsValid());
+    TestRequest Request(Client); VERIFY(Request.IsValid());
+    VERIFY(Request.Send(DynamicQPackHeaders, ARRAYSIZE(DynamicQPackHeaders), nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY_SUCCESS(Client.Start());
+    VERIFY(Server.WaitForConnection());
+    VERIFY(Client.Connected.WaitFor());
+    VERIFY(Server.NewRequest.WaitFor());
+
+    auto ServerRequest = Server.NewRequest.Get();
+    VERIFY(ServerRequest->Send(ResponseHeaders, ARRAYSIZE(ResponseHeaders), nullptr, 0, MSH3_REQUEST_SEND_FLAG_FIN));
+    VERIFY(Request.ShutdownComplete.WaitFor());
+
     return true;
 }
 
@@ -998,6 +1055,7 @@ const TestFunc TestFunctions[] = {
     ADD_TEST(RequestUpload10MB),
     ADD_TEST(RequestUpload50MB),
     ADD_TEST(RequestBidirectional10MB),
+    ADD_TEST(DynamicQPackSettings),
 };
 const uint32_t TestCount = sizeof(TestFunctions)/sizeof(TestFunc);
 

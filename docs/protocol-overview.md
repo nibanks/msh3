@@ -30,7 +30,7 @@ HTTP/3 is the latest version of the HTTP protocol, designed to use QUIC as its t
 
 1. **Multiplexed Streams**: HTTP/3 requests and responses are sent over QUIC streams, eliminating head-of-line blocking issues present in HTTP/2.
 
-2. **Header Compression**: HTTP/3 uses QPACK (RFC 9204) for header compression, which is designed to work efficiently with QUIC's out-of-order delivery. QPACK supports both static and dynamic table compression, allowing for efficient compression of repeated headers across requests.
+2. **Header Compression**: HTTP/3 uses QPACK (RFC 9204) for header compression, which is designed to work efficiently with QUIC's out-of-order delivery. QPACK supports both static and dynamic table compression, allowing for efficient compression of repeated headers across requests. MSH3 supports runtime configuration of dynamic QPACK compression through the `DynamicQPackEnabled` setting.
 
 3. **Server Push**: Like HTTP/2, HTTP/3 supports server push, allowing servers to proactively send resources to clients.
 
@@ -64,6 +64,20 @@ QPACK is the header compression format used in HTTP/3, designed to work well wit
 3. **Decoder Stream**: The decoder stream is used to acknowledge dynamic table updates and provide flow control.
 
 4. **Blocking Avoidance**: QPACK is designed to minimize head-of-line blocking issues when dynamic table updates are in flight.
+
+### Dynamic QPACK Configuration in MSH3
+
+MSH3 allows runtime configuration of QPACK dynamic table usage through the `DynamicQPackEnabled` setting in `MSH3_SETTINGS`:
+
+- **Static QPACK (default)**: When `DynamicQPackEnabled` is false or not set, MSH3 uses only the static QPACK table. This provides basic header compression without the complexity of managing a dynamic table.
+
+- **Dynamic QPACK**: When `DynamicQPackEnabled` is true, MSH3 enables:
+  - Dynamic table with a default capacity of 4096 bytes
+  - Support for up to 100 blocked streams
+  - Better compression for repeated headers across requests
+  - More efficient bandwidth usage for applications with many similar requests
+
+The dynamic QPACK feature is available only when `MSH3_API_ENABLE_PREVIEW_FEATURES` is defined.
 
 ## How MSH3 Implements These Protocols
 

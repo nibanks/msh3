@@ -196,6 +196,7 @@ typedef struct MSH3_SETTINGS {
             uint64_t DatagramEnabled                        : 1;
 #ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
             uint64_t XdpEnabled                             : 1;
+            uint64_t DynamicQPackEnabled                    : 1;
 #endif
         } IsSet;
     };
@@ -207,7 +208,8 @@ typedef struct MSH3_SETTINGS {
     uint8_t DatagramEnabled : 1; // TODO - Add flags instead?
 #ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
     uint8_t XdpEnabled : 1;
-    uint8_t RESERVED : 6;
+    uint8_t DynamicQPackEnabled : 1;
+    uint8_t RESERVED : 5;
 #else
     uint8_t RESERVED : 7;
 #endif

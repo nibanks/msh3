@@ -31,35 +31,35 @@ RequestCallback(
 {
     switch (Event->Type) {
     case MSH3_REQUEST_EVENT_HEADER_RECEIVED:
-        printf("Header: %.*s: %.*s\n", 
+        printf("Header: %.*s: %.*s\n",
                (int)Event->HEADER_RECEIVED.Header->NameLength,
                Event->HEADER_RECEIVED.Header->Name,
                (int)Event->HEADER_RECEIVED.Header->ValueLength,
                Event->HEADER_RECEIVED.Header->Value);
         break;
-        
+
     case MSH3_REQUEST_EVENT_DATA_RECEIVED:
         printf("Received %u bytes of data\n", Event->DATA_RECEIVED.Length);
-        printf("%.*s", (int)Event->DATA_RECEIVED.Length, 
+        printf("%.*s", (int)Event->DATA_RECEIVED.Length,
                       (const char*)Event->DATA_RECEIVED.Data);
-        
+
         // Indicate that we've processed the data
         MsH3RequestCompleteReceive(Request, Event->DATA_RECEIVED.Length);
         break;
-        
+
     case MSH3_REQUEST_EVENT_PEER_SEND_SHUTDOWN:
         printf("Server completed sending data\n");
         break;
-        
+
     case MSH3_REQUEST_EVENT_SEND_COMPLETE:
         printf("Request sent completely\n");
         break;
-        
+
     case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE:
         printf("Request shutdown complete\n");
         break;
     }
-    
+
     return MSH3_STATUS_SUCCESS;
 }
 
@@ -74,7 +74,7 @@ ConnectionCallback(
     switch (Event->Type) {
     case MSH3_CONNECTION_EVENT_CONNECTED:
         printf("Connection established\n");
-        
+
         // Create a request when connected
         const char* host = (const char*)Context;
         MSH3_REQUEST* Request = MsH3RequestOpen(
@@ -82,7 +82,7 @@ ConnectionCallback(
             RequestCallback,
             NULL,
             MSH3_REQUEST_FLAG_NONE);
-            
+
         if (Request) {
             // Setup HTTP headers
             const MSH3_HEADER Headers[] = {
@@ -93,7 +93,7 @@ ConnectionCallback(
                 { "user-agent", 10, "msh3-client", 11 }
             };
             const size_t HeadersCount = sizeof(Headers) / sizeof(MSH3_HEADER);
-            
+
             // Send the request
             MsH3RequestSend(
                 Request,
@@ -107,23 +107,23 @@ ConnectionCallback(
             printf("Failed to create request\n");
         }
         break;
-        
+
     case MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
-        printf("Connection shutdown by transport, status=0x%x, error=0x%llx\n", 
+        printf("Connection shutdown by transport, status=0x%x, error=0x%llx\n",
                Event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status,
                (unsigned long long)Event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode);
         break;
-        
+
     case MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
-        printf("Connection shutdown by peer, error=0x%llx\n", 
+        printf("Connection shutdown by peer, error=0x%llx\n",
                (unsigned long long)Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
         break;
-        
+
     case MSH3_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
         printf("Connection shutdown complete\n");
         break;
     }
-    
+
     return MSH3_STATUS_SUCCESS;
 }
 
@@ -132,33 +132,33 @@ int main(int argc, char** argv) {
         printf("Usage: %s <hostname> [port]\n", argv[0]);
         return 1;
     }
-    
+
     const char* hostname = argv[1];
     uint16_t port = (argc > 2) ? (uint16_t)atoi(argv[2]) : 443;
-    
+
     // Initialize MSH3 API
     MSH3_API* api = MsH3ApiOpen();
     if (!api) {
         printf("Failed to initialize MSH3 API\n");
         return 1;
     }
-    
+
     // Create configuration
     MSH3_SETTINGS settings = {0};
     settings.IsSetFlags = 0;
     settings.IsSet.IdleTimeoutMs = 1;
     settings.IdleTimeoutMs = 30000;  // 30 seconds
-    
-    MSH3_CONFIGURATION* config = 
+
+    MSH3_CONFIGURATION* config =
         MsH3ConfigurationOpen(api, &settings, sizeof(settings));
     if (!config) {
         printf("Failed to create configuration\n");
         MsH3ApiClose(api);
         return 1;
     }
-    
+
     // Create connection
-    MSH3_CONNECTION* connection = 
+    MSH3_CONNECTION* connection =
         MsH3ConnectionOpen(api, ConnectionCallback, (void*)hostname);
     if (!connection) {
         printf("Failed to create connection\n");
@@ -166,7 +166,7 @@ int main(int argc, char** argv) {
         MsH3ApiClose(api);
         return 1;
     }
-    
+
     // Configure the connection
     MSH3_STATUS status = MsH3ConnectionSetConfiguration(connection, config);
     if (MSH3_FAILED(status)) {
@@ -176,14 +176,14 @@ int main(int argc, char** argv) {
         MsH3ApiClose(api);
         return 1;
     }
-    
+
     // Set up the server address
     MSH3_ADDR serverAddr = {0};
     serverAddr.Ipv4.sin_family = AF_INET;
     // Resolve hostname and set IP address (simplified here)
     inet_pton(AF_INET, "198.51.100.1", &serverAddr.Ipv4.sin_addr); // Example IP
     MSH3_SET_PORT(&serverAddr, port);
-    
+
     // Start the connection
     status = MsH3ConnectionStart(connection, config, hostname, &serverAddr);
     if (MSH3_FAILED(status)) {
@@ -193,17 +193,17 @@ int main(int argc, char** argv) {
         MsH3ApiClose(api);
         return 1;
     }
-    
+
     // In a real application, you'd wait for events using an event loop
     // For this example, we'll just wait for user input before cleaning up
     printf("Press Enter to terminate...\n");
     getchar();
-    
+
     // Clean up
     MsH3ConnectionClose(connection);
     MsH3ConfigurationClose(config);
     MsH3ApiClose(api);
-    
+
     return 0;
 }
 ```
@@ -270,7 +270,7 @@ MsH3RequestSend(
     NULL,  // No body data yet
     0,
     NULL);
-    
+
 // Then send the first part of the body
 const char* bodyPart1 = "First part of the data";
 MsH3RequestSend(
@@ -281,7 +281,7 @@ MsH3RequestSend(
     bodyPart1,
     (uint32_t)strlen(bodyPart1),
     NULL);
-    
+
 // Send the last part of the body and finish the request
 const char* bodyPart2 = "Last part of the data";
 MsH3RequestSend(
@@ -293,3 +293,39 @@ MsH3RequestSend(
     (uint32_t)strlen(bodyPart2),
     NULL);
 ```
+
+### Enabling Dynamic QPACK Header Compression
+
+For applications that make many requests with similar headers, enabling dynamic QPACK can improve compression efficiency and reduce bandwidth usage. This feature is available when `MSH3_API_ENABLE_PREVIEW_FEATURES` is defined.
+
+```c
+#ifdef MSH3_API_ENABLE_PREVIEW_FEATURES
+// Create configuration with dynamic QPACK enabled
+MSH3_SETTINGS settings = {0};
+settings.IsSet.IdleTimeoutMs = 1;
+settings.IdleTimeoutMs = 30000;  // 30 seconds
+settings.IsSet.DynamicQPackEnabled = 1;
+settings.DynamicQPackEnabled = 1;  // Enable dynamic QPACK compression
+
+MSH3_CONFIGURATION* config =
+    MsH3ConfigurationOpen(api, &settings, sizeof(settings));
+#endif
+```
+
+With dynamic QPACK enabled:
+- MSH3 will use a dynamic table with 4096 bytes capacity
+- Up to 100 streams can be blocked waiting for dynamic table updates
+- Headers that are repeated across requests will be compressed more efficiently
+- The first few requests may have slightly higher latency as the dynamic table is built
+
+This feature is particularly beneficial for:
+- Applications making many requests to the same server
+- REST APIs with consistent header patterns
+- Scenarios where bandwidth efficiency is critical
+
+### Performance Considerations
+
+- **Static QPACK (default)**: Lower latency per request, consistent performance, simpler implementation
+- **Dynamic QPACK**: Better compression for repeated headers, but may introduce some latency for initial requests as the dynamic table is populated
+
+Choose dynamic QPACK when you expect to make multiple requests with similar headers and bandwidth efficiency is more important than minimal per-request latency.
