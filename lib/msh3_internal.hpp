@@ -35,6 +35,9 @@
 #define MSH3_VERSION_ONLY 1
 #include "msh3.ver"
 
+//#define MSH3_DYNAMIC_QPACK 1 // Use dynamic QPACK for now
+//#define MSH3_DEBUG_IO 1     // Print out the contents of the uni-directional streams
+
 #ifdef _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
 #define CxPlatByteSwapUint32 _byteswap_ulong
@@ -120,8 +123,13 @@ enum H3FrameType {
 
 #define H3_RFC_DEFAULT_HEADER_TABLE_SIZE    0
 #define H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM 0
+#if MSH3_DYNAMIC_QPACK
 #define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 4096  // Enable dynamic table with a default size of 4096 bytes
 #define H3_DEFAULT_QPACK_BLOCKED_STREAMS    100   // Allow up to 100 blocked streams
+#else
+#define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 0
+#define H3_DEFAULT_QPACK_BLOCKED_STREAMS    0
+#endif
 
 const H3Settings SettingsH3[] = {
     { H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
