@@ -5,6 +5,8 @@
 
 --*/
 
+#define MSH3_API_ENABLE_PREVIEW_FEATURES 1 // Always enable preview features for now
+
 #include "msquic/src/inc/msquic.h"
 #include "msh3.hpp"
 
@@ -34,7 +36,7 @@ struct PingStats {
 };
 
 struct PingRequest {
-    steady_clock::time_point StartTime;
+    steady_clock::time_point StartTime {steady_clock::now()};
 };
 
 struct Arguments {
@@ -48,6 +50,7 @@ struct Arguments {
     uint32_t Interval { 1000 }; // Default 1 second interval
     uint32_t Timeout { 5000 };  // Default 5 second timeout
     bool UseGet { false }; // Default to HEAD, use GET if specified
+    bool DynamicQPackEnabled { false }; // Default to false, enable if specified
     std::atomic_int CompletionCount { 0 };
     MsH3Connection* Connection { nullptr };
     PingStats Stats;
@@ -89,7 +92,7 @@ MsH3RequestHandler(
         if (Args.Verbose) {
             auto Data = Event->DATA_RECEIVED.Data;
             auto Length = Event->DATA_RECEIVED.Length;
-            printf("Received payload: ");
+            printf("Payload: \n");
             fwrite(Data, 1, Length, stdout);
             printf("\n");
         }
@@ -115,14 +118,8 @@ MsH3ConnectionHandler(
     if (Event->Type == MSH3_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER) {
         printf("Connection shutdown initiated by peer: 0x%llx\n",
                (long long unsigned)Event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode);
-
     } else if (Event->Type == MSH3_CONNECTION_EVENT_NEW_REQUEST) {
-        //
-        // Not great beacuse it doesn't provide an application specific
-        // error code. If you expect to get streams, you should not no-op
-        // the callbacks.
-        //
-        MsH3RequestClose(Event->NEW_REQUEST.Request);
+        MsH3RequestClose(Event->NEW_REQUEST.Request); // Server shouldn't send requests
     }
     return MSH3_STATUS_SUCCESS;
 }
@@ -132,6 +129,7 @@ void PrintUsage(const char* progName) {
     printf("Usage: %s <server[:port]> [options...]\n", progName);
     printf("Options:\n");
     printf("  -c, --count <num>      Number of requests to send (default=4, 0=infinite)\n");
+    printf("  -d, --dynamic-qpack    Enable dynamic QPACK (default=disabled)\n");
     printf("  -g, --get              Use GET requests instead of HEAD (default=HEAD)\n");
     printf("  -h, --help             Print this help text\n");
     printf("  -i, --interval <ms>    Interval between requests in milliseconds (default=1000)\n");
@@ -174,6 +172,9 @@ void ParseArgs(int argc, char **argv) {
             if (++i >= argc) { printf("Missing count value\n"); exit(-1); }
             Args.Count = (uint32_t)atoi(argv[i]);
 
+        } else if (!strcmp(argv[i], "--dynamic-qpack") || !strcmp(argv[i], "-d")) {
+            Args.DynamicQPackEnabled = true;
+
         } else if (!strcmp(argv[i], "--get") || !strcmp(argv[i], "-g")) {
             Args.UseGet = true;
 
@@ -215,13 +216,11 @@ bool SendPingRequest(MsH3Connection& Connection) {
     const size_t HeadersCount = sizeof(Headers)/sizeof(MSH3_HEADER);
 
     auto pingRequest = new PingRequest();
-    pingRequest->StartTime = steady_clock::now();
-
     auto Request = new (std::nothrow) MsH3Request(Connection, MSH3_REQUEST_FLAG_NONE, CleanUpAutoDelete, MsH3RequestHandler, pingRequest);
     if (!Request || !Request->IsValid()) {
         printf("Failed to create request\n");
-        Request->Shutdown(MSH3_REQUEST_SHUTDOWN_FLAG_ABORT, 0);
         delete pingRequest;
+        delete Request;
         return false;
     }
 
@@ -239,31 +238,20 @@ int MSH3_CALL main(int argc, char **argv) {
     ParseArgs(argc, argv);
 
     MsH3Api Api;
-    if (!Api.IsValid()) {
-        printf("Failed to initialize MSH3 API\n");
-        return -1;
+    MSH3_SETTINGS Settings = {0};
+    if (Args.DynamicQPackEnabled) {
+        Settings.IsSet.DynamicQPackEnabled = 1;
+        Settings.DynamicQPackEnabled = 1;
     }
-
-    MsH3Configuration Configuration(Api);
-    if (!Configuration.IsValid()) {
-        printf("Failed to create configuration\n");
-        return -1;
-    }
-
-    if (MSH3_FAILED(Configuration.LoadConfiguration({MSH3_CREDENTIAL_TYPE_NONE, Args.Flags, 0}))) {
-        printf("Failed to load configuration\n");
+    MsH3Configuration Configuration(Api, &Settings);
+    if (!Api.IsValid() || !Configuration.IsValid() ||
+        MSH3_FAILED(Configuration.LoadConfiguration({MSH3_CREDENTIAL_TYPE_NONE, Args.Flags, 0}))) {
+        printf("Failed to initialize library\n");
         return -1;
     }
 
     MsH3Connection Connection(Api, CleanUpManual, MsH3ConnectionHandler);
-    if (!Connection.IsValid()) {
-        printf("Failed to create connection\n");
-        return -1;
-    }
-
-    Args.Connection = &Connection;
-
-    if (MSH3_FAILED(Connection.Start(Configuration, Args.Host, Args.Address))) {
+    if (!Connection.IsValid() || MSH3_FAILED(Connection.Start(Configuration, Args.Host, Args.Address))) {
         printf("Failed to start connection\n");
         return -1;
     }
@@ -286,7 +274,7 @@ int MSH3_CALL main(int argc, char **argv) {
         if (!SendPingRequest(Connection)) break;
 
         // Wait for interval before next request (except for last request in finite mode)
-        if (Args.Interval > 0 && (Args.Count == 0 || i < Args.Count - 1)) {
+        if (Args.Count == 0 || i < Args.Count - 1) {
             this_thread::sleep_for(milliseconds(Args.Interval));
         }
     }
