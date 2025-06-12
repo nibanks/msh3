@@ -8,9 +8,6 @@
 #define MSH3_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
 #define QUIC_API_ENABLE_PREVIEW_FEATURES 1  // Always enable preview features for now
 
-//#define MSH3_STATIC_QPACK 1 // Always use static QPACK for now
-#define MSH3_DEBUG_IO 1
-
 #include "msh3_internal.hpp"
 
 const MsQuicApi* MsQuic;
@@ -524,19 +521,11 @@ MsH3pConnection::MsH3pConnection(
         Callbacks(Handler), Context(Context)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
-
-#if MSH3_STATIC_QPACK
-    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
-#else
-    // Initialize the decoder with dynamic table support
-    // The QPACK decoder will use our local max table size and blocked streams
-    // Use LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL for better performance
     lsqpack_dec_init(&Decoder, nullptr,
                     H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY,
                     H3_DEFAULT_QPACK_BLOCKED_STREAMS,
                     &MsH3pBiDirStream::hset_if,
-                    (lsqpack_dec_opts)(LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL));
-#endif // MSH3_STATIC_QPACK
+                    (lsqpack_dec_opts)0);
 
     if (!IsValid()) return;
     LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
@@ -550,17 +539,11 @@ MsH3pConnection::MsH3pConnection(
     ) : MsQuicConnection(ServerHandle, CleanUpManual, s_MsQuicCallback, this)
 {
     lsqpack_enc_preinit(&Encoder, nullptr);
-
-#if MSH3_STATIC_QPACK
-    lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
-#else
-    // Initialize the decoder with dynamic table support
     lsqpack_dec_init(&Decoder, nullptr,
                     H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY,
                     H3_DEFAULT_QPACK_BLOCKED_STREAMS,
                     &MsH3pBiDirStream::hset_if,
                     (lsqpack_dec_opts)0);
-#endif // MSH3_STATIC_QPACK
 
     if (!IsValid()) return;
     LocalEncoder = new(std::nothrow) MsH3pUniDirStream(*this, H3StreamTypeEncoder);
@@ -683,11 +666,11 @@ MsH3pConnection::ReceiveSettingsFrame(
         switch (SettingType) {
         case H3SettingQPackMaxTableCapacity:
             PeerMaxTableSize = (uint32_t)SettingValue;
-            printf("[QPACK Debug] Peer QPACK Max Table Size: %u\n", PeerMaxTableSize);
+            //printf("[QPACK Debug] Peer QPACK Max Table Size: %u\n", PeerMaxTableSize);
             break;
         case H3SettingQPackBlockedStreamsSize:
             PeerQPackBlockedStreams = SettingValue;
-            printf("[QPACK Debug] Peer QPACK Blocked Streams: %lu\n", (unsigned long)PeerQPackBlockedStreams);
+            //printf("[QPACK Debug] Peer QPACK Blocked Streams: %llu\n", PeerQPackBlockedStreams);
             break;
         case H3SettingDatagrams:
             if (SettingValue) {
@@ -702,27 +685,14 @@ MsH3pConnection::ReceiveSettingsFrame(
 
     tsu_buf_sz = sizeof(tsu_buf);
 
-#if MSH3_STATIC_QPACK
-    uint32_t dynamicTableSize = 0;
-    uint64_t blockedStreams = 0;
-#else
-    // Conservative approach: Start with static mode even if we support dynamic
-    // We'll upgrade to dynamic mode after a few successful static requests
-    // This helps with servers that have poor dynamic QPACK implementations
-    uint32_t dynamicTableSize = 0; // Start with static mode
-    uint64_t blockedStreams = 0;
-    
-    // Store peer capabilities for potential future upgrade to dynamic mode
-    // (Currently disabled - would need additional logic to safely upgrade mid-connection)
-    (void)PeerMaxTableSize;
-    (void)PeerQPackBlockedStreams;
-#endif // MSH3_STATIC_QPACK
+    uint32_t dynamicTableSize = min(PeerMaxTableSize, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY);
+    uint64_t blockedStreams = min(PeerQPackBlockedStreams, H3_DEFAULT_QPACK_BLOCKED_STREAMS);
 
-    printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%lu\n", 
-           dynamicTableSize, blockedStreams);
+    //printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%llu\n",
+    //       dynamicTableSize, blockedStreams);
 
     // Initialize the encoder
-    if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, (lsqpack_enc_opts)0, tsu_buf, &tsu_buf_sz) != 0) {
+    if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
         printf("lsqpack_enc_init failed\n");
         return false;
     }
@@ -730,14 +700,8 @@ MsH3pConnection::ReceiveSettingsFrame(
     // Re-initialize the decoder to match the encoder settings
     // This ensures encoder/decoder compatibility regardless of peer capabilities
     lsqpack_dec_cleanup(&Decoder);
-    if (dynamicTableSize > 0) {
-        lsqpack_dec_init(&Decoder, nullptr, dynamicTableSize, (unsigned)blockedStreams, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)(LSQPACK_DEC_OPT_HASH_NAME | LSQPACK_DEC_OPT_HASH_NAMEVAL));
-    } else {
-        lsqpack_dec_init(&Decoder, nullptr, 0, 0, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
-    }
+    lsqpack_dec_init(&Decoder, nullptr, dynamicTableSize, (unsigned)blockedStreams, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
 
-    EncoderInitialized = true;
-    DynamicTableSize = dynamicTableSize;
     return true;
 }
 
@@ -817,6 +781,8 @@ MsH3pUniDirStream::ControlReceive(
 {
     uint32_t Offset = 0;
 
+    DebugIoBuffer(RecvBuffer, "recv", Type);
+
     do {
         QUIC_VAR_INT FrameType, FrameLength;
         if (!MsH3pVarIntDecode(RecvBuffer->Length, RecvBuffer->Buffer, &Offset, &FrameType) ||
@@ -883,8 +849,7 @@ MsH3pUniDirStream::EncodeHeaders(
     Request->Buffers[1].Length = (uint32_t)pref_sz;
 
     // If there's encoder output from dynamic indexing, send it on the encoder stream
-    // Only send encoder stream data when actually using dynamic mode
-    if (Buffer.Length != 0 && H3.DynamicTableSize > 0) {
+    if (Buffer.Length != 0) {
         DebugIoBuffer(&Buffer, "send", Type);
         if (QUIC_FAILED(Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT))) {
             printf("Encoder send failed\n");
@@ -901,7 +866,6 @@ MsH3pUniDirStream::EncoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-#if !MSH3_STATIC_QPACK
         // Process encoder stream data for dynamic table updates
         for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
             const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
@@ -919,7 +883,6 @@ MsH3pUniDirStream::EncoderStreamCallback(
                 }
             }
         }
-#endif // !MSH3_STATIC_QPACK
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         break;
@@ -937,44 +900,22 @@ MsH3pUniDirStream::DecoderStreamCallback(
 {
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
-#if !MSH3_STATIC_QPACK
-        // Only process decoder stream data if we're actually using dynamic QPACK
-        // Even with MSH3_STATIC_QPACK disabled, we might use static mode if peer doesn't support dynamic
-        printf("[QPACK Debug] Decoder stream receive: EncoderInitialized=%d, DynamicTableSize=%u\n", 
-               H3.EncoderInitialized ? 1 : 0, H3.DynamicTableSize);
-        if (H3.EncoderInitialized && H3.DynamicTableSize > 0) {
-            for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
-                const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
+        for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
+            const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
 
-                DebugIoBuffer(Buffer, "recv", Type);
+            DebugIoBuffer(Buffer, "recv", Type);
 
-                if (Buffer->Length > 0) {
-                    // Process decoder instructions from peer
-                    int ret = lsqpack_enc_decoder_in(&H3.Encoder,
-                                                   Buffer->Buffer,
-                                                   Buffer->Length);
+            if (Buffer->Length > 0) {
+                // Process decoder instructions from peer
+                int ret = lsqpack_enc_decoder_in(&H3.Encoder,
+                                                Buffer->Buffer,
+                                                Buffer->Length);
 
-                    if (ret != 0) {
-                        printf("[QPACK] lsqpack_enc_decoder_in failed: %d\n", ret);
-                        // If decoder instruction processing fails, fall back to ignoring further decoder data
-                        // This handles cases where peers send incompatible instructions
-                        printf("[QPACK] Disabling dynamic QPACK due to decoder instruction failure\n");
-                        H3.DynamicTableSize = 0;
-                        // Note: We don't reinitialize encoder/decoder here to avoid disrupting ongoing requests
-                        // Instead, we just stop processing future decoder instructions
-                    }
+                if (ret != 0) {
+                    printf("[QPACK] lsqpack_enc_decoder_in failed: %d\n", ret);
                 }
             }
-        } else {
-            // Just debug the received data but don't process it
-            for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
-                const QUIC_BUFFER* Buffer = Event->RECEIVE.Buffers + i;
-                DebugIoBuffer(Buffer, "recv", Type);
-                printf("[QPACK Debug] Ignoring decoder stream data in static mode or uninitialized state\n");
-            }
         }
-        // If DynamicTableSize == 0, we're using static mode and should ignore decoder stream
-#endif // !MSH3_STATIC_QPACK
         break;
     case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
         break;
@@ -1050,7 +991,7 @@ MsH3pBiDirStream::Send(
     )
 {
     if (Headers && HeadersCount != 0) { // TODO - Make sure headers weren't already sent
-    if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return false;
+        if (!H3.LocalEncoder->EncodeHeaders(this, Headers, HeadersCount)) return false;
         auto HeadersLength = Buffers[1].Length + Buffers[2].Length;
         auto HeaderFlags = Flags;
         if (Data && DataLength != 0) {

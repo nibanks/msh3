@@ -35,6 +35,9 @@
 #define MSH3_VERSION_ONLY 1
 #include "msh3.ver"
 
+//#define MSH3_DYNAMIC_QPACK 1 // Use dynamic QPACK for now
+//#define MSH3_DEBUG_IO 1     // Print out the contents of the uni-directional streams
+
 #ifdef _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
 #define CxPlatByteSwapUint32 _byteswap_ulong
@@ -120,22 +123,19 @@ enum H3FrameType {
 
 #define H3_RFC_DEFAULT_HEADER_TABLE_SIZE    0
 #define H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM 0
+#if MSH3_DYNAMIC_QPACK
 #define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 4096  // Enable dynamic table with a default size of 4096 bytes
 #define H3_DEFAULT_QPACK_BLOCKED_STREAMS    100   // Allow up to 100 blocked streams
-
-#if MSH3_STATIC_QPACK
-const H3Settings SettingsH3[] = {
-    { H3SettingQPackMaxTableCapacity, 0 },
-    { H3SettingQPackBlockedStreamsSize, 0 },
-    { H3SettingDatagrams, 1 }, // N.B. - The MsH3pUniDirStream constructor assumes this is always last.
-};
 #else
+#define H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY 0
+#define H3_DEFAULT_QPACK_BLOCKED_STREAMS    0
+#endif
+
 const H3Settings SettingsH3[] = {
     { H3SettingQPackMaxTableCapacity, H3_DEFAULT_QPACK_MAX_TABLE_CAPACITY },
     { H3SettingQPackBlockedStreamsSize, H3_DEFAULT_QPACK_BLOCKED_STREAMS },
     { H3SettingDatagrams, 1 }, // N.B. - The MsH3pUniDirStream constructor assumes this is always last.
 };
-#endif // MSH3_STATIC_QPACK
 
 // Copied from QuicVanIntDecode and changed to uint32_t offset/length
 inline
@@ -319,10 +319,6 @@ struct MsH3pConnection : public MsQuicConnection {
 
     uint32_t PeerMaxTableSize {H3_RFC_DEFAULT_HEADER_TABLE_SIZE};
     uint64_t PeerQPackBlockedStreams {H3_RFC_DEFAULT_QPACK_BLOCKED_STREAM};
-
-    bool EncoderInitialized {false};
-    uint32_t DynamicTableSize {0}; // Actual dynamic table size being used (0 = static mode)
-    uint32_t StaticRequestCount {0}; // Number of successful static requests before enabling dynamic QPACK
 
     std::mutex ShutdownCompleteMutex;
     std::condition_variable ShutdownCompleteEvent;
