@@ -35,7 +35,8 @@
 #define MSH3_VERSION_ONLY 1
 #include "msh3.ver"
 
-//#define MSH3_DEBUG_IO 1     // Print out the contents of the uni-directional streams
+#define MSH3_DEBUG_IO 0                 // Print out the contents of the uni-directional streams
+#define MSH3_QPACK_LOG_CONTEXT nullptr  // QPACK logging context, set to stdout for debugging
 
 #ifdef _WIN32
 #define CxPlatByteSwapUint16 _byteswap_ushort
@@ -421,12 +422,29 @@ struct MsH3pUniDirStream : public MsQuicStream {
     MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pConfiguration& Configuration); // Type == H3StreamTypeControl
     MsH3pUniDirStream(MsH3pConnection& Connection, const HQUIC StreamHandle);
 
+    // Encoder functions
+
     bool
     EncodeHeaders(
         _In_ struct MsH3pBiDirStream* Request,
         _In_reads_(HeadersCount)
             const MSH3_HEADER* Headers,
         _In_ size_t HeadersCount
+        );
+
+    // Decoder functions
+
+    void
+    SendQPackAcknowledgment(
+        _In_ uint64_t StreamId
+        );
+
+    void
+    SendQPackStreamInstructions();
+
+    void
+    SendStreamCancellation(
+        _In_ uint64_t StreamId
         );
 
 private:
@@ -535,7 +553,9 @@ struct MsH3pBiDirStream : public MsQuicStream {
         _In_ void* Context,
         _In_ MSH3_REQUEST_FLAGS Flags
         ) : MsQuicStream(Connection, ToQuicOpenFlags(Flags), CleanUpManual, s_MsQuicCallback, this),
-            H3(Connection), Callbacks(Handler), Context(Context) { }
+            H3(Connection), Callbacks(Handler), Context(Context) {
+            Start();
+        }
 
     MsH3pBiDirStream(
         _In_ MsH3pConnection& Connection,

@@ -15,6 +15,26 @@ QUIC_EXECUTION** MsQuicExecutions;
 uint32_t MsQuicExecutionCount;
 static std::atomic_int MsH3pRefCount{0};
 
+#if MSH3_DEBUG_IO
+void DebugIoBuffer(
+    const QUIC_BUFFER* Buffer,
+    const char* Prefix,
+    uint32_t Type
+    )
+{
+    printf("uni[%u] %s: ", Type, Prefix);
+    for (uint32_t j = 0; j < Buffer->Length; ++j) {
+        if (j > 0 && j % 16 == 0) {
+            printf("\n             ");
+        }
+        printf("%02x ", ((uint8_t*)Buffer->Buffer)[j]);
+    }
+    printf("\n");
+}
+#else
+#define DebugIoBuffer(Buffer, Prefix, Type) ((void)0)
+#endif // MSH3_DEBUG_IO
+
 //
 // Public API
 //
@@ -523,9 +543,9 @@ MsH3pConnection::MsH3pConnection(
     ) : MsQuicConnection(Registration, CleanUpManual, s_MsQuicCallback, this),
         Callbacks(Handler), Context(Context)
 {
-    lsqpack_enc_preinit(&Encoder, nullptr);
+    lsqpack_enc_preinit(&Encoder, MSH3_QPACK_LOG_CONTEXT);
     // Initialize with disabled QPACK by default; will be reconfigured in InitializeConfig
-    lsqpack_dec_init(&Decoder, nullptr,
+    lsqpack_dec_init(&Decoder, MSH3_QPACK_LOG_CONTEXT,
                     0,
                     0,
                     &MsH3pBiDirStream::hset_if,
@@ -542,9 +562,9 @@ MsH3pConnection::MsH3pConnection(
     HQUIC ServerHandle
     ) : MsQuicConnection(ServerHandle, CleanUpManual, s_MsQuicCallback, this)
 {
-    lsqpack_enc_preinit(&Encoder, nullptr);
+    lsqpack_enc_preinit(&Encoder, MSH3_QPACK_LOG_CONTEXT);
     // Initialize with disabled QPACK by default; will be reconfigured in InitializeConfig
-    lsqpack_dec_init(&Decoder, nullptr,
+    lsqpack_dec_init(&Decoder, MSH3_QPACK_LOG_CONTEXT,
                     0,
                     0,
                     &MsH3pBiDirStream::hset_if,
@@ -703,7 +723,7 @@ MsH3pConnection::ReceiveSettingsFrame(
     //       dynamicTableSize, blockedStreams, DynamicQPackEnabled ? "true" : "false", PeerMaxTableSize, PeerQPackBlockedStreams);
 
     // Initialize the encoder
-    if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
+    if (lsqpack_enc_init(&Encoder, MSH3_QPACK_LOG_CONTEXT, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
         printf("lsqpack_enc_init failed\n");
         return false;
     }
@@ -711,7 +731,7 @@ MsH3pConnection::ReceiveSettingsFrame(
     // Re-initialize the decoder to match the encoder settings
     // This ensures encoder/decoder compatibility regardless of peer capabilities
     lsqpack_dec_cleanup(&Decoder);
-    lsqpack_dec_init(&Decoder, nullptr, dynamicTableSize, (unsigned)blockedStreams, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
+    lsqpack_dec_init(&Decoder, MSH3_QPACK_LOG_CONTEXT, dynamicTableSize, (unsigned)blockedStreams, &MsH3pBiDirStream::hset_if, (lsqpack_dec_opts)0);
 
     return true;
 }
@@ -719,26 +739,6 @@ MsH3pConnection::ReceiveSettingsFrame(
 //
 // MsH3pUniDirStream
 //
-
-#if MSH3_DEBUG_IO
-void DebugIoBuffer(
-    const QUIC_BUFFER* Buffer,
-    const char* Prefix,
-    uint32_t Type
-    )
-{
-    printf("uni[%u] %s: ", Type, Prefix);
-    for (uint32_t j = 0; j < Buffer->Length; ++j) {
-        if (j > 0 && j % 16 == 0) {
-            printf("\n             ");
-        }
-        printf("%02x ", ((uint8_t*)Buffer->Buffer)[j]);
-    }
-    printf("\n");
-}
-#else
-#define DebugIoBuffer(Buffer, Prefix, Type) ((void)0)
-#endif // MSH3_DEBUG_IO
 
 MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType Type)
     : MsQuicStream(Connection, QUIC_STREAM_OPEN_FLAG_UNIDIRECTIONAL | QUIC_STREAM_OPEN_FLAG_0_RTT, CleanUpManual, s_MsQuicCallback, this), H3(Connection), Type(Type)
@@ -836,7 +836,12 @@ MsH3pUniDirStream::EncodeHeaders(
     _In_ size_t HeadersCount
     )
 {
-    if (lsqpack_enc_start_header(&H3.Encoder, Request->ID(), 0) != 0) {
+    auto StreamId = Request->ID();
+    if (StreamId > QUIC_UINT62_MAX) {
+        return false; // Stream failed to start
+    }
+
+    if (lsqpack_enc_start_header(&H3.Encoder, StreamId, 0) != 0) {
         printf("lsqpack_enc_start_header failed\n");
         return false;
     }
@@ -880,6 +885,70 @@ MsH3pUniDirStream::EncodeHeaders(
     }
 
     return true;
+}
+
+void
+MsH3pUniDirStream::SendQPackAcknowledgment(
+    _In_ uint64_t StreamId
+    )
+{
+    // TODO: This function reuses the same Buffer and RawBuffer as other functions,
+    // as well as duplicate calls of this function. It's possible they are still
+    // being used by MsQuic. We need to dynamically allocate (from a pool?) these
+    // to avoid collisions.
+
+    // QPACK Section Acknowledgment instruction format:
+    // 1xxxxxxx where xxxxxxx is the Stream ID encoded as a 7-bit prefix integer
+    Buffer.Length = 0;
+
+    if (StreamId < 127) {
+        RawBuffer[0] = 0x80 | (unsigned char)StreamId;
+        Buffer.Length = 1;
+    } else {
+        RawBuffer[0] = 0x80 | 0x7F;
+        Buffer.Length = 1;
+        uint64_t remaining = StreamId - 127;
+        while (remaining >= 128) {
+            RawBuffer[Buffer.Length++] = 0x80 | (remaining & 0x7F);
+            remaining >>= 7;
+        }
+        RawBuffer[Buffer.Length++] = remaining & 0x7F;
+    }
+
+    DebugIoBuffer(&Buffer, "send", H3StreamTypeEncoder);
+    auto Status = Send(&Buffer, 1, QUIC_SEND_FLAG_NONE);
+    if (QUIC_FAILED(Status)) {
+        printf("[QPACK] Failed to send Section Acknowledgment for stream %llu: 0x%x\n", StreamId, Status);
+    }
+}
+
+void
+MsH3pUniDirStream::SendQPackStreamInstructions()
+{
+    // Send any pending Insert Count Increment instructions
+    if (lsqpack_dec_ici_pending(&H3.Decoder)) {
+        Buffer.Length = (uint32_t)lsqpack_dec_write_ici(&H3.Decoder, RawBuffer, sizeof(RawBuffer));
+        if (Buffer.Length > 0) {
+            auto Status = Send(&Buffer, 1, QUIC_SEND_FLAG_NONE);
+            if (QUIC_FAILED(Status)) {
+                printf("[QPACK] Failed to send ICI instruction: 0x%x\n", Status);
+            }
+        }
+    }
+}
+
+void
+MsH3pUniDirStream::SendStreamCancellation(
+    _In_ uint64_t StreamId
+    )
+{
+    Buffer.Length = (uint32_t)lsqpack_dec_cancel_stream_id(&H3.Decoder, StreamId, RawBuffer, sizeof(RawBuffer));
+    if (Buffer.Length > 0) {
+        auto Status = Send(&Buffer, 1, QUIC_SEND_FLAG_NONE);
+        if (QUIC_FAILED(Status)) {
+            printf("[QPACK] Failed to send Stream Cancellation for stream %llu: 0x%x\n", StreamId, Status);
+        }
+    }
 }
 
 QUIC_STATUS
@@ -1181,9 +1250,10 @@ MsH3pBiDirStream::Receive(
             } else if (CurFrameType == H3FrameHeaders) {
                 const uint8_t* Frame = Buffer->Buffer + CurRecvOffset;
                 if (CurFrameLengthLeft == CurFrameLength) {
+                    auto StreamId = ID();
                     auto rhs =
                         lsqpack_dec_header_in(
-                            &H3.Decoder, this, ID(), (size_t)CurFrameLength, &Frame,
+                            &H3.Decoder, this, StreamId, (size_t)CurFrameLength, &Frame,
                             AvailFrameLength, nullptr, nullptr);
                     // LQRHS_NEED is expected - it means we need more header block data
                     // LQRHS_BLOCKED is also expected - it means we need more encoder stream data
@@ -1192,7 +1262,9 @@ MsH3pBiDirStream::Receive(
                     } else if (rhs == LQRHS_BLOCKED) {
                         printf("[QPACK Debug] Header block blocked, waiting for encoder stream data\n");
                     } else if (rhs == LQRHS_NEED) {
-                        printf("[QPACK Debug] Header block needs more data\n");
+                        //printf("[QPACK Debug] Header block needs more data\n");
+                    } else { // LQRHS_DONE
+                        H3.LocalDecoder->SendQPackAcknowledgment(StreamId);
                     }
                 } else { // Continued from a previous partial read
                     auto rhs =
@@ -1206,7 +1278,9 @@ MsH3pBiDirStream::Receive(
                     } else if (rhs == LQRHS_BLOCKED) {
                         printf("[QPACK Debug] Header read blocked, waiting for encoder stream data\n");
                     } else if (rhs == LQRHS_NEED) {
-                        printf("[QPACK Debug] Header read needs more data\n");
+                        //printf("[QPACK Debug] Header read needs more data\n");
+                    } else { // LQRHS_DONE
+                        H3.LocalDecoder->SendQPackAcknowledgment(ID());
                     }
                 }
             }
