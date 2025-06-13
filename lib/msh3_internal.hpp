@@ -66,12 +66,21 @@
 #include <quic_var_int.h>
 
 enum H3SettingsType {
-    H3SettingQPackMaxTableCapacity = 1,
-    H3SettingMaxHeaderListSize = 6,
-    H3SettingQPackBlockedStreamsSize = 7,
-    H3SettingNumPlaceholders = 9,
+    // https://datatracker.ietf.org/doc/html/rfc9204#section-8.1 (QPACK)
+    H3SettingQPackMaxTableCapacity      = 1,
+    // https://datatracker.ietf.org/doc/html/rfc9113#section-6.5.2 (HTTP/2, unused?)
+    H3SettingEnablePush                 = 2,
+    H3SettingMaxConcurrentStreams       = 3,
+    H3SettingInitialWindowSize          = 4,
+    H3SettingMaxFrameSize               = 5,
+    // https://datatracker.ietf.org/doc/html/rfc9114#section-7.2.4.1 (HTTP/3)
+    H3SettingMaxFieldSectionSize        = 6,
+    // https://datatracker.ietf.org/doc/html/rfc9204#section-8.1 (QPACK)
+    H3SettingQPackBlockedStreams        = 7,
+    // https://datatracker.ietf.org/doc/html/rfc9220#section-3 (WebSockets over HTTP/3)
+    H3SettingEnableConnectProtocol      = 8,
     // https://datatracker.ietf.org/doc/html/rfc9297#section-2.1.1
-    H3SettingDatagrams = 0x33,
+    H3SettingDatagrams                  = 0x33,
 };
 
 // Contiguous buffer for (non-null-terminated) header name and value strings.
