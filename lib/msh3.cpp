@@ -674,16 +674,21 @@ MsH3pConnection::ReceiveSettingsFrame(
             PeerMaxTableSize = (uint32_t)SettingValue;
             //printf("[QPACK Debug] Peer QPACK Max Table Size: %u\n", PeerMaxTableSize);
             break;
-        case H3SettingQPackBlockedStreamsSize:
+        case H3SettingMaxFieldSectionSize:
+            break; // Ignored for now
+        case H3SettingQPackBlockedStreams:
             PeerQPackBlockedStreams = SettingValue;
             //printf("[QPACK Debug] Peer QPACK Blocked Streams: %llu\n", PeerQPackBlockedStreams);
             break;
+        case H3SettingEnableConnectProtocol:
+            break; // Ignored for now
         case H3SettingDatagrams:
             if (SettingValue) {
                 // TODO
             }
             break;
         default:
+            //printf("Unknown/unsupported setting type: 0x%llx\n", (unsigned long long)SettingType);
             break;
         }
 
@@ -724,6 +729,9 @@ void DebugIoBuffer(
 {
     printf("uni[%u] %s: ", Type, Prefix);
     for (uint32_t j = 0; j < Buffer->Length; ++j) {
+        if (j > 0 && j % 16 == 0) {
+            printf("\n             ");
+        }
         printf("%02x ", ((uint8_t*)Buffer->Buffer)[j]);
     }
     printf("\n");
@@ -738,6 +746,7 @@ MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, H3StreamType T
     if (!IsValid()) return;
     Buffer.Buffer[0] = (uint8_t)Type;
     Buffer.Length = 1;
+    DebugIoBuffer(&Buffer, "send", Type);
     InitStatus = Send(&Buffer, 1, QUIC_SEND_FLAG_ALLOW_0_RTT | QUIC_SEND_FLAG_START);
 }
 
@@ -751,7 +760,7 @@ MsH3pUniDirStream::MsH3pUniDirStream(MsH3pConnection& Connection, const MsH3pCon
     H3Settings Settings[3];
     uint32_t SettingsLength = 0;
     Settings[SettingsLength++] = { H3SettingQPackMaxTableCapacity, GetQPackMaxTableCapacity(Configuration.DynamicQPackEnabled) };
-    Settings[SettingsLength++] = { H3SettingQPackBlockedStreamsSize, GetQPackBlockedStreams(Configuration.DynamicQPackEnabled) };
+    Settings[SettingsLength++] = { H3SettingQPackBlockedStreams, GetQPackBlockedStreams(Configuration.DynamicQPackEnabled) };
     if (Configuration.DatagramEnabled) {
         Settings[SettingsLength++] = { H3SettingDatagrams, 1 };
     }
