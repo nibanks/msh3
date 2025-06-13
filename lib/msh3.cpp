@@ -694,8 +694,8 @@ MsH3pConnection::ReceiveSettingsFrame(
     uint32_t dynamicTableSize = min(PeerMaxTableSize, GetQPackMaxTableCapacity(DynamicQPackEnabled));
     uint64_t blockedStreams = min(PeerQPackBlockedStreams, GetQPackBlockedStreams(DynamicQPackEnabled));
 
-    //printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%llu\n",
-    //       dynamicTableSize, blockedStreams);
+    //printf("[QPACK Debug] Initializing encoder/decoder with dynamicTableSize=%u, blockedStreams=%llu (DynamicQPackEnabled=%s, PeerMaxTableSize=%u, PeerQPackBlockedStreams=%llu)\n",
+    //       dynamicTableSize, blockedStreams, DynamicQPackEnabled ? "true" : "false", PeerMaxTableSize, PeerQPackBlockedStreams);
 
     // Initialize the encoder
     if (lsqpack_enc_init(&Encoder, nullptr, dynamicTableSize, dynamicTableSize, (unsigned)blockedStreams, LSQPACK_ENC_OPT_STAGE_2, tsu_buf, &tsu_buf_sz) != 0) {
@@ -948,25 +948,24 @@ MsH3pUniDirStream::UnknownStreamCallback(
     switch (Event->Type) {
     case QUIC_STREAM_EVENT_RECEIVE:
         if (Event->RECEIVE.TotalBufferLength > 0) {
-            switch (Event->RECEIVE.Buffers[0].Buffer[0]) {
+            auto FirstBuffer = (QUIC_BUFFER*)Event->RECEIVE.Buffers;
+            auto NewType = FirstBuffer->Buffer[0];
+            FirstBuffer->Buffer++; FirstBuffer->Length--;
+            switch (NewType) {
             case H3StreamTypeControl:
                 Type = H3StreamTypeControl;
                 H3.PeerControl = this;
-                if (Event->RECEIVE.TotalBufferLength > 1) {
-                    auto FirstBuffer = (QUIC_BUFFER*)Event->RECEIVE.Buffers;
-                    FirstBuffer->Buffer++; FirstBuffer->Length--;
-                    for (uint32_t i = 0; i < Event->RECEIVE.BufferCount; ++i) {
-                        ControlReceive(Event->RECEIVE.Buffers + i);
-                    }
-                }
+                ControlStreamCallback(Event);
                 break;
             case H3StreamTypeEncoder:
                 Type = H3StreamTypeEncoder;
                 H3.PeerEncoder = this;
+                EncoderStreamCallback(Event);
                 break;
             case H3StreamTypeDecoder:
                 Type = H3StreamTypeDecoder;
                 H3.PeerDecoder = this;
+                DecoderStreamCallback(Event);
                 break;
             default:
                 break;
@@ -1181,6 +1180,10 @@ MsH3pBiDirStream::Receive(
                     // LQRHS_BLOCKED is also expected - it means we need more encoder stream data
                     if (rhs == LQRHS_ERROR) {
                         printf("lsqpack_dec_header_in error\n");
+                    } else if (rhs == LQRHS_BLOCKED) {
+                        printf("[QPACK Debug] Header block blocked, waiting for encoder stream data\n");
+                    } else if (rhs == LQRHS_NEED) {
+                        printf("[QPACK Debug] Header block needs more data\n");
                     }
                 } else { // Continued from a previous partial read
                     auto rhs =
@@ -1191,6 +1194,10 @@ MsH3pBiDirStream::Receive(
                     // LQRHS_BLOCKED is also expected - it means we need more encoder stream data
                     if (rhs == LQRHS_ERROR) {
                         printf("lsqpack_dec_header_read error\n");
+                    } else if (rhs == LQRHS_BLOCKED) {
+                        printf("[QPACK Debug] Header read blocked, waiting for encoder stream data\n");
+                    } else if (rhs == LQRHS_NEED) {
+                        printf("[QPACK Debug] Header read needs more data\n");
                     }
                 }
             }
