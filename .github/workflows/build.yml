@@ -119,9 +119,15 @@ jobs:
       timeout-minutes: 1
     - name: h3ping
       run: |
-        ./artifacts/h3ping outlook.office.com -c 2 || true
-        ./artifacts/h3ping www.cloudflare.com -c 2 || true
-        ./artifacts/h3ping www.google.com -c 2 || true
+        ./artifacts/h3ping outlook.office.com || true
+        ./artifacts/h3ping www.cloudflare.com || true
+        ./artifacts/h3ping www.google.com || true
+      timeout-minutes: 1
+    - name: h3ping (dynamic)
+      run: |
+        ./artifacts/h3ping outlook.office.com -d || true
+        ./artifacts/h3ping www.cloudflare.com -d || true
+        ./artifacts/h3ping www.google.com -d || true
       timeout-minutes: 1
     - name: msh3test
       run: ./artifacts/msh3test -v

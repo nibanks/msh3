@@ -51,7 +51,7 @@ struct Arguments {
     uint32_t Timeout { 5000 };  // Default 5 second timeout
     bool UseGet { false }; // Default to HEAD, use GET if specified
     bool DynamicQPackEnabled { false }; // Default to false, enable if specified
-    std::atomic_int CompletionCount { 0 };
+    std::atomic<uint32_t> CompletionCount { 0 };
     MsH3Connection* Connection { nullptr };
     PingStats Stats;
 } Args;
@@ -68,7 +68,8 @@ MsH3RequestHandler(
     switch (Event->Type) {
     case MSH3_REQUEST_EVENT_SHUTDOWN_COMPLETE:
         delete pingRequest;
-        if (++Args.CompletionCount == (int)Args.Count && Args.Count > 0) {
+        if (++Args.CompletionCount == Args.Count && Args.Count > 0) {
+            //printf("All requests completed.\n");
             Args.Connection->Shutdown();
         }
         break;
