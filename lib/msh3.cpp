@@ -918,7 +918,8 @@ MsH3pUniDirStream::SendQPackAcknowledgment(
     DebugIoBuffer(&Buffer, "send", H3StreamTypeEncoder);
     auto Status = Send(&Buffer, 1, QUIC_SEND_FLAG_NONE);
     if (QUIC_FAILED(Status)) {
-        printf("[QPACK] Failed to send Section Acknowledgment for stream %llu: 0x%x\n", StreamId, Status);
+        printf("[QPACK] Failed to send Section Acknowledgment for stream %llu: 0x%x\n", 
+            (long long unsigned)StreamId, Status);
     }
 }
 
@@ -946,7 +947,8 @@ MsH3pUniDirStream::SendStreamCancellation(
     if (Buffer.Length > 0) {
         auto Status = Send(&Buffer, 1, QUIC_SEND_FLAG_NONE);
         if (QUIC_FAILED(Status)) {
-            printf("[QPACK] Failed to send Stream Cancellation for stream %llu: 0x%x\n", StreamId, Status);
+            printf("[QPACK] Failed to send Stream Cancellation for stream %llu: 0x%x\n", 
+                (long long unsigned)StreamId, Status);
         }
     }
 }
