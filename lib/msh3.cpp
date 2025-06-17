@@ -1265,7 +1265,7 @@ MsH3pBiDirStream::Receive(
                         printf("[QPACK Debug] Header block blocked, waiting for encoder stream data\n");
                     } else if (rhs == LQRHS_NEED) {
                         //printf("[QPACK Debug] Header block needs more data\n");
-                    } else { // LQRHS_DONE
+                    } else if (H3.DynamicQPackEnabled) { // LQRHS_DONE
                         H3.LocalDecoder->SendQPackAcknowledgment(StreamId);
                     }
                 } else { // Continued from a previous partial read
@@ -1281,7 +1281,7 @@ MsH3pBiDirStream::Receive(
                         printf("[QPACK Debug] Header read blocked, waiting for encoder stream data\n");
                     } else if (rhs == LQRHS_NEED) {
                         //printf("[QPACK Debug] Header read needs more data\n");
-                    } else { // LQRHS_DONE
+                    } else if (H3.DynamicQPackEnabled) { // LQRHS_DONE
                         H3.LocalDecoder->SendQPackAcknowledgment(ID());
                     }
                 }
